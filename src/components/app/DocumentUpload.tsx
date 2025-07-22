@@ -23,9 +23,76 @@ interface UploadFile {
 export function DocumentUpload() {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
 
+  const uploadToSupabase = async (uploadFile: UploadFile) => {
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        setUploadFiles(prev => prev.map(f => 
+          f.id === uploadFile.id 
+            ? { ...f, status: "error", error: "Not authenticated" } 
+            : f
+        ))
+        return
+      }
+
+      const formData = new FormData()
+      formData.append('file', uploadFile.file)
+
+      // Update progress periodically
+      const progressInterval = setInterval(() => {
+        setUploadFiles(prev => prev.map(f => 
+          f.id === uploadFile.id && f.progress < 90
+            ? { ...f, progress: f.progress + 10 }
+            : f
+        ))
+      }, 200)
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: formData
+      })
+
+      clearInterval(progressInterval)
+
+      if (!response.ok) {
+        throw new Error('Upload failed')
+      }
+
+      const data = await response.json()
+
+      // Update to completed
+      setUploadFiles(prev => prev.map(f => 
+        f.id === uploadFile.id 
+          ? { ...f, progress: 100, status: "completed" } 
+          : f
+      ))
+
+      // Remove from list after 3 seconds
+      setTimeout(() => {
+        setUploadFiles(prev => prev.filter(f => f.id !== uploadFile.id))
+      }, 3000)
+
+    } catch (error) {
+      setUploadFiles(prev => prev.map(f => 
+        f.id === uploadFile.id 
+          ? { 
+              ...f, 
+              status: "error", 
+              error: error instanceof Error ? error.message : "Upload failed" 
+            } 
+          : f
+      ))
+    }
+  }
+
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map((file, index) => ({
-      id: `upload-${Date.now()}-${index}`, // More consistent ID generation
+      id: `upload-${Date.now()}-${index}`,
       file,
       progress: 0,
       status: "uploading" as const
@@ -33,38 +100,12 @@ export function DocumentUpload() {
 
     setUploadFiles(prev => [...prev, ...newFiles])
 
-    // Simulate upload process
+    // Upload files
     newFiles.forEach(uploadFile => {
-      simulateUpload(uploadFile.id)
+      uploadToSupabase(uploadFile)
     })
   }, [])
 
-  const simulateUpload = async (fileId: string) => {
-    // Simulate upload progress
-    for (let progress = 0; progress <= 100; progress += 10) {
-      await new Promise(resolve => setTimeout(resolve, 200))
-      setUploadFiles(prev => prev.map(f => 
-        f.id === fileId ? { ...f, progress } : f
-      ))
-    }
-
-    // Simulate processing
-    setUploadFiles(prev => prev.map(f => 
-      f.id === fileId ? { ...f, status: "processing" } : f
-    ))
-
-    await new Promise(resolve => setTimeout(resolve, 2000))
-
-    // Complete
-    setUploadFiles(prev => prev.map(f => 
-      f.id === fileId ? { ...f, status: "completed" } : f
-    ))
-
-    // Remove from list after 3 seconds
-    setTimeout(() => {
-      setUploadFiles(prev => prev.filter(f => f.id !== fileId))
-    }, 3000)
-  }
 
   const removeFile = (fileId: string) => {
     setUploadFiles(prev => prev.filter(f => f.id !== fileId))
