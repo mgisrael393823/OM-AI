@@ -23,10 +23,20 @@ export default function LoginPage() {
     setError("")
 
     try {
-      // Replace with actual Supabase/Firebase login logic
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      console.log("Logging in with:", email, password)
-      router.push("/app")
+      const { supabase } = await import('@/lib/supabase')
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      
+      if (error) {
+        setError(error.message)
+        return
+      }
+
+      if (data.user) {
+        router.push("/app")
+      }
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message)

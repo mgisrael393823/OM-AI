@@ -49,10 +49,25 @@ export default function RegisterPage() {
     }
 
     try {
-      // Replace with actual Supabase/Firebase registration logic
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      console.log("Registering with:", formData.fullName, formData.email, formData.password)
-      router.push("/app")
+      const { supabase } = await import('@/lib/supabase')
+      const { data, error } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.fullName,
+          },
+        },
+      })
+      
+      if (error) {
+        setError(error.message)
+        return
+      }
+
+      if (data.user) {
+        router.push("/app")
+      }
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message)

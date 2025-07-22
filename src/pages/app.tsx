@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react"
 import Head from "next/head"
+import { useRouter } from "next/router"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -23,16 +24,36 @@ import {
 import { useChat } from "@/hooks/useChat"
 
 export default function AppPage() {
+  const router = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [mounted, setMounted] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
   const { messages, isLoading, sendMessage, clearChat } = useChat()
 
-  // Prevent hydration issues by only rendering after mount
+  // Check authentication and prevent hydration issues
   useEffect(() => {
-    setMounted(true)
+    const checkAuth = async () => {
+      try {
+        const { supabase } = await import('@/lib/supabase')
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (!session) {
+          router.push('/auth/login')
+          return
+        }
+        
+        setIsAuthenticated(true)
+        setMounted(true)
+      } catch (error) {
+        console.error('Auth check failed:', error)
+        router.push('/auth/login')
+      }
+    }
+    
+    checkAuth()
   }, [])
 
   // Auto-scroll to bottom when new messages arrive
@@ -40,19 +61,26 @@ export default function AppPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  // Mock user data
+  // Temporary user data
   const user = {
-    name: "Michael Israel",
-    email: "michael@example.com",
-    plan: "Pro"
+    name: "User",
+    email: "user@example.com",
+    plan: 'Starter'
   }
 
   // Empty chat history - no placeholder titles
   const chatHistory: string[] = []
 
-  // Prevent hydration mismatch by not rendering until mounted
-  if (!mounted) {
-    return null
+  // Show loading until authenticated and mounted
+  if (!mounted || !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-sm text-gray-500">Loading...</p>
+        </div>
+      </div>
+    )
   }
 
   const handleSendMessage = async () => {
