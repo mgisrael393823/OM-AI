@@ -76,7 +76,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to upload file' })
     }
 
-    // Get public URL
+    // Save document metadata to database
+    const { data: documentData, error: dbError } = await supabase
+      .from('documents')
+      .insert({
+        user_id: user.id,
+        name: file.originalFilename || 'Untitled Document',
+        file_path: uploadData.path,
+        file_size: file.size,
+        file_type: file.mimetype || 'application/pdf',
+        status: 'uploaded'
+      })
+      .select()
+      .single()
+
+    if (dbError) {
+      console.error('Database error:', dbError)
+      // Clean up uploaded file if database insert fails
+      await supabase.storage.from('documents').remove([fileName])
+      return res.status(500).json({ error: 'Failed to save document metadata' })
+    }
+
+    // Get public URL (though it's private, this creates the reference)
     const { data: { publicUrl } } = supabase
       .storage
       .from('documents')
@@ -87,13 +108,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({
       success: true,
-      file: {
-        id: uploadData.path,
-        name: file.originalFilename,
-        size: file.size,
-        type: file.mimetype,
-        url: publicUrl,
-        uploadedAt: new Date().toISOString()
+      document: {
+        id: documentData.id,
+        name: documentData.name,
+        size: documentData.file_size,
+        type: documentData.file_type,
+        status: documentData.status,
+        uploadedAt: documentData.created_at,
+        filePath: documentData.file_path
       }
     })
   } catch (error) {
