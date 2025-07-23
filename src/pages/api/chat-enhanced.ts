@@ -45,7 +45,6 @@ async function chatEnhancedHandler(req: AuthenticatedRequest, res: NextApiRespon
       return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
     }
 
-  try {
     let sessionId = chat_session_id
 
     // If no session provided, create a new one
