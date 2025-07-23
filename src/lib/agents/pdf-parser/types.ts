@@ -36,6 +36,12 @@ export interface PDFMetadata {
   modificationDate?: Date;
   pages: number;
   fileSize: number;
+  /** Number of pages in the document */
+  pageCount?: number;
+  /** Total word count across all pages */
+  wordCount?: number;
+  /** How long the parsing took, in milliseconds */
+  processingTime?: number;
 }
 
 export interface ParseOptions {
