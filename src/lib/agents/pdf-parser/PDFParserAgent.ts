@@ -90,7 +90,7 @@ export class PDFParserAgent implements IPDFParserAgent {
     return new Promise((resolve, reject) => {
       const reader = new PdfReader();
       const items: PdfReaderItem[] = [];
-      let metadata: PDFMetadata = {
+      const metadata: PDFMetadata = {
         pages: 0,
         fileSize: buffer.length
       };
@@ -108,8 +108,8 @@ export class PDFParserAgent implements IPDFParserAgent {
         }
 
         // Extract metadata from file object
-        if (item.file) {
-          metadata.pages = item.file.pages || 0;
+        if (item.file && item.file.pages) {
+          (metadata as any).pages = item.file.pages;
         }
 
         // Collect all items with content
@@ -128,7 +128,10 @@ export class PDFParserAgent implements IPDFParserAgent {
       if (!pageGroups.has(pageNum)) {
         pageGroups.set(pageNum, []);
       }
-      pageGroups.get(pageNum)!.push(item);
+      const pageItems = pageGroups.get(pageNum);
+      if (pageItems) {
+        pageItems.push(item);
+      }
     }
 
     return pageGroups;
@@ -178,9 +181,9 @@ export class PDFParserAgent implements IPDFParserAgent {
     return items
       .filter(item => item.text && item.x !== undefined && item.y !== undefined)
       .map(item => ({
-        text: item.text!,
-        x: item.x!,
-        y: item.y!,
+        text: item.text as string,
+        x: item.x as number,
+        y: item.y as number,
         width: item.w || 0,
         height: item.h || 0,
         page: pageNumber
@@ -194,24 +197,6 @@ export class PDFParserAgent implements IPDFParserAgent {
       });
   }
 
-  extractTables(items: ParsedText[]): ParsedTable[] {
-    const tables: ParsedTable[] = [];
-    
-    // Group items by similar Y coordinates (table rows)
-    const rows = this.groupItemsByRows(items);
-    
-    // Find potential table structures
-    const tableGroups = this.identifyTableGroups(rows);
-    
-    for (const group of tableGroups) {
-      const table = this.buildTableFromGroup(group);
-      if (table && table.rows.length > 1) { // Must have at least header + 1 data row
-        tables.push(table);
-      }
-    }
-    
-    return tables;
-  }
 
   private groupItemsByRows(items: ParsedText[]): ParsedText[][] {
     const rows: ParsedText[][] = [];

@@ -1,4 +1,4 @@
-import { createWorker, Worker } from 'tesseract.js';
+import { createWorker, Worker, PSM } from 'tesseract.js';
 
 /**
  * OCR utilities for PDF parsing
@@ -21,7 +21,7 @@ export class OCRProcessor {
     // Configure for better commercial document recognition
     await this.worker.setParameters({
       tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,;:!?()[]{}/"\'@#$%^&*-+=_|\\~`<> \t\n',
-      tessedit_pageseg_mode: '1', // Automatic page segmentation with OSD
+      tessedit_pageseg_mode: PSM.AUTO_OSD, // Automatic page segmentation with OSD
       preserve_interword_spaces: '1'
     });
     
@@ -31,11 +31,6 @@ export class OCRProcessor {
   async processImage(imageBuffer: Buffer, confidenceThreshold = 70): Promise<{
     text: string;
     confidence: number;
-    words: Array<{
-      text: string;
-      confidence: number;
-      bbox: { x0: number; y0: number; x1: number; y1: number };
-    }>;
   }> {
     if (!this.worker) {
       await this.initialize();
@@ -45,19 +40,9 @@ export class OCRProcessor {
       rectangle: undefined // Process entire image
     });
 
-    // Filter words by confidence threshold
-    const filteredWords = data.words
-      .filter(word => word.confidence >= confidenceThreshold)
-      .map(word => ({
-        text: word.text,
-        confidence: word.confidence,
-        bbox: word.bbox
-      }));
-
     return {
       text: data.text,
-      confidence: data.confidence,
-      words: filteredWords
+      confidence: data.confidence
     };
   }
 
@@ -298,7 +283,6 @@ export class TextProcessor {
 
     for (const paragraph of paragraphs) {
       const paraTokens = Math.ceil(paragraph.length / 4); // Rough token estimate
-      const paraType = this.detectParagraphType(paragraph);
 
       if (currentTokens + paraTokens > maxChunkSize && currentChunk.length > 0) {
         chunks.push({

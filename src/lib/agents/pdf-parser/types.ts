@@ -64,7 +64,7 @@ export interface TextChunk {
   startY: number;
   endY: number;
   tokens: number;
-  type: 'paragraph' | 'table' | 'header' | 'footer';
+  type: 'paragraph' | 'table' | 'header' | 'footer' | 'list';
 }
 
 export interface IPDFParserAgent {
