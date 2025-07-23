@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from "next"
 import OpenAI from "openai"
+import { createClient } from '@supabase/supabase-js'
 import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
 
 const openai = new OpenAI({
@@ -11,7 +12,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
   }
 
-  const { messages } = req.body
+  const { messages, documentContext } = req.body
 
   if (!messages || !Array.isArray(messages)) {
     return apiError(res, 400, "Messages array is required", "INVALID_MESSAGES")
@@ -21,6 +22,11 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return apiError(res, 500, "OpenAI API key not configured", "MISSING_OPENAI_KEY")
   }
 
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
   // Apply rate limiting per user
   try {
     await withRateLimit(req.user.id, 20, 2, async () => {
@@ -28,6 +34,47 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     })
   } catch (error) {
     return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
+  }
+
+  // Retrieve document context if specified
+  let contextualInformation = ""
+  if (documentContext && Array.isArray(documentContext.documentIds) && documentContext.documentIds.length > 0) {
+    try {
+      // Get relevant document chunks based on the user's query
+      const userQuery = messages[messages.length - 1]?.content || ""
+      
+      // Search for relevant content in specified documents
+      const { data: relevantChunks, error: searchError } = await supabase
+        .from('document_chunks')
+        .select(`
+          content,
+          page_number,
+          chunk_type,
+          documents!inner(name)
+        `)
+        .eq('user_id', req.user.id)
+        .in('document_id', documentContext.documentIds)
+        .textSearch('content', userQuery)
+        .limit(5)
+
+      if (searchError) {
+        console.error('Document search error:', searchError)
+      } else if (relevantChunks && relevantChunks.length > 0) {
+        contextualInformation = `
+
+DOCUMENT CONTEXT:
+The following information is from the user's uploaded documents:
+
+${relevantChunks.map((chunk, index) => 
+  `[${index + 1}] From "${chunk.documents.name}" (Page ${chunk.page_number}):
+${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}
+`).join('\n')}
+
+Please reference this document context in your response when relevant.`
+      }
+    } catch (error) {
+      console.error('Error retrieving document context:', error)
+    }
   }
 
   const systemMessage = {
@@ -54,8 +101,10 @@ When analyzing documents or answering questions:
 - Offer practical recommendations
 - Ask clarifying questions when needed
 - Reference relevant market standards and best practices
+- When document context is provided, reference specific details from the documents
+- Cite page numbers and document names when referencing uploaded content
 
-Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.`
+Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.${contextualInformation}`
   }
 
   try {
