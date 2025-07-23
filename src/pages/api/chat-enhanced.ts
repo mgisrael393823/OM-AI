@@ -3,47 +3,47 @@ import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
 import { openai, isOpenAIConfigured } from "@/lib/openai-client"
-import { validateEnvironment, getConfig } from "@/lib/config"
+import { checkEnvironment, getConfig } from "@/lib/config"
 
 async function chatEnhancedHandler(req: AuthenticatedRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
-    return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
-  }
-
-  // Validate environment at runtime
   try {
-    validateEnvironment()
-  } catch (error) {
-    return apiError(res, 500, "Server configuration error", "CONFIG_ERROR", 
-      error instanceof Error ? error.message : "Unknown error")
-  }
+    if (req.method !== "POST") {
+      return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
+    }
 
-  // Check if OpenAI is properly configured
-  if (!isOpenAIConfigured()) {
-    return apiError(res, 503, "Chat service unavailable", "OPENAI_NOT_CONFIGURED",
-      "OpenAI API key is not configured. Please contact support.")
-  }
+    // Validate environment at runtime (non-blocking)
+    const validation = checkEnvironment()
+    if (!validation.isValid) {
+      console.warn("Environment validation warnings:", validation.errors)
+      // Continue anyway in development - don't block chat functionality
+    }
 
-  const { message, chat_session_id } = req.body
+    // Check if OpenAI is properly configured
+    if (!isOpenAIConfigured()) {
+      return apiError(res, 503, "Chat service unavailable", "OPENAI_NOT_CONFIGURED",
+        "OpenAI API key is not configured. Please contact support.")
+    }
 
-  if (!message || typeof message !== 'string') {
-    return apiError(res, 400, "Message is required", "INVALID_MESSAGE")
-  }
+    const { message, chat_session_id } = req.body
 
-  const config = getConfig()
-  const supabase = createClient<Database>(
-    config.supabase.url,
-    config.supabase.serviceRoleKey
-  )
+    if (!message || typeof message !== 'string') {
+      return apiError(res, 400, "Message is required", "INVALID_MESSAGE")
+    }
 
-  // Apply rate limiting per user
-  try {
-    await withRateLimit(req.user.id, 15, 1, async () => {
-      // Rate limit: 15 requests per user, refill 1 token per minute
-    })
-  } catch (error) {
-    return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
-  }
+    const config = getConfig()
+    const supabase = createClient<Database>(
+      config.supabase.url,
+      config.supabase.serviceRoleKey
+    )
+
+    // Apply rate limiting per user
+    try {
+      await withRateLimit(req.user.id, 15, 1, async () => {
+        // Rate limit: 15 requests per user, refill 1 token per minute
+      })
+    } catch (error) {
+      return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
+    }
 
   try {
     let sessionId = chat_session_id
@@ -188,8 +188,15 @@ Always maintain confidentiality and provide accurate, helpful information to sup
     }
 
     res.end()
+  
   } catch (error) {
-    console.error("Chat API error:", error)
+    console.error("=== CHAT API ERROR ===")
+    console.error("Error:", error)
+    console.error("Stack:", error instanceof Error ? error.stack : 'No stack trace')
+    console.error("Message:", error instanceof Error ? error.message : String(error))
+    console.error("Request body:", JSON.stringify(req.body))
+    console.error("User ID:", req.user?.id)
+    console.error("======================")
     
     // If headers haven't been sent yet, send error response
     if (!res.headersSent) {

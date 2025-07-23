@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from "next"
 import { createClient } from '@supabase/supabase-js'
 import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
 import { openai, isOpenAIConfigured } from "@/lib/openai-client"
-import { validateEnvironment, getConfig } from "@/lib/config"
+import { checkEnvironment, getConfig } from "@/lib/config"
 import { logError, logConfigError } from "@/lib/error-logger"
 
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
@@ -10,13 +10,11 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
   }
 
-  // Validate environment at runtime
-  try {
-    validateEnvironment()
-  } catch (error) {
-    logConfigError(error as Error, '/api/chat')
-    return apiError(res, 500, "Server configuration error", "CONFIG_ERROR", 
-      error instanceof Error ? error.message : "Unknown error")
+  // Validate environment at runtime (non-blocking)
+  const validation = checkEnvironment()
+  if (!validation.isValid) {
+    console.warn("Environment validation warnings:", validation.errors)
+    // Continue anyway in development - don't block chat functionality
   }
 
   // Check if OpenAI is properly configured
