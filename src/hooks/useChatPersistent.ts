@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from "react"
-import { useAuth } from "@/contexts/AuthContext"
 
 export interface Message {
   role: "user" | "assistant"
@@ -18,12 +17,28 @@ export interface ChatSession {
 }
 
 export function useChatPersistent(initialSessionId?: string) {
-  const { user, session } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(initialSessionId || null)
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [user, setUser] = useState<any>(null)
+  const [session, setSession] = useState<any>(null)
+
+  // Initialize auth state
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const { supabase } = await import('@/lib/supabase')
+        const { data: { session } } = await supabase.auth.getSession()
+        setSession(session)
+        setUser(session?.user || null)
+      } catch (error) {
+        console.error('Failed to get session:', error)
+      }
+    }
+    initAuth()
+  }, [])
 
   // Get auth token for API calls
   const getAuthToken = useCallback(() => {

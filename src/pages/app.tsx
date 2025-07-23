@@ -21,7 +21,8 @@ import {
   Paperclip,
   Loader2
 } from "lucide-react"
-import { useChat } from "@/hooks/useChat"
+import { useChatPersistent } from "@/hooks/useChatPersistent"
+import { DocumentUpload } from "@/components/app/DocumentUpload"
 
 export default function AppPage() {
   const router = useRouter()
@@ -29,9 +30,20 @@ export default function AppPage() {
   const [message, setMessage] = useState("")
   const [mounted, setMounted] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [showUpload, setShowUpload] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
-  const { messages, isLoading, sendMessage, clearChat } = useChat()
+  const { 
+    messages, 
+    chatSessions, 
+    currentSessionId,
+    isLoading, 
+    isLoadingHistory,
+    sendMessage, 
+    createNewChat,
+    loadChatSession,
+    deleteChatSession 
+  } = useChatPersistent()
 
   // Check authentication and prevent hydration issues
   useEffect(() => {
@@ -68,8 +80,8 @@ export default function AppPage() {
     plan: 'Starter'
   }
 
-  // Empty chat history - no placeholder titles
-  const chatHistory: string[] = []
+  // Use actual chat sessions from database
+  const chatHistory = chatSessions.map(session => session.title || 'Untitled Chat')
 
   // Show loading until authenticated and mounted
   if (!mounted || !isAuthenticated) {
@@ -99,7 +111,7 @@ export default function AppPage() {
   }
 
   const handleNewChat = () => {
-    clearChat()
+    createNewChat()
   }
 
   return (
@@ -149,19 +161,27 @@ export default function AppPage() {
           {/* Chat History */}
           <ScrollArea className="flex-1 px-2">
             <div className="space-y-1">
-              {chatHistory.length > 0 ? (
+              {isLoadingHistory ? (
+                <div className="px-2 py-8 text-center">
+                  <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Loading chats...
+                  </p>
+                </div>
+              ) : chatSessions.length > 0 ? (
                 <>
                   <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Chats
                   </div>
-                  {chatHistory.map((chat, index) => (
+                  {chatSessions.map((session) => (
                     <Button
-                      key={index}
-                      variant="ghost"
+                      key={session.id}
+                      variant={currentSessionId === session.id ? "secondary" : "ghost"}
                       className="w-full justify-start text-left h-auto py-2 px-3 text-sm font-normal"
+                      onClick={() => loadChatSession(session.id)}
                     >
                       <MessageSquare className="h-4 w-4 mr-2 flex-shrink-0" />
-                      <span className="truncate">{chat}</span>
+                      <span className="truncate">{session.title || 'Untitled Chat'}</span>
                     </Button>
                   ))}
                 </>
@@ -227,7 +247,7 @@ export default function AppPage() {
             {/* Messages */}
             <ScrollArea className="flex-1">
               <div className="max-w-3xl mx-auto px-4 py-8">
-                {messages.length === 1 && messages[0].role === "assistant" ? (
+                {messages.length === 0 ? (
                   // Welcome State
                   <div className="text-center py-12">
                     <div className="mb-6">
@@ -359,7 +379,12 @@ export default function AppPage() {
                   />
                   
                   <div className="absolute right-3 flex items-center space-x-2">
-                    <Button variant="ghost" size="sm">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => setShowUpload(true)}
+                      title="Upload document"
+                    >
                       <Paperclip className="h-4 w-4" />
                     </Button>
                     <Button variant="ghost" size="sm">
@@ -391,6 +416,34 @@ export default function AppPage() {
           </div>
         </div>
       </div>
+
+      {/* Upload Modal */}
+      {showUpload && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Upload Document
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowUpload(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <DocumentUpload 
+                onUploadComplete={(document) => {
+                  console.log('Document uploaded:', document)
+                  setShowUpload(false)
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

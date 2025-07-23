@@ -20,7 +20,11 @@ interface UploadFile {
   error?: string
 }
 
-export function DocumentUpload() {
+interface DocumentUploadProps {
+  onUploadComplete?: (document: any) => void
+}
+
+export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
 
   const uploadToSupabase = async (uploadFile: UploadFile) => {
@@ -71,6 +75,11 @@ export function DocumentUpload() {
           ? { ...f, progress: 100, status: "completed" } 
           : f
       ))
+
+      // Call completion callback
+      if (onUploadComplete && data.document) {
+        onUploadComplete(data.document)
+      }
 
       // Remove from list after 3 seconds
       setTimeout(() => {
