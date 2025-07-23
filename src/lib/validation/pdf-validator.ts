@@ -188,7 +188,7 @@ export class PDFValidator {
     const bufferStr = buffer.toString('latin1');
 
     // Check for text content
-    if (/\/Type\s*\/Font/.test(bufferStr) || /BT\s+.*?ET/s.test(bufferStr)) {
+    if (/\/Type\s*\/Font/.test(bufferStr) || /BT[\s\S]*?ET/.test(bufferStr)) {
       result.metadata.hasText = true;
     }
 
@@ -203,7 +203,7 @@ export class PDFValidator {
     let complexityScore = 0;
     
     // Text complexity
-    const textMatches = bufferStr.match(/BT\s+.*?ET/gs);
+    const textMatches = bufferStr.match(/BT[\s\S]*?ET/g);
     if (textMatches) {
       complexityScore += Math.min(textMatches.length / 10, 3);
     }
@@ -247,7 +247,7 @@ export class PDFValidator {
     const corruptionIndicators = [
       { pattern: /obj\s*<<\s*>>/, warning: 'Empty object definitions found' },
       { pattern: /\/Length\s+0\s*>>/g, warning: 'Zero-length streams detected' },
-      { pattern: /\/Type\s*\/Catalog.*?\/Type\s*\/Catalog/s, warning: 'Duplicate catalog objects' }
+      { pattern: /\/Type\s*\/Catalog[\s\S]*?\/Type\s*\/Catalog/, warning: 'Duplicate catalog objects' }
     ];
 
     for (const { pattern, warning } of corruptionIndicators) {

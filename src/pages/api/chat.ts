@@ -65,10 +65,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 DOCUMENT CONTEXT:
 The following information is from the user's uploaded documents:
 
-${relevantChunks.map((chunk, index) => 
-  `[${index + 1}] From "${chunk.documents.name}" (Page ${chunk.page_number}):
-${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}
-`).join('\n')}
+${relevantChunks
+  .map((chunk, index) => {
+    const docName = (chunk as any).documents?.name ?? 'Unknown';
+    return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
+${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}`;
+  })
+  .join('\n')}
 
 Please reference this document context in your response when relevant.`
       }

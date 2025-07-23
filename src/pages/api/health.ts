@@ -8,7 +8,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // Enhanced health checks for CI smoke testing
-    const checks = {
+    const checks: {
+      timestamp: string
+      status: string
+      version: string
+      services: Record<string, string>
+      details: Record<string, string>
+      summary?: {
+        healthy: number
+        total: number
+        errors: number
+      }
+    } = {
       timestamp: new Date().toISOString(),
       status: 'healthy',
       version: process.env.NODE_ENV || 'development',
