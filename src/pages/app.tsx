@@ -23,13 +23,13 @@ import {
 } from "lucide-react"
 import { useChatPersistent } from "@/hooks/useChatPersistent"
 import { DocumentUpload } from "@/components/app/DocumentUpload"
+import { useAuth } from "@/contexts/AuthContext"
 
 export default function AppPage() {
   const router = useRouter()
+  const { user, loading } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [message, setMessage] = useState("")
-  const [mounted, setMounted] = useState(false)
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
@@ -45,46 +45,20 @@ export default function AppPage() {
     deleteChatSession 
   } = useChatPersistent()
 
-  // Check authentication and prevent hydration issues
+  // Redirect to login if not authenticated
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { supabase } = await import('@/lib/supabase')
-        const { data: { session } } = await supabase.auth.getSession()
-        
-        if (!session) {
-          router.push('/auth/login')
-          return
-        }
-        
-        setIsAuthenticated(true)
-        setMounted(true)
-      } catch (error) {
-        console.error('Auth check failed:', error)
-        router.push('/auth/login')
-      }
+    if (!loading && !user) {
+      router.push('/auth/login')
     }
-    
-    checkAuth()
-  }, [])
+  }, [user, loading, router])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  // Temporary user data
-  const user = {
-    name: "User",
-    email: "user@example.com",
-    plan: 'Starter'
-  }
-
-  // Use actual chat sessions from database
-  const chatHistory = chatSessions.map(session => session.title || 'Untitled Chat')
-
-  // Show loading until authenticated and mounted
-  if (!mounted || !isAuthenticated) {
+  // Show loading until authenticated
+  if (loading || !user) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
@@ -93,6 +67,13 @@ export default function AppPage() {
         </div>
       </div>
     )
+  }
+
+  // Get user display data
+  const userDisplayData = {
+    name: user.user_metadata?.full_name || user.email?.split('@')[0] || "User",
+    email: user.email || "user@example.com",
+    plan: 'Starter'
   }
 
   const handleSendMessage = async () => {
@@ -201,15 +182,15 @@ export default function AppPage() {
             <div className="flex items-center space-x-3">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
-                  {user.name.split(' ').map(n => n[0]).join('')}
+                  {userDisplayData.name.split(' ').map(n => n[0]).join('')}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {user.name}
+                  {userDisplayData.name}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {user.plan}
+                  {userDisplayData.plan}
                 </p>
               </div>
               <Button variant="ghost" size="sm">
@@ -258,7 +239,7 @@ export default function AppPage() {
                       </Avatar>
                     </div>
                     <h1 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
-                      How can I help, {user.name.split(' ')[0]}?
+                      How can I help, {userDisplayData.name.split(' ')[0]}?
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400 mb-8 max-w-md mx-auto">
                       I'm OM Intel, your AI assistant for commercial real estate analysis. Upload documents and ask questions about your deals.

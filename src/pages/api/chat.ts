@@ -1,23 +1,80 @@
 import { NextApiRequest, NextApiResponse } from "next"
 import OpenAI from "openai"
+import { createClient } from '@supabase/supabase-js'
+import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" })
+    return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
   }
 
-  const { messages } = req.body
+  const { messages, documentContext } = req.body
 
   if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: "Messages array is required" })
+    return apiError(res, 400, "Messages array is required", "INVALID_MESSAGES")
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: "OpenAI API key not configured" })
+    return apiError(res, 500, "OpenAI API key not configured", "MISSING_OPENAI_KEY")
+  }
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
+  // Apply rate limiting per user
+  try {
+    await withRateLimit(req.user.id, 20, 2, async () => {
+      // Rate limit: 20 requests per user, refill 2 tokens per minute
+    })
+  } catch (error) {
+    return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
+  }
+
+  // Retrieve document context if specified
+  let contextualInformation = ""
+  if (documentContext && Array.isArray(documentContext.documentIds) && documentContext.documentIds.length > 0) {
+    try {
+      // Get relevant document chunks based on the user's query
+      const userQuery = messages[messages.length - 1]?.content || ""
+      
+      // Search for relevant content in specified documents
+      const { data: relevantChunks, error: searchError } = await supabase
+        .from('document_chunks')
+        .select(`
+          content,
+          page_number,
+          chunk_type,
+          documents!inner(name)
+        `)
+        .eq('user_id', req.user.id)
+        .in('document_id', documentContext.documentIds)
+        .textSearch('content', userQuery)
+        .limit(5)
+
+      if (searchError) {
+        console.error('Document search error:', searchError)
+      } else if (relevantChunks && relevantChunks.length > 0) {
+        contextualInformation = `
+
+DOCUMENT CONTEXT:
+The following information is from the user's uploaded documents:
+
+${relevantChunks.map((chunk, index) => 
+  `[${index + 1}] From "${chunk.documents.name}" (Page ${chunk.page_number}):
+${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}
+`).join('\n')}
+
+Please reference this document context in your response when relevant.`
+      }
+    } catch (error) {
+      console.error('Error retrieving document context:', error)
+    }
   }
 
   const systemMessage = {
@@ -44,8 +101,10 @@ When analyzing documents or answering questions:
 - Offer practical recommendations
 - Ask clarifying questions when needed
 - Reference relevant market standards and best practices
+- When document context is provided, reference specific details from the documents
+- Cite page numbers and document names when referencing uploaded content
 
-Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.`
+Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.${contextualInformation}`
   }
 
   try {
@@ -74,9 +133,11 @@ Always maintain confidentiality and provide accurate, helpful information to sup
     res.end()
   } catch (error) {
     console.error("OpenAI API error:", error)
-    res.status(500).json({ 
-      error: "Failed to get response from AI",
-      details: error instanceof Error ? error.message : "Unknown error"
-    })
+    return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
+      error instanceof Error ? error.message : "Unknown error")
   }
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  return withAuth(req, res, chatHandler)
 }

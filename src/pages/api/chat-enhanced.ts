@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from "next"
 import OpenAI from "openai"
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
+import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -12,32 +13,28 @@ const supabase = createClient<Database>(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function chatEnhancedHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" })
+    return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
   }
 
   const { message, chat_session_id } = req.body
 
   if (!message || typeof message !== 'string') {
-    return res.status(400).json({ error: "Message is required" })
+    return apiError(res, 400, "Message is required", "INVALID_MESSAGE")
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: "OpenAI API key not configured" })
+    return apiError(res, 500, "OpenAI API key not configured", "MISSING_OPENAI_KEY")
   }
 
-  // Get auth user
-  const authHeader = req.headers.authorization
-  if (!authHeader) {
-    return res.status(401).json({ error: 'No authorization header' })
-  }
-
-  const token = authHeader.replace('Bearer ', '')
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-
-  if (authError || !user) {
-    return res.status(401).json({ error: 'Invalid token' })
+  // Apply rate limiting per user
+  try {
+    await withRateLimit(req.user.id, 15, 1, async () => {
+      // Rate limit: 15 requests per user, refill 1 token per minute
+    })
+  } catch (error) {
+    return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
   }
 
   try {
@@ -48,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const { data: newSession, error: sessionError } = await supabase
         .from('chat_sessions')
         .insert({
-          user_id: user.id,
+          user_id: req.user.id,
           title: message.slice(0, 50) + (message.length > 50 ? '...' : '')
         })
         .select()
@@ -66,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .from('chat_sessions')
       .select('id')
       .eq('id', sessionId)
-      .eq('user_id', user.id)
+      .eq('user_id', req.user.id)
       .single()
 
     if (sessionVerifyError) {
@@ -172,9 +169,11 @@ Always maintain confidentiality and provide accurate, helpful information to sup
     res.end()
   } catch (error) {
     console.error("Chat API error:", error)
-    res.status(500).json({ 
-      error: "Failed to get response from AI",
-      details: error instanceof Error ? error.message : "Unknown error"
-    })
+    return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
+      error instanceof Error ? error.message : "Unknown error")
   }
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  return withAuth(req, res, chatEnhancedHandler)
 }
