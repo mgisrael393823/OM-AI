@@ -23,6 +23,7 @@ export default function RegisterPage() {
   const [acceptTerms, setAcceptTerms] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [emailSent, setEmailSent] = useState(false)
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
@@ -57,6 +58,7 @@ export default function RegisterPage() {
           data: {
             full_name: formData.fullName,
           },
+          emailRedirectTo: `${window.location.origin}/app`
         },
       })
       
@@ -66,7 +68,13 @@ export default function RegisterPage() {
       }
 
       if (data.user) {
-        router.push("/app")
+        // Check if email confirmation is required
+        if (!data.user.email_confirmed_at) {
+          setEmailSent(true)
+        } else {
+          // If email is already confirmed (shouldn't happen in normal flow)
+          router.push("/app")
+        }
       }
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -103,6 +111,33 @@ export default function RegisterPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {emailSent ? (
+                <div className="text-center space-y-4">
+                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Check your email</h3>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
+                      We've sent a confirmation link to <strong>{formData.email}</strong>
+                    </p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
+                      Click the link in the email to verify your account and start using OM Intel Chat.
+                    </p>
+                  </div>
+                  <div className="text-center text-sm text-slate-600 dark:text-slate-400">
+                    Didn't receive the email?{" "}
+                    <button 
+                      onClick={() => setEmailSent(false)}
+                      className="text-blue-600 hover:underline font-medium"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                </div>
+              ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
                 {error && (
                   <Alert variant="destructive">
@@ -119,6 +154,7 @@ export default function RegisterPage() {
                     placeholder="Enter your full name"
                     value={formData.fullName}
                     onChange={handleInputChange}
+                    autoComplete="name"
                     required
                     disabled={isLoading}
                   />
@@ -133,6 +169,7 @@ export default function RegisterPage() {
                     placeholder="Enter your email"
                     value={formData.email}
                     onChange={handleInputChange}
+                    autoComplete="email"
                     required
                     disabled={isLoading}
                   />
@@ -148,6 +185,7 @@ export default function RegisterPage() {
                       placeholder="Create a password"
                       value={formData.password}
                       onChange={handleInputChange}
+                      autoComplete="new-password"
                       required
                       disabled={isLoading}
                     />
@@ -178,6 +216,7 @@ export default function RegisterPage() {
                       placeholder="Confirm your password"
                       value={formData.confirmPassword}
                       onChange={handleInputChange}
+                      autoComplete="new-password"
                       required
                       disabled={isLoading}
                     />
@@ -235,6 +274,7 @@ export default function RegisterPage() {
                   Sign in
                 </Link>
               </div>
+              )}
             </CardContent>
           </Card>
         </div>
