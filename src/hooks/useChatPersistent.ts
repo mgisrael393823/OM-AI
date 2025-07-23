@@ -17,11 +17,11 @@ export interface ChatSession {
   messages?: Message[]
 }
 
-export function useChatPersistent(initialSessionId?: string) {
+export function useChatPersistent(selectedDocumentId?: string | null) {
   const { user, session } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(initialSessionId || null)
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
 
@@ -83,7 +83,7 @@ export function useChatPersistent(initialSessionId?: string) {
   }, [user, session, getAuthToken])
 
   // Send message with persistence
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, documentId?: string | null) => {
     if (!content.trim() || isLoading || !user || !session) return
 
     const userMessage: Message = {
@@ -105,7 +105,8 @@ export function useChatPersistent(initialSessionId?: string) {
         },
         body: JSON.stringify({
           message: content.trim(),
-          chat_session_id: currentSessionId
+          chat_session_id: currentSessionId,
+          document_id: documentId || selectedDocumentId
         }),
       })
 
@@ -195,7 +196,7 @@ export function useChatPersistent(initialSessionId?: string) {
     } finally {
       setIsLoading(false)
     }
-  }, [currentSessionId, isLoading, user, session, getAuthToken, loadChatSessions])
+  }, [currentSessionId, isLoading, user, session, getAuthToken, loadChatSessions, selectedDocumentId])
 
   // Create new chat session
   const createNewChat = useCallback(async () => {
@@ -237,12 +238,8 @@ export function useChatPersistent(initialSessionId?: string) {
     }
   }, [user, session, loadChatSessions])
 
-  // Load specific session if provided
-  useEffect(() => {
-    if (initialSessionId && user && session) {
-      loadChatSession(initialSessionId)
-    }
-  }, [initialSessionId, user, session, loadChatSession])
+  // This effect was for loading initial sessions, but we removed that functionality
+  // since we're now using selectedDocumentId for document context instead
 
   return {
     messages,

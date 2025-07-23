@@ -22,9 +22,10 @@ interface UploadFile {
 
 interface DocumentUploadProps {
   onUploadComplete?: (document: any) => void
+  onDocumentListRefresh?: () => void
 }
 
-export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
+export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: DocumentUploadProps) {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
 
   const uploadToSupabase = async (uploadFile: UploadFile) => {
@@ -81,10 +82,15 @@ export function DocumentUpload({ onUploadComplete }: DocumentUploadProps) {
         onUploadComplete(data.document)
       }
 
-      // Remove from list after 3 seconds
+      // Refresh document list to show the new upload
+      if (onDocumentListRefresh) {
+        onDocumentListRefresh()
+      }
+
+      // Remove from list after 10 seconds (increased from 3)
       setTimeout(() => {
         setUploadFiles(prev => prev.filter(f => f.id !== uploadFile.id))
-      }, 3000)
+      }, 10000)
 
     } catch (error) {
       setUploadFiles(prev => prev.map(f => 

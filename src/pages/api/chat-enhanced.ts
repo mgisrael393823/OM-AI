@@ -4,6 +4,7 @@ import { Database } from '@/types/database'
 import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
 import { openai, isOpenAIConfigured } from "@/lib/openai-client"
 import { checkEnvironment, getConfig } from "@/lib/config"
+import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 
 async function chatEnhancedHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   try {
@@ -24,7 +25,7 @@ async function chatEnhancedHandler(req: AuthenticatedRequest, res: NextApiRespon
         "OpenAI API key is not configured. Please contact support.")
     }
 
-    const { message, chat_session_id } = req.body
+    const { message, chat_session_id, document_id } = req.body
 
     if (!message || typeof message !== 'string') {
       return apiError(res, 400, "Message is required", "INVALID_MESSAGE")
@@ -138,10 +139,83 @@ Always maintain confidentiality and provide accurate, helpful information to sup
       "X-Chat-Session-Id": sessionId, // Return session ID in header
     })
 
+    // Handle document context if document_id is provided
+    let documentContext = ""
+    if (document_id) {
+      try {
+        // Fetch document record from database
+        const { data: documentRecord, error: docError } = await supabase
+          .from('documents')
+          .select('filename, original_filename, status')
+          .eq('id', document_id)
+          .eq('user_id', req.user.id) // Ensure user owns the document
+          .single()
+
+        if (docError || !documentRecord) {
+          console.error('Document not found:', docError)
+          return apiError(res, 404, "Document not found", "DOCUMENT_NOT_FOUND")
+        }
+
+        if (documentRecord.status !== 'completed') {
+          return apiError(res, 400, "Document is still processing", "DOCUMENT_NOT_READY")
+        }
+
+        // Download PDF from Supabase Storage
+        const { data: pdfData, error: downloadError } = await supabase
+          .storage
+          .from('documents')
+          .download(documentRecord.filename)
+
+        if (downloadError) {
+          console.error('Failed to download PDF:', downloadError)
+          return apiError(res, 500, "Failed to download document", "DOWNLOAD_ERROR")
+        }
+
+        // Convert to buffer for parsing
+        const buffer = Buffer.from(await pdfData.arrayBuffer())
+
+        // Parse PDF content
+        const pdfParser = new PDFParserAgent()
+        try {
+          const parseResult = await pdfParser.parseBuffer(buffer, {
+            extractTables: true,
+            performOCR: false,
+            chunkSize: 1000,
+            ocrConfidenceThreshold: 75,
+            preserveFormatting: false
+          })
+
+          if (parseResult.success && parseResult.chunks.length > 0) {
+            // Combine text chunks into document context
+            documentContext = parseResult.chunks
+              .map(chunk => chunk.text)
+              .join('\n\n')
+            
+            console.log(`Loaded document context: ${documentContext.length} characters from ${documentRecord.original_filename}`)
+          } else {
+            console.warn('No content extracted from PDF')
+          }
+        } finally {
+          await pdfParser.cleanup()
+        }
+      } catch (error) {
+        console.error('Error processing document:', error)
+        return apiError(res, 500, "Failed to process document", "DOCUMENT_PROCESSING_ERROR")
+      }
+    }
+
+    // Enhance system message with document context
+    const enhancedSystemMessage = {
+      role: "system" as const,
+      content: documentContext 
+        ? `${systemMessage.content}\n\n=== DOCUMENT CONTEXT ===\n\nYou are analyzing the following document:\n\n${documentContext}\n\n=== END DOCUMENT CONTEXT ===\n\nPlease analyze this document and answer questions about it. When referencing information, be specific about what you found in the document.`
+        : systemMessage.content
+    }
+
     const conversationHistory = messages || []
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
-      messages: [systemMessage, ...conversationHistory],
+      messages: [enhancedSystemMessage, ...conversationHistory],
       stream: true,
       temperature: 0.7,
       max_tokens: 2000,

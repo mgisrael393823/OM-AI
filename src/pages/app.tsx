@@ -19,11 +19,22 @@ import {
   User,
   Mic,
   Paperclip,
-  Loader2
+  Loader2,
+  CheckCircle,
+  Clock,
+  AlertCircle
 } from "lucide-react"
 import { useChatPersistent } from "@/hooks/useChatPersistent"
 import { DocumentUpload } from "@/components/app/DocumentUpload"
 import { useAuth } from "@/contexts/AuthContext"
+
+interface Document {
+  id: string
+  name: string
+  uploadedAt: string
+  status: "uploading" | "processing" | "completed" | "error"
+  size: number
+}
 
 export default function AppPage() {
   const router = useRouter()
@@ -31,6 +42,9 @@ export default function AppPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [showUpload, setShowUpload] = useState(false)
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
   const { 
@@ -43,7 +57,7 @@ export default function AppPage() {
     createNewChat,
     loadChatSession,
     deleteChatSession 
-  } = useChatPersistent()
+  } = useChatPersistent(selectedDocumentId)
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -51,6 +65,46 @@ export default function AppPage() {
       router.push('/auth/login')
     }
   }, [user, loading, router])
+
+  // Fetch user documents
+  const fetchDocuments = async () => {
+    if (!user) return
+    
+    setIsLoadingDocuments(true)
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session?.access_token) {
+        console.error('No session token available')
+        return
+      }
+
+      const response = await fetch('/api/documents', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setDocuments(data.documents || [])
+      } else {
+        console.error('Failed to fetch documents:', response.statusText)
+      }
+    } catch (error) {
+      console.error('Error fetching documents:', error)
+    } finally {
+      setIsLoadingDocuments(false)
+    }
+  }
+
+  // Load documents when user is authenticated
+  useEffect(() => {
+    if (user) {
+      fetchDocuments()
+    }
+  }, [user])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -80,7 +134,7 @@ export default function AppPage() {
     if (message.trim() && !isLoading) {
       const messageToSend = message
       setMessage("")
-      await sendMessage(messageToSend)
+      await sendMessage(messageToSend, selectedDocumentId)
     }
   }
 
@@ -139,11 +193,12 @@ export default function AppPage() {
             </Button>
           </div>
 
-          {/* Chat History */}
+          {/* Chat History & Documents */}
           <ScrollArea className="flex-1 px-2">
             <div className="space-y-1">
+              {/* Chat Sessions */}
               {isLoadingHistory ? (
-                <div className="px-2 py-8 text-center">
+                <div className="px-2 py-4 text-center">
                   <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     Loading chats...
@@ -166,9 +221,88 @@ export default function AppPage() {
                     </Button>
                   ))}
                 </>
-              ) : (
-                <div className="px-2 py-8 text-center">
-                  <MessageSquare className="h-8 w-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+              ) : null}
+
+              {/* Documents Section */}
+              <div className="pt-4">
+                <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Documents
+                </div>
+                {isLoadingDocuments ? (
+                  <div className="px-2 py-4 text-center">
+                    <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Loading documents...
+                    </p>
+                  </div>
+                ) : documents.length > 0 ? (
+                  <div className="space-y-1">
+                    {documents.map((doc) => {
+                      const getStatusIcon = (status: Document['status']) => {
+                        switch (status) {
+                          case "uploading":
+                            return <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                          case "processing":
+                            return <Clock className="h-3 w-3 text-yellow-500" />
+                          case "completed":
+                            return <CheckCircle className="h-3 w-3 text-green-500" />
+                          case "error":
+                            return <AlertCircle className="h-3 w-3 text-red-500" />
+                        }
+                      }
+                      
+                      return (
+                        <div
+                          key={doc.id}
+                          className={`px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors ${
+                            selectedDocumentId === doc.id
+                              ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
+                              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                          } ${
+                            doc.status === 'completed' ? '' : 'opacity-60 cursor-not-allowed'
+                          }`}
+                          onClick={() => {
+                            if (doc.status === 'completed') {
+                              setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
+                            }
+                          }}
+                        >
+                          <div className="flex items-start space-x-2">
+                            <FileText className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+                              selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
+                            }`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                {doc.name}
+                              </p>
+                              <div className="flex items-center space-x-2 mt-0.5">
+                                {getStatusIcon(doc.status)}
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {doc.size}MB
+                                </p>
+                                {selectedDocumentId === doc.id && (
+                                  <span className="text-xs text-blue-600 font-medium">Selected</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-2 py-4 text-center">
+                    <FileText className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      No documents yet
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {chatSessions.length === 0 && (
+                <div className="px-2 py-4 text-center">
+                  <MessageSquare className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     No chats yet
                   </p>
@@ -222,6 +356,26 @@ export default function AppPage() {
             <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
             <div className="w-8" /> {/* Spacer */}
           </div>
+
+          {/* Selected Document Header */}
+          {selectedDocumentId && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
+              <div className="flex items-center space-x-2 text-sm">
+                <FileText className="h-4 w-4 text-blue-600" />
+                <span className="text-blue-900 dark:text-blue-100 font-medium">
+                  Analyzing: {documents.find(d => d.id === selectedDocumentId)?.name || 'Selected Document'}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedDocumentId(null)}
+                  className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Chat Area */}
           <div className="flex-1 flex flex-col">
@@ -420,6 +574,7 @@ export default function AppPage() {
                   console.log('Document uploaded:', document)
                   setShowUpload(false)
                 }}
+                onDocumentListRefresh={fetchDocuments}
               />
             </div>
           </div>
