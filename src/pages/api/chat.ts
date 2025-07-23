@@ -1,23 +1,33 @@
 import { NextApiRequest, NextApiResponse } from "next"
 import OpenAI from "openai"
+import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" })
+    return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
   }
 
   const { messages } = req.body
 
   if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: "Messages array is required" })
+    return apiError(res, 400, "Messages array is required", "INVALID_MESSAGES")
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: "OpenAI API key not configured" })
+    return apiError(res, 500, "OpenAI API key not configured", "MISSING_OPENAI_KEY")
+  }
+
+  // Apply rate limiting per user
+  try {
+    await withRateLimit(req.user.id, 20, 2, async () => {
+      // Rate limit: 20 requests per user, refill 2 tokens per minute
+    })
+  } catch (error) {
+    return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
   }
 
   const systemMessage = {
@@ -74,9 +84,11 @@ Always maintain confidentiality and provide accurate, helpful information to sup
     res.end()
   } catch (error) {
     console.error("OpenAI API error:", error)
-    res.status(500).json({ 
-      error: "Failed to get response from AI",
-      details: error instanceof Error ? error.message : "Unknown error"
-    })
+    return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
+      error instanceof Error ? error.message : "Unknown error")
   }
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  return withAuth(req, res, chatHandler)
 }
