@@ -181,6 +181,7 @@ export class EnhancedPDFParser {
         : {};
 
       const result: ParseResult = {
+        success: true,
         pages,
         chunks,
         metadata: {
@@ -189,12 +190,12 @@ export class EnhancedPDFParser {
           pageCount: numPages,
           wordCount: allText.join(' ').split(/\s+/).length
         },
-        rawText: allText.join('\n'),
+        fullText: allText.join('\n'),
         tables: allTables,
-        structuredData
+        processingTime: Date.now()
       };
 
-      return { success: true, result };
+      return result;
       
     } catch (error) {
       return { 
