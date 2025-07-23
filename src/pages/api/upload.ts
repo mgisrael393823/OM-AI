@@ -101,11 +101,12 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       .from('documents')
       .insert({
         user_id: req.user.id,
-        name: file.originalFilename || 'Untitled Document',
-        file_path: uploadData.path,
+        filename: fileName, // Generated unique filename
+        original_filename: file.originalFilename || 'Untitled Document',
+        storage_path: uploadData.path,
         file_size: file.size,
         file_type: file.mimetype || 'application/pdf',
-        status: parseResult?.success ? 'processed' : 'uploaded',
+        status: parseResult?.success ? 'completed' : 'processing',
         metadata: {
           validation: validationResult,
           parsing: parseResult ? {
@@ -188,12 +189,13 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       success: true,
       document: {
         id: documentData.id,
-        name: documentData.name,
+        name: documentData.original_filename,
+        filename: documentData.filename,
         size: documentData.file_size,
         type: documentData.file_type,
         status: documentData.status,
         uploadedAt: documentData.created_at,
-        filePath: documentData.file_path,
+        storagePath: documentData.storage_path,
         validation: {
           isValid: validationResult.isValid,
           warnings: validationResult.warnings,
