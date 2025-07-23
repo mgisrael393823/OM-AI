@@ -300,7 +300,8 @@ export class EnhancedPDFParser {
         producer: metadata.info?.Producer || '',
         creationDate: metadata.info?.CreationDate ? new Date(metadata.info.CreationDate) : new Date(),
         modificationDate: metadata.info?.ModDate ? new Date(metadata.info.ModDate) : new Date(),
-        pages: pdfDocument.numPages
+        pages: pdfDocument.numPages,
+        fileSize: 0 // Will be set by the calling function if available
       };
     } catch (error) {
       console.warn('Failed to extract PDF metadata:', error);
@@ -312,7 +313,8 @@ export class EnhancedPDFParser {
         producer: '',
         creationDate: new Date(),
         modificationDate: new Date(),
-        pages: pdfDocument.numPages || 0
+        pages: 0,
+        fileSize: 0
       };
     }
   }

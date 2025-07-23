@@ -65,11 +65,26 @@ export interface ParseResult {
 
 export interface TextChunk {
   id: string;
-  text: string;
-  page: number;
-  startY: number;
-  endY: number;
-  tokens: number;
+  /** Original parser text */
+  text?: string;
+  /** Enhanced parser content */
+  content?: string;
+  /** Legacy page number */
+  page?: number;
+  /** Enhanced parser page number */
+  page_number?: number;
+  /** Y‐coordinate at top of chunk */
+  startY?: number;
+  /** Y‐coordinate at bottom of chunk */
+  endY?: number;
+  /** Token count */
+  tokens?: number;
+  /** Enhanced parser chunk index */
+  chunk_index?: number;
+  /** Enhanced parser word count */
+  word_count?: number;
+  /** Enhanced parser character count */
+  char_count?: number;
   type: 'paragraph' | 'table' | 'header' | 'footer' | 'list';
 }
 

@@ -180,7 +180,7 @@ export function calculateCREScore(result: PDFParserResult): number {
   
   // Normalize metrics to 0-100 scale
   const speedScore = Math.max(0, 100 - (result.processingTimeMs / 50)); // Penalty after 5s
-  const bundleScore = Math.max(0, 100 - (result.bundleSize / 50)); // Penalty after 5MB
+  const bundleScore = Math.max(0, 100 - ((result as any).bundleSize || 0) / 50); // Penalty after 5MB
   const reliabilityScore = 100 - result.reliability.errorRate;
   
   return (
