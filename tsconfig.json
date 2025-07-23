@@ -20,12 +20,13 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    "tsBuildInfoFile": ".next/cache/tsconfig.tsbuildinfo",
     "paths": {
       "@/*": [
         "./src/*"
       ]
     },
-    "target": "ES2018"
+    "target": "ES2020"
   },
   "include": [
     "next-env.d.ts",

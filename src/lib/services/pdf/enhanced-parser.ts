@@ -8,8 +8,7 @@
 import { performance } from 'perf_hooks';
 import { v4 as uuidv4 } from 'uuid';
 
-// Primary parser (pdfjs-dist based on evaluation)
-import * as pdfjsLib from 'pdfjs-dist';
+// Primary parser (pdfjs-dist based on evaluation) - lazy-loaded for better performance
 
 // Fallback parser (existing pdfreader)
 import { PDFParserAgent } from '../../agents/pdf-parser/PDFParserAgent';
@@ -130,6 +129,9 @@ export class EnhancedPDFParser {
     config: EnhancedParseOptions
   ): Promise<{ success: boolean; result?: ParseResult; error?: string }> {
     try {
+      // Lazy-load pdfjs-dist for better performance
+      const pdfjsLib = await import('pdfjs-dist');
+      
       // Create PDF document from buffer
       const pdfDocument = await pdfjsLib.getDocument({
         data: buffer,

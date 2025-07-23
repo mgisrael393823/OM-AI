@@ -1,14 +1,29 @@
-import { createWorker, Worker, PSM } from 'tesseract.js';
-
 /**
  * OCR utilities for PDF parsing
+ * Lazy-loaded to reduce initial bundle size
  */
 export class OCRProcessor {
-  private worker: Worker | null = null;
+  private worker: any = null;
   private isInitialized = false;
+  private tesseractJs: any = null;
+
+  private async loadTesseract() {
+    if (this.tesseractJs) return this.tesseractJs;
+    
+    // Lazy-load tesseract.js only when needed
+    try {
+      this.tesseractJs = await import('tesseract.js');
+      return this.tesseractJs;
+    } catch (error) {
+      console.error('Failed to load Tesseract.js:', error);
+      throw new Error('OCR functionality not available - Tesseract.js failed to load');
+    }
+  }
 
   async initialize(): Promise<void> {
     if (this.isInitialized) return;
+    
+    const { createWorker, PSM } = await this.loadTesseract();
     
     this.worker = await createWorker('eng', 1, {
       logger: m => {

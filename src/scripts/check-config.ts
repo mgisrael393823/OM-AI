@@ -4,22 +4,19 @@
  * Run this to verify all environment variables are properly set
  */
 
-// Load environment variables from .env.local manually since tsx doesn't auto-load them
-import { readFileSync } from 'fs';
+// Load environment variables using dotenv for better performance
+import { config } from 'dotenv';
 import { join } from 'path';
 
+// Fast exit in CI environments
+if (process.env.CI || process.env.VERCEL) {
+  console.log('🚀 Skipping config check in CI environment');
+  process.exit(0);
+}
+
+// Load .env.local with dotenv (more efficient than manual parsing)
 try {
-  const envPath = join(process.cwd(), '.env.local');
-  const envFile = readFileSync(envPath, 'utf8');
-  
-  // Parse .env.local manually
-  envFile.split('\n').forEach(line => {
-    line = line.trim();
-    if (line && !line.startsWith('#') && line.includes('=')) {
-      const [key, ...values] = line.split('=');
-      process.env[key.trim()] = values.join('=').trim();
-    }
-  });
+  config({ path: join(process.cwd(), '.env.local') });
 } catch (error) {
   console.warn('Could not load .env.local file');
 }

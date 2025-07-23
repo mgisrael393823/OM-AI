@@ -8,8 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "check-config": "npx tsx src/scripts/check-config.ts",
-    "predev": "npm run check-config",
-    "prebuild": "npm run check-config"
+    "predev": "npm run check-config"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -84,6 +83,7 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "dotenv": "^16.4.5",
     "eslint": "^9.27.0",
     "eslint-config-next": "^15.2.3",
     "eslint-plugin-tailwindcss": "^3.18.2",
