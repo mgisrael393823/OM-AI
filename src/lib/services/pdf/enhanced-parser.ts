@@ -252,7 +252,7 @@ export class EnhancedPDFParser {
       if (currentChunk.length + sentence.length > chunkSize && currentChunk.length > 0) {
         chunks.push({
           id: uuidv4(),
-          content: currentChunk.trim(),
+          text: currentChunk.trim(),
           page_number: pageNumber,
           chunk_index: chunkIndex++,
           type: this.classifyChunkType(currentChunk),
