@@ -1,21 +1,27 @@
 import { NextApiRequest, NextApiResponse } from "next"
-import OpenAI from "openai"
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { openai, isOpenAIConfigured } from "@/lib/openai-client"
+import { validateEnvironment, getConfig } from "@/lib/config"
 
 async function chatEnhancedHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
+  }
+
+  // Validate environment at runtime
+  try {
+    validateEnvironment()
+  } catch (error) {
+    return apiError(res, 500, "Server configuration error", "CONFIG_ERROR", 
+      error instanceof Error ? error.message : "Unknown error")
+  }
+
+  // Check if OpenAI is properly configured
+  if (!isOpenAIConfigured()) {
+    return apiError(res, 503, "Chat service unavailable", "OPENAI_NOT_CONFIGURED",
+      "OpenAI API key is not configured. Please contact support.")
   }
 
   const { message, chat_session_id } = req.body
@@ -24,9 +30,11 @@ async function chatEnhancedHandler(req: AuthenticatedRequest, res: NextApiRespon
     return apiError(res, 400, "Message is required", "INVALID_MESSAGE")
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    return apiError(res, 500, "OpenAI API key not configured", "MISSING_OPENAI_KEY")
-  }
+  const config = getConfig()
+  const supabase = createClient<Database>(
+    config.supabase.url,
+    config.supabase.serviceRoleKey
+  )
 
   // Apply rate limiting per user
   try {
@@ -124,9 +132,10 @@ Always maintain confidentiality and provide accurate, helpful information to sup
 
     // Set up Server-Sent Events headers for streaming
     res.writeHead(200, {
-      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       "Connection": "keep-alive",
+      "X-Accel-Buffering": "no", // Disable Nginx buffering
       "X-Chat-Session-Id": sessionId, // Return session ID in header
     })
 
@@ -141,13 +150,25 @@ Always maintain confidentiality and provide accurate, helpful information to sup
 
     let assistantResponse = ""
 
+    // Stream chunks as Server-Sent Events
     for await (const chunk of completion) {
       const content = chunk.choices[0]?.delta?.content || ""
       if (content) {
         assistantResponse += content
-        res.write(content)
+        // Format as SSE data
+        res.write(`data: ${JSON.stringify({ content })}\n\n`)
+      }
+      
+      // Send function calls if present
+      if (chunk.choices[0]?.delta?.function_call) {
+        res.write(`data: ${JSON.stringify({ 
+          function_call: chunk.choices[0].delta.function_call 
+        })}\n\n`)
       }
     }
+
+    // Send completion event
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
 
     // Save assistant response
     if (assistantResponse) {
@@ -169,8 +190,18 @@ Always maintain confidentiality and provide accurate, helpful information to sup
     res.end()
   } catch (error) {
     console.error("Chat API error:", error)
-    return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
-      error instanceof Error ? error.message : "Unknown error")
+    
+    // If headers haven't been sent yet, send error response
+    if (!res.headersSent) {
+      return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
+        error instanceof Error ? error.message : "Unknown error")
+    } else {
+      // If streaming has started, send error as SSE
+      res.write(`data: ${JSON.stringify({ 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      })}\n\n`)
+      res.end()
+    }
   }
 }
 

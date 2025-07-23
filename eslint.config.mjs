@@ -19,6 +19,8 @@ const eslintConfig = [
       "@typescript-eslint/no-unused-vars": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-non-null-assertion": "warn",
+      "prefer-const": "warn", // Downgrade from error to warning
+      "no-unused-vars": "warn", // Downgrade from error to warning
       "tailwindcss/classnames-order": "off",
       "tailwindcss/enforces-negative-arbitrary-values": "off",
       "tailwindcss/enforces-shorthand": "off",

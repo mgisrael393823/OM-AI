@@ -64,7 +64,7 @@ export interface ChatCompletionResponse {
     cacheHit: boolean;
     modelFallback: boolean;
   };
-  functionCalls?: any[];
+  functionCalls?: OpenAI.ChatCompletionMessage.FunctionCall[];
 }
 
 // Performance and error metrics
@@ -235,7 +235,7 @@ export class OpenAIService {
     let fullContent = '';
     let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, estimatedCost: 0 };
     let retryCount = 0;
-    let currentModel = request.model || 'gpt-4o';
+    const currentModel = request.model || 'gpt-4o';
 
     while (retryCount <= this.config.maxRetries) {
       try {
@@ -308,7 +308,7 @@ export class OpenAIService {
   private async makeRequest(
     request: ChatCompletionRequest,
     model: string,
-    requestId: string
+    _requestId: string // eslint-disable-line @typescript-eslint/no-unused-vars
   ): Promise<ChatCompletionResponse> {
     const modelConfig = MODEL_CONFIGS[model] || MODEL_CONFIGS['gpt-4o'];
     

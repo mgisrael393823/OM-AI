@@ -38,10 +38,15 @@ export async function withAuth(
     return apiError(res, 401, 'Invalid authorization header format', 'INVALID_AUTH_FORMAT')
   }
 
+  // Validate environment variables
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing required Supabase environment variables")
+  }
+
   // Verify token with Supabase
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
   try {

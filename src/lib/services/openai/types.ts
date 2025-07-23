@@ -4,6 +4,13 @@
  */
 
 import OpenAI from 'openai';
+import { z } from 'zod';
+import { 
+  PropertyAnalysisSchema, 
+  LeaseAnalysisSchema, 
+  MarketAnalysisSchema, 
+  InvestmentSummarySchema 
+} from './functions';
 
 // Subscription tiers matching database schema
 export type SubscriptionTier = 'starter' | 'professional' | 'enterprise';
@@ -28,178 +35,19 @@ export interface CREFunction {
   description: string;
   parameters: {
     type: 'object';
-    properties: Record<string, {
-      type: string;
-      description: string;
-      enum?: string[];
-    }>;
+    properties: Record<string, any>; // Allow flexible schema structures
     required: string[];
   };
 }
 
-// Property analysis function response
-export interface PropertyAnalysis {
-  propertyType: 'office' | 'retail' | 'industrial' | 'multifamily' | 'mixed-use' | 'other';
-  location: {
-    address?: string;
-    city?: string;
-    state?: string;
-    zip?: string;
-    market?: string;
-  };
-  financials: {
-    capRate?: number;
-    noi?: number;
-    grossIncome?: number;
-    operatingExpenses?: number;
-    cashFlow?: number;
-    pricePerSqFt?: number;
-  };
-  physical: {
-    totalSqFt?: number;
-    buildingClass?: 'A' | 'B' | 'C';
-    yearBuilt?: number;
-    parking?: {
-      spaces: number;
-      ratio: number;
-    };
-  };
-  investment: {
-    askingPrice?: number;
-    downPayment?: number;
-    loanAmount?: number;
-    loanTerm?: number;
-    interestRate?: number;
-    dscr?: number;
-  };
-  risks: string[];
-  opportunities: string[];
-  marketComparables?: Array<{
-    address: string;
-    salePrice: number;
-    capRate: number;
-    pricePerSqFt: number;
-  }>;
-}
+// Infer types from Zod schemas to keep them in sync
+export type PropertyAnalysis = z.infer<typeof PropertyAnalysisSchema>;
 
-// Lease analysis function response
-export interface LeaseAnalysis {
-  totalLeases: number;
-  occupancyRate: number;
-  averageLeaseRate: number;
-  weightedAverageLeaseExpiry: string;
-  leaseRollover: Array<{
-    year: number;
-    sqFtExpiring: number;
-    percentOfTotal: number;
-    averageRate: number;
-  }>;
-  tenants: Array<{
-    name: string;
-    sqFt: number;
-    rate: number;
-    expiration: string;
-    creditRating?: string;
-    percentOfIncome: number;
-  }>;
-  rentBumps: Array<{
-    tenant: string;
-    date: string;
-    increase: number;
-    newRate: number;
-  }>;
-  vacancies: Array<{
-    suite: string;
-    sqFt: number;
-    askingRate: number;
-    marketRate: number;
-  }>;
-}
+export type LeaseAnalysis = z.infer<typeof LeaseAnalysisSchema>;
 
-// Market analysis function response
-export interface MarketAnalysis {
-  marketOverview: {
-    marketName: string;
-    submarket?: string;
-    population?: number;
-    medianIncome?: number;
-    unemploymentRate?: number;
-  };
-  propertyMetrics: {
-    vacancyRate: number;
-    averageRent: number;
-    averageCapRate: number;
-    priceAppreciation: number;
-    inventory: number;
-  };
-  trends: Array<{
-    metric: string;
-    direction: 'increasing' | 'decreasing' | 'stable';
-    percentage: number;
-    timeframe: string;
-  }>;
-  comparables: Array<{
-    address: string;
-    propertyType: string;
-    salePrice: number;
-    saleDate: string;
-    capRate: number;
-    pricePerSqFt: number;
-    distance: number; // miles from subject
-  }>;
-  forecast: {
-    vacancyRate: number;
-    rentGrowth: number;
-    capRateDirection: 'compression' | 'expansion' | 'stable';
-    outlook: 'positive' | 'negative' | 'neutral';
-  };
-}
+export type MarketAnalysis = z.infer<typeof MarketAnalysisSchema>;
 
-// Investment summary function response
-export interface InvestmentSummary {
-  executiveSummary: string;
-  keyMetrics: {
-    capRate: number;
-    cashOnCash: number;
-    irr: number;
-    paybackPeriod: number;
-    dscr: number;
-  };
-  cashFlow: Array<{
-    year: number;
-    grossIncome: number;
-    operatingExpenses: number;
-    noi: number;
-    debtService: number;
-    cashFlow: number;
-  }>;
-  sensitivity: {
-    capRateImpact: Array<{
-      scenario: string;
-      capRate: number;
-      value: number;
-      irr: number;
-    }>;
-    rentImpact: Array<{
-      scenario: string;
-      rentChange: number;
-      noi: number;
-      value: number;
-    }>;
-  };
-  swotAnalysis: {
-    strengths: string[];
-    weaknesses: string[];
-    opportunities: string[];
-    threats: string[];
-  };
-  recommendation: {
-    rating: 'strong-buy' | 'buy' | 'hold' | 'sell' | 'strong-sell';
-    reasoning: string;
-    targetPrice: number;
-    keyRisks: string[];
-  };
-}
+export type InvestmentSummary = z.infer<typeof InvestmentSummarySchema>;
 
 // Unified CRE function response
 export type CREFunctionResponse = 
@@ -209,14 +57,14 @@ export type CREFunctionResponse =
   | InvestmentSummary;
 
 // Enhanced chat message with CRE context
-export interface CREChatMessage extends OpenAI.ChatCompletionMessageParam {
+export type CREChatMessage = OpenAI.ChatCompletionMessageParam & {
   metadata?: {
     documentIds?: string[];
     propertyId?: string;
     analysisType?: 'property' | 'lease' | 'market' | 'investment';
     confidence?: number;
   };
-}
+};
 
 // Document context for enhanced analysis
 export interface DocumentContext {

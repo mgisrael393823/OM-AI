@@ -1,15 +1,28 @@
 import { NextApiRequest, NextApiResponse } from "next"
-import OpenAI from "openai"
 import { createClient } from '@supabase/supabase-js'
 import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+import { openai, isOpenAIConfigured } from "@/lib/openai-client"
+import { validateEnvironment, getConfig } from "@/lib/config"
+import { logError, logConfigError } from "@/lib/error-logger"
 
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
+  }
+
+  // Validate environment at runtime
+  try {
+    validateEnvironment()
+  } catch (error) {
+    logConfigError(error as Error, '/api/chat')
+    return apiError(res, 500, "Server configuration error", "CONFIG_ERROR", 
+      error instanceof Error ? error.message : "Unknown error")
+  }
+
+  // Check if OpenAI is properly configured
+  if (!isOpenAIConfigured()) {
+    return apiError(res, 503, "Chat service unavailable", "OPENAI_NOT_CONFIGURED",
+      "OpenAI API key is not configured. Please contact support.")
   }
 
   const { messages, documentContext } = req.body
@@ -18,13 +31,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return apiError(res, 400, "Messages array is required", "INVALID_MESSAGES")
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    return apiError(res, 500, "OpenAI API key not configured", "MISSING_OPENAI_KEY")
-  }
-
+  const config = getConfig()
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    config.supabase.url,
+    config.supabase.serviceRoleKey
   )
 
   // Apply rate limiting per user
@@ -111,33 +121,62 @@ Always maintain confidentiality and provide accurate, helpful information to sup
   }
 
   try {
-    // Set up Server-Sent Events headers for streaming
+    // Set up Server-Sent Events headers for proper streaming
     res.writeHead(200, {
-      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       "Connection": "keep-alive",
+      "X-Accel-Buffering": "no", // Disable Nginx buffering
     })
 
-    const completion = await openai.chat.completions.create({
+    // Create streaming response using the standard chat completions API
+    const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [systemMessage, ...messages],
-      stream: true,
       temperature: 0.7,
       max_tokens: 2000,
+      stream: true,
+      // Note: Add functions here if needed
+      // functions: [ /* your function schemas */ ],
     })
 
-    for await (const chunk of completion) {
+    // Stream chunks as Server-Sent Events
+    for await (const chunk of response) {
       const content = chunk.choices[0]?.delta?.content || ""
       if (content) {
-        res.write(content)
+        // Format as SSE data
+        res.write(`data: ${JSON.stringify({ content })}\n\n`)
+      }
+      
+      // Send function calls if present
+      if (chunk.choices[0]?.delta?.function_call) {
+        res.write(`data: ${JSON.stringify({ 
+          function_call: chunk.choices[0].delta.function_call 
+        })}\n\n`)
       }
     }
 
+    // Send completion event
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
     res.end()
   } catch (error) {
-    console.error("OpenAI API error:", error)
-    return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
-      error instanceof Error ? error.message : "Unknown error")
+    logError(error, {
+      endpoint: '/api/chat',
+      userId: req.user.id,
+      errorType: 'OPENAI_API_ERROR'
+    })
+    
+    // If headers haven't been sent yet, send error response
+    if (!res.headersSent) {
+      return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
+        error instanceof Error ? error.message : "Unknown error")
+    } else {
+      // If streaming has started, send error as SSE
+      res.write(`data: ${JSON.stringify({ 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      })}\n\n`)
+      res.end()
+    }
   }
 }
 

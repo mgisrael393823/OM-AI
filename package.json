@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check-config": "npx tsx src/scripts/check-config.ts",
+    "predev": "npm run check-config",
+    "prebuild": "npm run check-config"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -132,20 +132,50 @@ export function useChatPersistent(initialSessionId?: string) {
       const decoder = new TextDecoder()
 
       if (reader) {
+        let buffer = ''
+        
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
 
-          const chunk = decoder.decode(value)
+          buffer += decoder.decode(value, { stream: true })
           
-          setMessages(prev => {
-            const newMessages = [...prev]
-            const lastMessage = newMessages[newMessages.length - 1]
-            if (lastMessage.role === "assistant") {
-              lastMessage.content += chunk
+          // Process SSE lines
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || '' // Keep incomplete line in buffer
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6) // Remove 'data: ' prefix
+              
+              try {
+                const parsed = JSON.parse(data)
+                
+                if (parsed.content) {
+                  setMessages(prev => {
+                    const newMessages = [...prev]
+                    const lastMessage = newMessages[newMessages.length - 1]
+                    if (lastMessage.role === "assistant") {
+                      lastMessage.content += parsed.content
+                    }
+                    return newMessages
+                  })
+                } else if (parsed.function_call) {
+                  // Handle function calls if needed
+                  console.log('Function call:', parsed.function_call)
+                } else if (parsed.done) {
+                  // Stream completed
+                  break
+                } else if (parsed.error) {
+                  console.error('Stream error:', parsed.error)
+                  throw new Error(parsed.error)
+                }
+              } catch (e) {
+                // Skip invalid JSON
+                console.warn('Invalid SSE data:', data)
+              }
             }
-            return newMessages
-          })
+          }
         }
       }
 
