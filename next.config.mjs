@@ -8,6 +8,14 @@ const __dirname = dirname(__filename);
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  
+  // Optimize build performance
+  experimental: {
+    turbo: {
+      // Enable Turbopack for faster builds in development
+    },
+  },
+  
   images: {
     remotePatterns: [
       {
@@ -17,13 +25,6 @@ const nextConfig = {
     ],
   },
   allowedDevOrigins: ['*.daytona.work'],
-  
-  // Optimize build performance
-  experimental: {
-    turbo: {
-      // Enable Turbopack for faster builds in development
-    },
-  },
   
   // Configure webpack for better caching
   webpack: (config, { dev, isServer }) => {
