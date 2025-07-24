@@ -39,9 +39,10 @@ export default function LoginPage() {
       }
     } catch (err: unknown) {
       if (err instanceof Error) {
-        setError(err.message)
         if (err.message.includes('Missing Supabase environment variables')) {
-          alert(err.message)
+          setError(`Configuration Error: ${err.message}. Please contact support.`)
+        } else {
+          setError(err.message)
         }
       } else {
         setError("An unexpected error occurred.")
