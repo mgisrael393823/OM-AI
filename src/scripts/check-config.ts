@@ -21,7 +21,7 @@ try {
   console.warn('Could not load .env.local file');
 }
 
-import { checkEnvironment, logConfigStatus, isProduction } from '../lib/config';
+import { checkEnvironment, logConfigStatus, isProduction } from '@/lib/config';
 
 console.log('🔍 Checking configuration...\n');
 

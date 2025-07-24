@@ -11,8 +11,8 @@ import { v4 as uuidv4 } from 'uuid';
 // Primary parser (pdfjs-dist based on evaluation) - lazy-loaded for better performance
 
 // Fallback parser (existing pdfreader)
-import { PDFParserAgent } from '../../agents/pdf-parser/PDFParserAgent';
-import { ParseOptions, ParseResult, TextChunk, PDFMetadata } from '../../agents/pdf-parser/types';
+import { PDFParserAgent } from '@/lib/agents/pdf-parser/PDFParserAgent';
+import { ParseOptions, ParseResult, TextChunk, PDFMetadata } from '@/lib/agents/pdf-parser/types';
 
 // Configure PDF.js for Node.js environment
 if (typeof globalThis === 'undefined') {
