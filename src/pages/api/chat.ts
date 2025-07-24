@@ -51,14 +51,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       // Get relevant document chunks based on the user's query
       const userQuery = messages[messages.length - 1]?.content || ""
       
-      // Search for relevant content in specified documents
+      // Search for relevant content in specified documents using full-text search
       const { data: relevantChunks, error: searchError } = await supabase
         .from('document_chunks')
         .select(`
           content,
           page_number,
           chunk_type,
-          documents!inner(name)
+          documents!inner(original_filename)
         `)
         .eq('user_id', req.user.id)
         .in('document_id', documentContext.documentIds)
@@ -67,6 +67,37 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
       if (searchError) {
         console.error('Document search error:', searchError)
+        
+        // Fallback: get all chunks from the documents if search fails
+        const { data: allChunks, error: fallbackError } = await supabase
+          .from('document_chunks')
+          .select(`
+            content,
+            page_number,
+            chunk_type,
+            documents!inner(original_filename)
+          `)
+          .eq('user_id', req.user.id)
+          .in('document_id', documentContext.documentIds)
+          .order('page_number', { ascending: true })
+          .limit(10)
+
+        if (!fallbackError && allChunks && allChunks.length > 0) {
+          contextualInformation = `
+
+DOCUMENT CONTEXT:
+The following information is from the user's uploaded documents:
+
+${allChunks
+  .map((chunk, index) => {
+    const docName = (chunk as any).documents?.original_filename ?? 'Unknown';
+    return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
+${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}`;
+  })
+  .join('\n')}
+
+Please reference this document context in your response when relevant.`
+        }
       } else if (relevantChunks && relevantChunks.length > 0) {
         contextualInformation = `
 
@@ -75,7 +106,7 @@ The following information is from the user's uploaded documents:
 
 ${relevantChunks
   .map((chunk, index) => {
-    const docName = (chunk as any).documents?.name ?? 'Unknown';
+    const docName = (chunk as any).documents?.original_filename ?? 'Unknown';
     return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
 ${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}`;
   })

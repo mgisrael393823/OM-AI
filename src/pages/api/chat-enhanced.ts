@@ -4,7 +4,6 @@ import { Database } from '@/types/database'
 import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
 import { openai, isOpenAIConfigured } from "@/lib/openai-client"
 import { checkEnvironment, getConfig } from "@/lib/config"
-import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 
 async function chatEnhancedHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   try {
@@ -160,43 +159,43 @@ Always maintain confidentiality and provide accurate, helpful information to sup
           return apiError(res, 400, "Document is still processing", "DOCUMENT_NOT_READY")
         }
 
-        // Download PDF from Supabase Storage
-        const { data: pdfData, error: downloadError } = await supabase
-          .storage
-          .from('documents')
-          .download(documentRecord.filename)
+        // Fetch pre-parsed document chunks from database
+        const { data: documentChunks, error: chunksError } = await supabase
+          .from('document_chunks')
+          .select('content, page_number, chunk_type')
+          .eq('document_id', document_id)
+          .eq('user_id', req.user.id)
+          .order('page_number', { ascending: true })
 
-        if (downloadError) {
-          console.error('Failed to download PDF:', downloadError)
-          return apiError(res, 500, "Failed to download document", "DOWNLOAD_ERROR")
+        if (chunksError) {
+          console.error('Failed to fetch document chunks:', chunksError)
+          return apiError(res, 500, "Failed to retrieve document content", "CHUNKS_ERROR")
         }
 
-        // Convert to buffer for parsing
-        const buffer = Buffer.from(await pdfData.arrayBuffer())
+        if (documentChunks && documentChunks.length > 0) {
+          // Combine text chunks into document context
+          documentContext = documentChunks
+            .map(chunk => chunk.content)
+            .join('\n\n')
+          
+          console.log(`Loaded document context: ${documentContext.length} characters from ${documentRecord.original_filename} (${documentChunks.length} chunks)`)
+        } else {
+          console.warn(`No parsed content found for document: ${documentRecord.original_filename}`)
+          
+          // Fallback: try to get content from extracted_text field
+          const { data: docWithText, error: textError } = await supabase
+            .from('documents')
+            .select('extracted_text')
+            .eq('id', document_id)
+            .eq('user_id', req.user.id)
+            .single()
 
-        // Parse PDF content
-        const pdfParser = new PDFParserAgent()
-        try {
-          const parseResult = await pdfParser.parseBuffer(buffer, {
-            extractTables: true,
-            performOCR: false,
-            chunkSize: 1000,
-            ocrConfidenceThreshold: 75,
-            preserveFormatting: false
-          })
-
-          if (parseResult.success && parseResult.chunks.length > 0) {
-            // Combine text chunks into document context
-            documentContext = parseResult.chunks
-              .map(chunk => chunk.text)
-              .join('\n\n')
-            
-            console.log(`Loaded document context: ${documentContext.length} characters from ${documentRecord.original_filename}`)
+          if (!textError && docWithText?.extracted_text) {
+            documentContext = docWithText.extracted_text
+            console.log(`Using fallback extracted_text: ${documentContext.length} characters`)
           } else {
-            console.warn('No content extracted from PDF')
+            console.warn('No document content available - document may not have been processed correctly')
           }
-        } finally {
-          await pdfParser.cleanup()
         }
       } catch (error) {
         console.error('Error processing document:', error)
