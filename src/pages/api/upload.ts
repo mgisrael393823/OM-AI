@@ -18,9 +18,17 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
   }
 
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('Upload API missing env vars:', {
+      hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+    })
+    return apiError(res, 500, 'Server configuration error', 'CONFIG_ERROR')
+  }
+
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
   )
 
   const form = formidable({
