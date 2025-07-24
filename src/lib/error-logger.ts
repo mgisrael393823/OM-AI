@@ -1,9 +1,10 @@
 /**
  * Error logging utility
- * In production, this would integrate with Sentry, Datadog, or similar
+ * Integrated with Sentry for production error tracking
  */
 
 import { isProduction } from './config';
+import * as Sentry from '@sentry/nextjs';
 
 export interface ErrorContext {
   userId?: string;
@@ -25,22 +26,33 @@ export function logError(
   };
 
   if (isProduction()) {
-    // In production, send to error tracking service
-    // Example: Sentry.captureException(error, { extra: context });
+    // Send to Sentry in production
+    Sentry.captureException(error, {
+      extra: context,
+      tags: {
+        environment: process.env.NODE_ENV,
+        endpoint: context?.endpoint
+      }
+    });
     console.error('[ERROR]', JSON.stringify(errorInfo));
-    
-    // TODO: Integrate with your preferred error tracking service:
-    // - Sentry: https://sentry.io
-    // - Datadog: https://www.datadoghq.com
-    // - LogRocket: https://logrocket.com
-    // - Rollbar: https://rollbar.com
   } else {
-    // In development, log to console with formatting
+    // In development, log to console with formatting and also send to Sentry for testing
     console.error('🚨 Error occurred:', {
       message: errorInfo.message,
       context,
       stack: errorInfo.stack
     });
+    
+    // Send to Sentry in development too for testing
+    if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
+      Sentry.captureException(error, {
+        extra: context,
+        tags: {
+          environment: 'development',
+          endpoint: context?.endpoint
+        }
+      });
+    }
   }
 }
 
@@ -56,10 +68,28 @@ export function logWarning(
   };
 
   if (isProduction()) {
-    // In production, send to monitoring service
+    // Send warnings to Sentry in production
+    Sentry.captureMessage(message, 'warning', {
+      extra: context,
+      tags: {
+        environment: process.env.NODE_ENV,
+        endpoint: context?.endpoint
+      }
+    });
     console.warn('[WARNING]', JSON.stringify(warningInfo));
   } else {
     console.warn('⚠️  Warning:', message, context || '');
+    
+    // Send to Sentry in development too for testing
+    if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
+      Sentry.captureMessage(message, 'warning', {
+        extra: context,
+        tags: {
+          environment: 'development',
+          endpoint: context?.endpoint
+        }
+      });
+    }
   }
 }
 
