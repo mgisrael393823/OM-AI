@@ -333,7 +333,12 @@ export default function AppPage() {
                   {userDisplayData.plan}
                 </p>
               </div>
-              <Button variant="ghost" size="sm">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => router.push('/settings')}
+                title="Settings"
+              >
                 <Settings className="h-4 w-4" />
               </Button>
             </div>
