@@ -65,7 +65,16 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
       clearInterval(progressInterval)
 
       if (!response.ok) {
-        throw new Error('Upload failed')
+        let errorMessage = 'Upload failed'
+        try {
+          const errorData = await response.json()
+          if (errorData?.error) {
+            errorMessage = errorData.error
+          }
+        } catch (e) {
+          // ignore json parse errors
+        }
+        throw new Error(errorMessage)
       }
 
       const data = await response.json()
