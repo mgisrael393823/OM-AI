@@ -126,7 +126,7 @@ When analyzing documents or answering questions:
 - Ask clarifying questions when needed
 - Reference relevant market standards and best practices
 
-Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.`
+Do not start responses with greetings or introductions. Answer user questions directly and professionally. Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.`
     }
 
     // Set up Server-Sent Events headers for streaming
@@ -222,22 +222,47 @@ Always maintain confidentiality and provide accurate, helpful information to sup
 
     let assistantResponse = ""
 
-    // Stream chunks as Server-Sent Events
+    // Buffer for smoother streaming
+    let buffer = ''
+    let lastFlush = Date.now()
+    const FLUSH_INTERVAL = 50 // milliseconds
+    const MIN_CHUNK_SIZE = 5 // characters
+    
+    const flushBuffer = () => {
+      if (buffer) {
+        res.write(`data: ${JSON.stringify({ content: buffer })}\n\n`)
+        assistantResponse += buffer
+        buffer = ''
+        lastFlush = Date.now()
+      }
+    }
+
+    // Stream chunks as Server-Sent Events with buffering
     for await (const chunk of completion) {
       const content = chunk.choices[0]?.delta?.content || ""
       if (content) {
-        assistantResponse += content
-        // Format as SSE data
-        res.write(`data: ${JSON.stringify({ content })}\n\n`)
+        buffer += content
+        
+        // Flush buffer based on size or time
+        const shouldFlush = buffer.length >= MIN_CHUNK_SIZE || 
+                           (Date.now() - lastFlush) >= FLUSH_INTERVAL
+        
+        if (shouldFlush) {
+          flushBuffer()
+        }
       }
       
       // Send function calls if present
       if (chunk.choices[0]?.delta?.function_call) {
+        flushBuffer() // Flush any buffered content first
         res.write(`data: ${JSON.stringify({ 
           function_call: chunk.choices[0].delta.function_call 
         })}\n\n`)
       }
     }
+    
+    // Flush any remaining buffered content
+    flushBuffer()
 
     // Send completion event
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`)

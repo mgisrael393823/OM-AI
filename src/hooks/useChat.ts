@@ -8,14 +8,7 @@ export interface Message {
 }
 
 export function useChat() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: "Hello! I'm OM Intel, your AI assistant for commercial real estate analysis. I can help you analyze documents, evaluate properties, assess market conditions, and provide insights for your deals. What would you like to explore today?",
-      timestamp: new Date()
-    }
-  ])
+  const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
   const sendMessage = useCallback(async (content: string) => {
@@ -95,12 +88,7 @@ export function useChat() {
   }, [messages, isLoading])
 
   const clearChat = useCallback(() => {
-    setMessages([{
-      id: "welcome",
-      role: "assistant",
-      content: "Hello! I'm OM Intel, your AI assistant for commercial real estate analysis. I can help you analyze documents, evaluate properties, assess market conditions, and provide insights for your deals. What would you like to explore today?",
-      timestamp: new Date()
-    }])
+    setMessages([])
   }, [])
 
   return {
