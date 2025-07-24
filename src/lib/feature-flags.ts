@@ -32,7 +32,7 @@ export function getEnabledFeatures(): FeatureFlag[] {
  * Feature flag middleware for API routes
  */
 export function requireFeature(flag: FeatureFlag) {
-  return (handler: Function) => {
+  return (handler: (...args: any[]) => any) => {
     return (...args: any[]) => {
       if (!isFeatureEnabled(flag)) {
         const [, res] = args;

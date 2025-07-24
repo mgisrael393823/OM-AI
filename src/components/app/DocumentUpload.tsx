@@ -119,7 +119,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
     newFiles.forEach(uploadFile => {
       uploadToSupabase(uploadFile)
     })
-  }, [])
+  }, [uploadToSupabase])
 
 
   const removeFile = (fileId: string) => {

@@ -66,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     return () => subscription.unsubscribe()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchUserProfile = async (userId: string, currentUser?: User | null) => {
@@ -161,7 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     avatar_url: currentUser?.user_metadata?.avatar_url || null,
     subscription_tier: 'starter' as const,
     subscription_status: 'active' as const,
-    subscription_id: null,
+    subscription_id: null as string | null,
     usage_count: 0,
     usage_limit: 10,
     created_at: new Date().toISOString(),
@@ -179,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       avatar_url: null,
       subscription_tier: 'starter',
       subscription_status: 'active',
-      subscription_id: null,
+      subscription_id: null as string | null,
       usage_count: 0,
       usage_limit: 10,
       preferences: {},

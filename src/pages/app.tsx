@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import Head from "next/head"
 import { useRouter } from "next/router"
 import { Button } from "@/components/ui/button"
@@ -26,6 +26,7 @@ import {
 import { useChatPersistent } from "@/hooks/useChatPersistent"
 import { DocumentUpload } from "@/components/app/DocumentUpload"
 import { useAuth } from "@/contexts/AuthContext"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 
 interface Document {
   id: string
@@ -65,7 +66,7 @@ export default function AppPage() {
   }, [user, loading, router])
 
   // Fetch user documents
-  const fetchDocuments = useCallback(async () => {
+  const fetchDocuments = React.useCallback(async (): Promise<void> => {
     if (!user) return
     
     setIsLoadingDocuments(true)
@@ -74,8 +75,7 @@ export default function AppPage() {
       const { data: { session } } = await supabase.auth.getSession()
       
       if (!session?.access_token) {
-        console.error('No session token available')
-        return
+        throw new Error('No session token available - please log in again')
       }
 
       const response = await fetch(`${window.location.origin}/api/documents`, {
@@ -85,14 +85,20 @@ export default function AppPage() {
         }
       })
       
-      if (response.ok) {
-        const data = await response.json()
-        setDocuments(data.documents || [])
-      } else {
-        console.error('Failed to fetch documents:', response.statusText)
+      if (!response.ok) {
+        const errorData = await response.text()
+        throw new Error(`Failed to fetch documents: ${response.status} ${response.statusText}. ${errorData}`)
       }
+      
+      const data = await response.json()
+      setDocuments(data.documents || [])
     } catch (error) {
       console.error('Error fetching documents:', error)
+      // Re-throw to let ErrorBoundary catch critical errors
+      if (error instanceof Error && error.message.includes('No session token')) {
+        throw error
+      }
+      // For other errors, just log them and continue
     } finally {
       setIsLoadingDocuments(false)
     }
@@ -149,11 +155,12 @@ export default function AppPage() {
   }
 
   return (
-    <>
-      <Head>
-        <title>OM Intel Chat</title>
-        <meta name="description" content="AI-powered commercial real estate analysis" />
-      </Head>
+    <ErrorBoundary>
+      <>
+        <Head>
+          <title>OM Intel Chat</title>
+          <meta name="description" content="AI-powered commercial real estate analysis" />
+        </Head>
 
       <div className="flex h-screen bg-white dark:bg-gray-900">
         {/* Sidebar */}
@@ -579,6 +586,7 @@ export default function AppPage() {
           </div>
         </div>
       )}
-    </>
+      </>
+    </ErrorBoundary>
   )
 }
