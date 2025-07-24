@@ -160,7 +160,7 @@ async function getUserContext(supabase: any, userId: string): Promise<UserContex
     email: user.email,
     subscriptionTier: user.subscription_tier || 'starter',
     usageCount: user.usage_count || 0,
-    usageLimit: user.usage_limit || SUBSCRIPTION_LIMITS[user.subscription_tier || 'starter'].requestsPerDay,
+    usageLimit: user.usage_limit || SUBSCRIPTION_LIMITS[(user.subscription_tier || 'starter') as keyof typeof SUBSCRIPTION_LIMITS].requestsPerDay,
     preferences: {
       preferredModel: user.preferred_model,
       temperature: user.preferred_temperature,
@@ -238,12 +238,12 @@ async function getEnhancedDocumentContext(
       documentName: chunk.documents?.name || 'Unknown Document',
       relevanceScore: calculateSemanticRelevance(chunk.content) // Simplified scoring
     }))
-    .filter(chunk => chunk.relevanceScore >= relevanceThreshold)
-    .sort((a, b) => b.relevanceScore - a.relevanceScore)
+    .filter((chunk: any) => chunk.relevanceScore >= relevanceThreshold)
+    .sort((a: any, b: any) => b.relevanceScore - a.relevanceScore)
     .slice(0, maxChunks);
 
   // Calculate total tokens (approximate)
-  const totalTokens = relevantChunks.reduce((sum, chunk) => 
+  const totalTokens = relevantChunks.reduce((sum: any, chunk: any) => 
     sum + Math.ceil(chunk.content.length / 4), 0
   );
 

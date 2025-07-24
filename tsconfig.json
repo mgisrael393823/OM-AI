@@ -12,7 +12,7 @@
     "esModuleInterop": true,
     "noUnusedLocals": false,
     "strictNullChecks": false,
-    "noImplicitAny": false,
+    "noImplicitAny": true,
     "noUnusedParameters": false,
     "module": "esnext",
     "moduleResolution": "bundler",

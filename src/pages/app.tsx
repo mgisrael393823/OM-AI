@@ -316,7 +316,7 @@ export default function AppPage() {
             <div className="flex items-center space-x-3">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
-                  {userDisplayData.name.split(' ').map(n => n[0]).join('')}
+                  {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">

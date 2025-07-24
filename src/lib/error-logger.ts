@@ -69,7 +69,8 @@ export function logWarning(
 
   if (isProduction()) {
     // Send warnings to Sentry in production
-    Sentry.captureMessage(message, 'warning', {
+    Sentry.captureMessage(message, {
+      level: 'warning',
       extra: context,
       tags: {
         environment: process.env.NODE_ENV,
@@ -82,7 +83,8 @@ export function logWarning(
     
     // Send to Sentry in development too for testing
     if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
-      Sentry.captureMessage(message, 'warning', {
+      Sentry.captureMessage(message, {
+        level: 'warning',
         extra: context,
         tags: {
           environment: 'development',

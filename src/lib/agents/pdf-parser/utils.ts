@@ -26,7 +26,7 @@ export class OCRProcessor {
     const { createWorker, PSM } = await this.loadTesseract();
     
     this.worker = await createWorker('eng', 1, {
-      logger: m => {
+      logger: (m: any) => {
         if (m.status === 'recognizing text') {
           console.log(`OCR Progress: ${Math.round(m.progress * 100)}%`);
         }

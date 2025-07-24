@@ -139,7 +139,7 @@ async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       return {
         ...result,
         excerpt,
-        content: undefined // Remove full content from response
+        content: undefined as any // Remove full content from response
       }
     })
 
