@@ -14,11 +14,21 @@ const baseConfig = [...compat.extends("next/core-web-vitals", "next/typescript",
 const eslintConfig = [
   ...baseConfig,
   {
+    ignores: [
+      ".next/**/*",
+      "node_modules/**/*",
+      "out/**/*",
+      "build/**/*",
+      "dist/**/*"
+    ]
+  },
+  {
     rules: {
       "react/no-unescaped-entities": "off",
       "@typescript-eslint/no-unused-vars": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-non-null-assertion": "warn",
+      "@typescript-eslint/no-require-imports": "warn",
       "prefer-const": "warn", // Downgrade from error to warning
       "no-unused-vars": "warn", // Downgrade from error to warning
       "tailwindcss/classnames-order": "off",

@@ -9,7 +9,6 @@ import {
   Building2, 
   MessageSquare, 
   Settings, 
-  LogOut,
   Menu,
   X,
   Plus,
@@ -55,8 +54,7 @@ export default function AppPage() {
     isLoadingHistory,
     sendMessage, 
     createNewChat,
-    loadChatSession,
-    deleteChatSession 
+    loadChatSession
   } = useChatPersistent(selectedDocumentId)
 
   // Redirect to login if not authenticated
@@ -104,7 +102,7 @@ export default function AppPage() {
     if (user) {
       fetchDocuments()
     }
-  }, [user])
+  }, [user, fetchDocuments])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
