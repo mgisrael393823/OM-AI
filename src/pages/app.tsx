@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import Head from "next/head"
 import { useRouter } from "next/router"
 import { Button } from "@/components/ui/button"
@@ -65,7 +65,7 @@ export default function AppPage() {
   }, [user, loading, router])
 
   // Fetch user documents
-  const fetchDocuments = useCallback(async () => {
+  const fetchDocuments = React.useCallback(async () => {
     if (!user) return
     
     setIsLoadingDocuments(true)
