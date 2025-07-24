@@ -43,8 +43,7 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
     
     // Browser performance monitoring
     Sentry.browserTracingIntegration({
-      // Routing instrumentation
-      routingInstrumentation: Sentry.nextRouterInstrumentation,
+      // Next.js router integration is handled automatically
     }),
   ],
   

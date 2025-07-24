@@ -24,5 +24,19 @@ export async function onRequestError(err: unknown, request: Request, context: { 
   // Import Sentry dynamically to avoid issues during build
   const Sentry = await import('@sentry/nextjs')
   
-  Sentry.captureRequestError(err, request, context)
+  // Convert Request to the expected RequestInfo format
+  const requestInfo = {
+    url: request.url,
+    method: request.method,
+    headers: Object.fromEntries(request.headers.entries()),
+    path: new URL(request.url).pathname
+  }
+  
+  // Add missing routeType property for ErrorContext
+  const errorContext = {
+    ...context,
+    routeType: context.routerKind
+  }
+  
+  Sentry.captureRequestError(err, requestInfo as any, errorContext)
 }
