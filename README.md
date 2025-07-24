@@ -41,24 +41,32 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
    npm install
    ```
 
-3. **Set up environment variables**
+3. **Set up environment variables** ⚠️ **CRITICAL**
    
-   Create a `.env.local` file in the root directory:
+   Create a `.env.local` file in the root directory with the following **required** variables:
    ```env
-   # Supabase
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+   # Supabase (REQUIRED - Application will not start without these)
+   NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
    
-   # OpenAI
+   # OpenAI (REQUIRED for chat functionality)
    OPENAI_API_KEY=your_openai_api_key
    
    # Database
    DATABASE_URL=your_database_connection_string
    
+   # Optional: Sentry error monitoring
+   NEXT_PUBLIC_SENTRY_DSN=your_sentry_dsn
+   SENTRY_ORG=your_sentry_org
+   SENTRY_PROJECT=your_sentry_project
+   SENTRY_AUTH_TOKEN=your_sentry_auth_token
+   
    # Environment
    NODE_ENV=development
    ```
+   
+   > **Note**: As of recent updates, environment variable validation is strictly enforced. Missing required Supabase variables will prevent the application from starting.
 
 4. **Run database migrations**
    ```bash
