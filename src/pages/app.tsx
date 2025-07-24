@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import Head from "next/head"
 import { useRouter } from "next/router"
 import { Button } from "@/components/ui/button"
@@ -65,7 +65,7 @@ export default function AppPage() {
   }, [user, loading, router])
 
   // Fetch user documents
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     if (!user) return
     
     setIsLoadingDocuments(true)
@@ -78,7 +78,8 @@ export default function AppPage() {
         return
       }
 
-      const response = await fetch('/api/documents', {
+      const response = await fetch(`${window.location.origin}/api/documents`, {
+        credentials: 'include',
         headers: {
           'Authorization': `Bearer ${session.access_token}`
         }
@@ -95,14 +96,14 @@ export default function AppPage() {
     } finally {
       setIsLoadingDocuments(false)
     }
-  }
+  }, [user])
 
   // Load documents when user is authenticated
   useEffect(() => {
     if (user) {
       fetchDocuments()
     }
-  }, [user, fetchDocuments])
+  }, [user])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

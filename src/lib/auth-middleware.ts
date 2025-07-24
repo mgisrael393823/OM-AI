@@ -26,16 +26,24 @@ export async function withAuth(
   res: NextApiResponse,
   handler: (req: AuthenticatedRequest, res: NextApiResponse) => Promise<void> | void
 ) {
-  // Check for authorization header
-  const authHeader = req.headers.authorization
-  if (!authHeader) {
-    return apiError(res, 401, 'No authorization header', 'MISSING_AUTH_HEADER')
+  // Get token from Authorization header or Supabase session cookie
+  let token: string | undefined
+  
+  if (req.headers.authorization) {
+    token = req.headers.authorization.replace('Bearer ', '')
+  } else {
+    // Try to get from Supabase session cookies
+    // Supabase stores tokens in cookies with these common patterns
+    const sbAccessToken = req.cookies['sb-access-token'] || 
+                         req.cookies['supabase-access-token'] ||
+                         req.cookies['sb.access-token']
+    if (sbAccessToken) {
+      token = sbAccessToken
+    }
   }
-
-  // Extract token
-  const token = authHeader.replace('Bearer ', '')
+  
   if (!token) {
-    return apiError(res, 401, 'Invalid authorization header format', 'INVALID_AUTH_FORMAT')
+    return apiError(res, 401, 'No authentication token found', 'MISSING_TOKEN')
   }
 
   // Validate environment variables

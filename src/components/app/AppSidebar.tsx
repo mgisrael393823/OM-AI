@@ -105,10 +105,12 @@ export function AppSidebar({
                 <FileText className="h-4 w-4 mr-3" />
                 Documents
               </Button>
-              <Button variant="ghost" className="w-full justify-start">
-                <Settings className="h-4 w-4 mr-3" />
-                Settings
-              </Button>
+              <Link href="/settings">
+                <Button variant="ghost" className="w-full justify-start">
+                  <Settings className="h-4 w-4 mr-3" />
+                  Settings
+                </Button>
+              </Link>
             </nav>
           </div>
 

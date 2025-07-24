@@ -36,7 +36,8 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
 
     setIsLoadingHistory(true)
     try {
-      const response = await fetch("/api/chat-sessions", {
+      const response = await fetch(`${window.location.origin}/api/chat-sessions`, {
+        credentials: 'include',
         headers: {
           "Authorization": `Bearer ${getAuthToken()}`
         }
@@ -58,7 +59,8 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     if (!user || !session) return
 
     try {
-      const response = await fetch(`/api/chat-sessions/${sessionId}`, {
+      const response = await fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
+        credentials: 'include',
         headers: {
           "Authorization": `Bearer ${getAuthToken()}`
         }
@@ -97,8 +99,9 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     setIsLoading(true)
 
     try {
-      const response = await fetch("/api/chat-enhanced", {
+      const response = await fetch(`${window.location.origin}/api/chat-enhanced`, {
         method: "POST",
+        credentials: 'include',
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${getAuthToken()}`
@@ -209,8 +212,9 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     if (!user || !session) return
 
     try {
-      const response = await fetch(`/api/chat-sessions/${sessionId}`, {
+      const response = await fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
         method: "DELETE",
+        credentials: 'include',
         headers: {
           "Authorization": `Bearer ${getAuthToken()}`
         }

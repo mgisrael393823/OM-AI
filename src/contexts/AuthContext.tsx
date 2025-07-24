@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { User, Session, AuthError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { logError, logWarning } from '@/lib/error-logger'
+import * as Sentry from '@sentry/nextjs'
 
 interface UserProfile {
   id: string
@@ -12,6 +14,7 @@ interface UserProfile {
   subscription_id: string | null
   usage_count: number
   usage_limit: number
+  preferences: Record<string, any>
   created_at: string
   updated_at: string
 }
@@ -66,8 +69,110 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const fetchUserProfile = async (userId: string, currentUser?: User | null) => {
-    // For now, just create a default profile since we haven't set up the database tables yet
-    const defaultProfile: UserProfile = {
+    try {
+      // Try to fetch existing user profile
+      const { data: existingProfile, error: fetchError } = await supabase
+        .from('users')
+        .select('id, email, full_name, avatar_url, subscription_tier, subscription_status, subscription_id, usage_count, usage_limit, created_at, updated_at')
+        .eq('id', userId)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        logError(fetchError, {
+          userId,
+          operation: 'fetch_user_profile'
+        });
+        
+        // Fall back to default profile on database error
+        setProfile(createFallbackProfile(userId, currentUser));
+        return;
+      }
+
+      // If user doesn't exist, create new profile
+      if (!existingProfile) {
+        const newProfile = createDefaultProfile(userId, currentUser);
+        
+        const { data: createdProfile, error: createError } = await supabase
+          .from('users')
+          .insert([newProfile])
+          .select('id, email, full_name, avatar_url, subscription_tier, subscription_status, subscription_id, usage_count, usage_limit, created_at, updated_at')
+          .single();
+
+        if (createError) {
+          logError(createError, {
+            userId,
+            operation: 'create_user_profile',
+            profile: newProfile
+          });
+          
+          // Fall back to in-memory profile
+          setProfile(createFallbackProfile(userId, currentUser));
+          return;
+        }
+
+        const profile = {
+          ...createdProfile,
+          preferences: {}
+        } as UserProfile;
+        setProfile(profile);
+        
+        // Set Sentry user context
+        Sentry.setUser({
+          id: profile.id,
+          email: profile.email,
+          subscription_tier: profile.subscription_tier,
+          preferences_set: Object.keys(profile.preferences || {}).length > 0
+        });
+        
+        return;
+      }
+
+      // User exists, use existing profile and add default preferences
+      const profile = {
+        ...existingProfile,
+        preferences: {}
+      } as UserProfile;
+      setProfile(profile);
+      
+      // Set Sentry user context
+      Sentry.setUser({
+        id: profile.id,
+        email: profile.email,
+        subscription_tier: profile.subscription_tier,
+        preferences_set: Object.keys(profile.preferences || {}).length > 0
+      });
+
+    } catch (error) {
+      logError(error, {
+        userId,
+        operation: 'fetch_user_profile_catch'
+      });
+      
+      // Always provide a fallback profile
+      setProfile(createFallbackProfile(userId, currentUser));
+    }
+  }
+
+  // Create default profile for new users
+  const createDefaultProfile = (userId: string, currentUser?: User | null) => ({
+    id: userId,
+    email: currentUser?.email || '',
+    full_name: currentUser?.user_metadata?.full_name || null,
+    avatar_url: currentUser?.user_metadata?.avatar_url || null,
+    subscription_tier: 'starter' as const,
+    subscription_status: 'active' as const,
+    subscription_id: null,
+    usage_count: 0,
+    usage_limit: 10,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+
+  // Create fallback profile when database operations fail
+  const createFallbackProfile = (userId: string, currentUser?: User | null): UserProfile => {
+    logWarning('Using fallback profile due to database error', { userId });
+    
+    return {
       id: userId,
       email: currentUser?.email || '',
       full_name: currentUser?.user_metadata?.full_name || null,
@@ -77,10 +182,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription_id: null,
       usage_count: 0,
       usage_limit: 10,
+      preferences: {},
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
-    }
-    setProfile(defaultProfile)
+    };
   }
 
   const signUp = async (email: string, password: string, fullName: string) => {
