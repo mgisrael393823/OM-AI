@@ -58,6 +58,15 @@ export default function AppPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
   
+  // Debug logging for auth state
+  useEffect(() => {
+    console.log('📱 App Page - Auth State:', { 
+      loading, 
+      hasUser: !!user, 
+      userEmail: user?.email 
+    })
+  }, [loading, user])
+  
   // Responsive sidebar state management
   const {
     sidebarState,
@@ -99,8 +108,12 @@ export default function AppPage() {
 
   // Redirect to login if not authenticated
   useEffect(() => {
+    console.log('🔄 Checking auth redirect:', { loading, hasUser: !!user })
     if (!loading && !user) {
+      console.log('❌ No user, redirecting to login')
       router.push('/auth/login')
+    } else if (!loading && user) {
+      console.log('✅ User authenticated, staying on app page')
     }
   }, [user, loading, router])
 
@@ -157,11 +170,14 @@ export default function AppPage() {
 
   // Show loading until authenticated
   if (loading || !user) {
+    console.log('⏳ Showing loading screen:', { loading, hasUser: !!user })
     return (
       <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-          <p className="text-sm text-gray-500">Loading...</p>
+          <p className="text-sm text-gray-500">
+            {loading ? 'Loading...' : 'Authenticating...'}
+          </p>
         </div>
       </div>
     )
@@ -783,7 +799,7 @@ export default function AppPage() {
                         isLoading={msg.role === 'assistant' && index === messages.length - 1 && isLoading}
                         onCopy={() => {
                           // Optional: Add analytics or toast notification
-                          console.log('Message copied:', msg.content.slice(0, 50) + '...')
+                          // Message copy functionality
                         }}
                       />
                     ))}
@@ -884,7 +900,6 @@ export default function AppPage() {
               </div>
               <DocumentUpload 
                 onUploadComplete={(document) => {
-                  console.log('Document uploaded:', document)
                   setShowUpload(false)
                   // Auto-expand documents accordion after upload
                   setDocumentsAccordionValue('documents')
