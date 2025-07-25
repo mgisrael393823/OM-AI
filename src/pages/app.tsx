@@ -25,6 +25,8 @@ import {
 } from "lucide-react"
 import { useChatPersistent } from "@/hooks/useChatPersistent"
 import { DocumentUpload } from "@/components/app/DocumentUpload"
+import { MessageBubble } from "@/components/app/MessageBubble"
+import { ChatHistory } from "@/components/app/ChatHistory"
 import { useAuth } from "@/contexts/AuthContext"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 
@@ -55,7 +57,9 @@ export default function AppPage() {
     isLoadingHistory,
     sendMessage, 
     createNewChat,
-    loadChatSession
+    loadChatSession,
+    deleteChatSession,
+    renameChatSession
   } = useChatPersistent(selectedDocumentId)
 
   // Redirect to login if not authenticated
@@ -200,37 +204,22 @@ export default function AppPage() {
           </div>
 
           {/* Chat History & Documents */}
-          <ScrollArea className="flex-1 px-2">
-            <div className="space-y-1">
-              {/* Chat Sessions */}
-              {isLoadingHistory ? (
-                <div className="px-2 py-4 text-center">
-                  <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Loading chats...
-                  </p>
-                </div>
-              ) : chatSessions.length > 0 ? (
-                <>
-                  <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Chats
-                  </div>
-                  {chatSessions.map((session) => (
-                    <Button
-                      key={session.id}
-                      variant={currentSessionId === session.id ? "secondary" : "ghost"}
-                      className="w-full justify-start text-left h-auto py-2 px-3 text-sm font-normal"
-                      onClick={() => loadChatSession(session.id)}
-                    >
-                      <MessageSquare className="h-4 w-4 mr-2 flex-shrink-0" />
-                      <span className="truncate">{session.title || 'Untitled Chat'}</span>
-                    </Button>
-                  ))}
-                </>
-              ) : null}
+          <div className="flex-1 flex flex-col">
+            {/* Chat History with enhanced search & organization */}
+            <div className="flex-1 min-h-0">
+              <ChatHistory
+                sessions={chatSessions}
+                currentSessionId={currentSessionId}
+                isLoading={isLoadingHistory}
+                onSelectSession={loadChatSession}
+                onDeleteSession={deleteChatSession}
+                onRenameSession={renameChatSession}
+              />
+            </div>
 
-              {/* Documents Section */}
-              <div className="pt-4">
+            {/* Documents Section */}
+            <div className="border-t p-4">
+              <div className="mb-3">
                 <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Documents
                 </div>
@@ -306,16 +295,9 @@ export default function AppPage() {
                 )}
               </div>
 
-              {chatSessions.length === 0 && (
-                <div className="px-2 py-4 text-center">
-                  <MessageSquare className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    No chats yet
-                  </p>
-                </div>
-              )}
+              </div>
             </div>
-          </ScrollArea>
+          </div>
 
           {/* User Profile */}
           <div className="p-4 border-t border-gray-200 dark:border-gray-700">
@@ -462,40 +444,20 @@ export default function AppPage() {
                     </div>
                   </div>
                 ) : (
-                  // Chat Messages
-                  <div className="space-y-6">
+                  // Chat Messages with new MessageBubble component
+                  <div className="space-y-4">
                     {messages.map((msg, index) => (
-                      <div key={msg.id} className={`flex items-start space-x-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
-                        {msg.role === 'assistant' && (
-                          <Avatar className="h-8 w-8 flex-shrink-0">
-                            <AvatarFallback className="bg-blue-100 dark:bg-blue-900">
-                              <Bot className="h-5 w-5 text-blue-600" />
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                        <div className={`
-                          max-w-2xl p-4 rounded-lg
-                          ${msg.role === 'assistant' 
-                            ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100' 
-                            : 'bg-blue-600 text-white'
-                          }
-                        `}>
-                          <p className="whitespace-pre-wrap">{msg.content}</p>
-                          {msg.role === 'assistant' && index === messages.length - 1 && isLoading && (
-                            <div className="flex items-center mt-2">
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              <span className="text-sm opacity-70">Thinking...</span>
-                            </div>
-                          )}
-                        </div>
-                        {msg.role === 'user' && (
-                          <Avatar className="h-8 w-8 flex-shrink-0">
-                            <AvatarFallback className="bg-gray-100 dark:bg-gray-700">
-                              <User className="h-5 w-5" />
-                            </AvatarFallback>
-                          </Avatar>
-                        )}
-                      </div>
+                      <MessageBubble
+                        key={msg.id}
+                        role={msg.role}
+                        content={msg.content}
+                        timestamp={msg.timestamp}
+                        isLoading={msg.role === 'assistant' && index === messages.length - 1 && isLoading}
+                        onCopy={() => {
+                          // Optional: Add analytics or toast notification
+                          console.log('Message copied:', msg.content.slice(0, 50) + '...')
+                        }}
+                      />
                     ))}
                     <div ref={messagesEndRef} />
                   </div>

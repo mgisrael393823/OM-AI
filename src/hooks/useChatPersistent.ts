@@ -235,6 +235,32 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     }
   }, [user, session, currentSessionId, getAuthToken])
 
+  // Rename chat session
+  const renameChatSession = useCallback(async (sessionId: string, newTitle: string) => {
+    if (!user || !session) return
+
+    try {
+      const response = await fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
+        method: "PATCH",
+        credentials: 'include',
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getAuthToken()}`
+        },
+        body: JSON.stringify({ title: newTitle })
+      })
+
+      if (response.ok) {
+        // Update in local state
+        setChatSessions(prev => prev.map(s => 
+          s.id === sessionId ? { ...s, title: newTitle } : s
+        ))
+      }
+    } catch (error) {
+      console.error("Error renaming chat session:", error)
+    }
+  }, [user, session, getAuthToken])
+
   // Load chat sessions on mount
   useEffect(() => {
     if (user && session) {
@@ -255,6 +281,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     createNewChat,
     loadChatSession,
     deleteChatSession,
+    renameChatSession,
     loadChatSessions
   }
 }
