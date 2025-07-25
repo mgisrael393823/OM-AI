@@ -230,10 +230,17 @@ const ChatSessionItem = React.memo<{
         </div>
       ) : (
         // Display Mode
-        <Button
-          variant="ghost"
-          className="w-full h-auto p-0 justify-start text-left font-normal hover:bg-transparent"
+        <div 
+          className="w-full cursor-pointer"
           onClick={() => onSelect?.(session.id)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onSelect?.(session.id)
+            }
+          }}
           aria-current={isSelected ? 'true' : 'false'}
           aria-label={`${title}, ${relativeTime}`}
         >
@@ -245,21 +252,20 @@ const ChatSessionItem = React.memo<{
                   {title}
                 </p>
                 {onToggleExpanded && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-4 w-4 p-0 opacity-0 group-hover:opacity-60 hover:opacity-100"
+                  <button
+                    className="h-4 w-4 p-0 opacity-0 group-hover:opacity-60 hover:opacity-100 rounded flex items-center justify-center transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation()
                       onToggleExpanded(session.id)
                     }}
+                    aria-label={isExpanded ? "Collapse details" : "Expand details"}
                   >
                     {isExpanded ? (
                       <ChevronUp className="w-3 h-3" />
                     ) : (
                       <ChevronDown className="w-3 h-3" />
                     )}
-                  </Button>
+                  </button>
                 )}
               </div>
               
@@ -283,7 +289,7 @@ const ChatSessionItem = React.memo<{
               )}
             </div>
           </div>
-        </Button>
+        </div>
       )}
 
       {/* Actions Menu */}
@@ -291,15 +297,13 @@ const ChatSessionItem = React.memo<{
         <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 w-5 p-0"
+              <button
+                className="h-5 w-5 p-0 rounded hover:bg-accent flex items-center justify-center transition-colors"
                 onClick={(e) => e.stopPropagation()}
                 aria-label="More actions"
               >
                 <MoreVertical className="h-3 w-3" />
-              </Button>
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {onRename && (

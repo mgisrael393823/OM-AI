@@ -36,6 +36,9 @@ import { useSidebar } from "@/hooks/useSidebar"
 import { DocumentUpload } from "@/components/app/DocumentUpload"
 import { MessageBubble } from "@/components/app/MessageBubble"
 import { ChatHistory } from "@/components/app/ChatHistory"
+import { ChatWelcome } from "@/components/app/ChatWelcome"
+import { MessageGroup } from "@/components/app/MessageGroup"
+import { ScrollToBottom } from "@/components/ui/scroll-to-bottom"
 import { useAuth } from "@/contexts/AuthContext"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import {
@@ -277,17 +280,24 @@ export default function AppPage() {
       <Head>
         <title>OM Intel Chat</title>
         <meta name="description" content="AI-powered commercial real estate analysis" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
       </Head>
 
-      {/* Responsive Layout Container */}
-      <div className={`
-        h-screen bg-white dark:bg-gray-900 overflow-hidden overflow-x-hidden flex
-        ${isDesktop ? 'transition-all duration-300' : ''}
-      `}>
-        {/* Sidebar Container */}
+      {/* Fully Responsive Layout Container */}
+      <div 
+        className={`
+          h-screen max-h-screen bg-background text-foreground overflow-hidden flex
+          ${isDesktop ? 'transition-all duration-300' : ''}
+        `}
+        style={{ 
+          height: '100dvh', // Dynamic viewport height for mobile browsers
+          maxHeight: '100dvh'
+        }}
+      >
+        {/* Responsive Sidebar Container */}
         <div className={`
           ${isMobile 
-            ? `fixed inset-y-0 left-0 z-50 w-full max-w-sm transform transition-transform duration-300 ease-in-out ${
+            ? `fixed inset-y-0 left-0 z-50 w-full max-w-xs sm:max-w-sm transform transition-transform duration-300 ease-in-out ${
                 sidebarOpen ? 'translate-x-0' : '-translate-x-full'
               }`
             : isTablet
@@ -296,11 +306,16 @@ export default function AppPage() {
               }`
             : `relative flex-shrink-0 transition-all duration-300 ease-in-out`
           }
-          bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700
+          bg-muted/30 border-r border-border
           flex flex-col overflow-hidden
+          h-full
         `}
         style={{
-          width: isMobile ? '100%' : sidebarOpen || isDesktop ? `${sidebarWidth}px` : '0px'
+          width: isMobile 
+            ? '100%' 
+            : sidebarOpen || isDesktop 
+            ? `${Math.min(sidebarWidth, window.innerWidth * 0.4)}px` // Max 40% of screen width
+            : '0px'
         }}
         ref={sidebarRef}
         {...(isMobile ? bind() : {})}
@@ -713,154 +728,183 @@ export default function AppPage() {
             </div>
           )}
 
-          {/* Chat Area - Proper flex layout with overflow */}
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {/* Messages - Independent scroll zone */}
-            <div className="flex-1 overflow-y-auto">
-              <div className="max-w-3xl mx-auto px-4 py-8">
+          {/* Fully Responsive Chat Area */}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+            {/* Messages Container - Responsive with proper constraints */}
+            <div className="flex-1 relative">
+              <div 
+                ref={messagesEndRef}
+                className="h-full overflow-y-auto overflow-x-hidden scrollbar-auto-hide"
+                style={{ 
+                  paddingBottom: 'clamp(80px, 15vh, 140px)', // Responsive bottom padding
+                  paddingTop: 'env(safe-area-inset-top, 0)' // Safe area for notched devices
+                }}
+              >
                 {messages.length === 0 ? (
-                  // Welcome State
-                  <div className="text-center py-12">
-                    <div className="mb-6">
-                      <Avatar className="h-16 w-16 mx-auto mb-4">
-                        <AvatarFallback className="bg-blue-100 dark:bg-blue-900">
-                          <Bot className="h-8 w-8 text-blue-600" />
-                        </AvatarFallback>
-                      </Avatar>
-                    </div>
-                    <h1 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">
-                      How can I help, {userDisplayData.name.split(' ')[0]}?
-                    </h1>
-                    <p className="text-gray-600 dark:text-gray-400 mb-8 max-w-md mx-auto">
-                      I'm OM Intel, your AI assistant for commercial real estate analysis. Upload documents and ask questions about your deals.
-                    </p>
-                    
-                    {/* Suggested prompts */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto">
-                      <Button 
-                        variant="outline" 
-                        className="h-auto p-4 text-left justify-start"
-                        onClick={() => setMessage("Analyze the key risks in this commercial lease agreement")}
-                      >
-                        <FileText className="h-5 w-5 mr-3 text-blue-600" />
-                        <div>
-                          <div className="font-medium">Analyze lease agreements</div>
-                          <div className="text-sm text-gray-500">Review terms and identify risks</div>
-                        </div>
-                      </Button>
-                      
-                      <Button 
-                        variant="outline" 
-                        className="h-auto p-4 text-left justify-start"
-                        onClick={() => setMessage("What are the current market trends for office properties?")}
-                      >
-                        <Building2 className="h-5 w-5 mr-3 text-green-600" />
-                        <div>
-                          <div className="font-medium">Market analysis</div>
-                          <div className="text-sm text-gray-500">Get insights on property trends</div>
-                        </div>
-                      </Button>
-                      
-                      <Button 
-                        variant="outline" 
-                        className="h-auto p-4 text-left justify-start"
-                        onClick={() => setMessage("Help me evaluate this investment opportunity")}
-                      >
-                        <MessageSquare className="h-5 w-5 mr-3 text-purple-600" />
-                        <div>
-                          <div className="font-medium">Investment evaluation</div>
-                          <div className="text-sm text-gray-500">Assess deal potential and returns</div>
-                        </div>
-                      </Button>
-                      
-                      <Button 
-                        variant="outline" 
-                        className="h-auto p-4 text-left justify-start"
-                        onClick={() => setMessage("What due diligence items should I focus on?")}
-                      >
-                        <Settings className="h-5 w-5 mr-3 text-orange-600" />
-                        <div>
-                          <div className="font-medium">Due diligence</div>
-                          <div className="text-sm text-gray-500">Comprehensive property review</div>
-                        </div>
-                      </Button>
-                    </div>
+                  // Responsive Welcome Screen
+                  <div className="h-full flex items-center justify-center p-4 sm:p-6 lg:p-8">
+                    <ChatWelcome
+                      onStartChat={() => {
+                        // Focus input or trigger suggested message
+                        const input = document.querySelector('textarea')
+                        input?.focus()
+                      }}
+                      hasDocuments={documents.length > 0}
+                      onUploadDocument={() => setShowUpload(true)}
+                    />
                   </div>
                 ) : (
-                  // Chat Messages with new MessageBubble component
-                  <div className="space-y-4">
-                    {messages.map((msg, index) => (
-                      <MessageBubble
-                        key={msg.id}
-                        role={msg.role}
-                        content={msg.content}
-                        timestamp={msg.timestamp}
-                        isLoading={msg.role === 'assistant' && index === messages.length - 1 && isLoading}
-                        onCopy={() => {
-                          // Optional: Add analytics or toast notification
-                          // Message copy functionality
-                        }}
-                      />
-                    ))}
-                    <div ref={messagesEndRef} />
+                  // Responsive Message Thread with adaptive spacing
+                  <div className="w-full min-h-full">
+                    <div className="max-w-full mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+                      <div className="max-w-[min(800px,calc(100vw-2rem))] mx-auto space-y-4 sm:space-y-6 lg:space-y-8">
+                        <MessageGroup
+                          messages={messages}
+                          isLoading={isLoading}
+                          onCopy={(content) => {
+                            // Optional: Add analytics or toast notification
+                            console.log('Message copied:', content.slice(0, 50) + '...')
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
+
+              {/* Responsive Floating Scroll to Bottom Button */}
+              <ScrollToBottom
+                target={messagesEndRef}
+                threshold={200}
+                position="bottom-right"
+                offset={{ 
+                  x: isMobile ? 16 : 24, 
+                  y: isMobile ? 120 : 140 
+                }}
+                showUnreadCount={false}
+                size={isMobile ? "sm" : "md"}
+                variant="default"
+                className="shadow-lg"
+              />
             </div>
 
-            {/* Input Area */}
-            <div className="border-t border-gray-200 dark:border-gray-700 p-4">
-              <div className="max-w-3xl mx-auto">
-                <div className="relative flex items-center">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="absolute left-3 z-10"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                  
-                  <Input
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    placeholder="Ask anything about commercial real estate..."
-                    className="pl-12 pr-24 py-3 text-base border-gray-300 dark:border-gray-600 rounded-xl"
-                    disabled={isLoading}
-                  />
-                  
-                  <div className="absolute right-3 flex items-center space-x-2">
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => setShowUpload(true)}
-                      title="Upload document"
-                    >
-                      <Paperclip className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm">
-                      <Mic className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      size="sm"
-                      onClick={handleSendMessage}
-                      disabled={!message.trim() || isLoading}
-                      className="rounded-lg"
-                    >
-                      {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </Button>
+            {/* Fully Responsive Fixed Input Area */}
+            <div 
+              className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border"
+              style={{
+                paddingBottom: 'env(safe-area-inset-bottom, 0)' // Safe area for devices with home indicator
+              }}
+            >
+              <div className="max-w-full mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4">
+                <div className="max-w-[min(800px,calc(100vw-2rem))] mx-auto">
+                  <div className="relative flex items-end space-x-2 sm:space-x-3">
+                    <div className="flex-1 relative">
+                      <textarea
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault()
+                            handleSendMessage()
+                          }
+                        }}
+                        placeholder={isMobile 
+                          ? "Ask anything..." 
+                          : "Ask anything about commercial real estate..."
+                        }
+                        className={`
+                          w-full resize-none rounded-2xl border border-border bg-background shadow-sm 
+                          focus:ring-2 focus:ring-primary focus:border-transparent transition-all
+                          ${isMobile 
+                            ? 'min-h-[44px] max-h-28 px-3 py-2.5 pr-24 text-base' 
+                            : 'min-h-[52px] max-h-32 px-4 py-3 pr-32 text-base'
+                          }
+                        `}
+                        disabled={isLoading}
+                        rows={1}
+                        style={{
+                          scrollbarWidth: 'thin',
+                          scrollbarColor: 'hsl(var(--border)) transparent',
+                          fontSize: isMobile ? '16px' : '14px' // Prevent zoom on iOS
+                        }}
+                      />
+                      
+                      {/* Responsive Input Actions */}
+                      <div className={`
+                        absolute right-2 bottom-2 flex items-center
+                        ${isMobile ? 'space-x-0.5' : 'space-x-1'}
+                      `}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => setShowUpload(true)}
+                          title="Upload document"
+                          className={`
+                            p-0 hover:bg-muted touch-manipulation
+                            ${isMobile ? 'h-7 w-7' : 'h-8 w-8'}
+                          `}
+                        >
+                          <Paperclip className={isMobile ? "h-3.5 w-3.5" : "h-4 w-4"} />
+                        </Button>
+                        {!isMobile && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            title="Voice input"
+                            className="h-8 w-8 p-0 hover:bg-muted"
+                          >
+                            <Mic className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button 
+                          size="sm"
+                          onClick={handleSendMessage}
+                          disabled={!message.trim() || isLoading}
+                          className={`
+                            p-0 rounded-lg touch-manipulation
+                            ${isMobile ? 'h-7 w-7' : 'h-8 w-8'}
+                          `}
+                          title="Send message"
+                        >
+                          {isLoading ? (
+                            <Loader2 className={`animate-spin ${isMobile ? "h-3.5 w-3.5" : "h-4 w-4"}`} />
+                          ) : (
+                            <Send className={isMobile ? "h-3.5 w-3.5" : "h-4 w-4"} />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                
-                <div className="flex items-center justify-center mt-2">
-                  <Button variant="ghost" size="sm" className="text-xs text-gray-500">
-                    <FileText className="h-3 w-3 mr-1" />
-                    Tools
-                  </Button>
+                  
+                  {/* Responsive Input Footer */}
+                  <div className={`
+                    flex items-center justify-between mt-2 text-xs text-muted-foreground
+                    ${isMobile ? 'flex-col space-y-2' : 'flex-row'}
+                  `}>
+                    {!isMobile && (
+                      <div className="flex items-center space-x-4">
+                        <span>Press Enter to send, Shift + Enter for new line</span>
+                      </div>
+                    )}
+                    <div className={`
+                      flex items-center space-x-2
+                      ${isMobile ? 'flex-wrap justify-center' : ''}
+                    `}>
+                      {selectedDocumentId && (
+                        <div className="flex items-center space-x-1 px-2 py-1 bg-primary/10 rounded-md">
+                          <FileText className="h-3 w-3 text-primary" />
+                          <span className="text-primary text-xs">
+                            {isMobile ? 'Doc' : 'Doc attached'}
+                          </span>
+                        </div>
+                      )}
+                      {!isMobile && (
+                        <Button variant="ghost" size="sm" className="h-auto p-1 text-xs hover:bg-muted opacity-70">
+                          <span>AI can make mistakes. Verify important information.</span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

@@ -154,25 +154,120 @@
   }
 }
 
-/* Custom scrollbar */
+/* Enhanced Scroll Container Styles */
+.scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+  scroll-behavior: smooth;
+}
+
+.scroll-container:hover {
+  scrollbar-color: hsl(var(--border) / 0.8) transparent;
+}
+
+/* Hide scrollbars when specified */
+.scroll-container-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scroll-container-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+/* Smooth momentum scrolling */
+.scroll-momentum {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Enhanced Custom scrollbar for Webkit */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-slate-100 dark:bg-slate-800;
+  background: transparent;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 dark:bg-slate-600 rounded-full;
+  background: hsl(var(--border));
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-400 dark:bg-slate-500;
+  background: hsl(var(--border) / 0.8);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Virtual scroll list enhancements */
+.virtual-scroll-list {
+  position: relative;
+}
+
+.virtual-scroll-list .react-window-list {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+
+.virtual-scroll-list .react-window-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.virtual-scroll-list .react-window-list::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.virtual-scroll-list .react-window-list::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.virtual-scroll-list .react-window-list::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--border) / 0.8);
+}
+
+/* Ensure proper touch scrolling on mobile */
+@media (hover: none) {
+  .scroll-container,
+  .virtual-scroll-list {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Smooth scroll behavior for scroll containers */
+.scroll-smooth {
+  scroll-behavior: smooth;
+}
+
+/* Auto-hide scrollbar animation */
+.scrollbar-auto-hide {
+  transition: scrollbar-color 0.3s ease;
+}
+
+.scrollbar-auto-hide:not(:hover):not(:focus-within) {
+  scrollbar-color: transparent transparent;
+}
+
+.scrollbar-auto-hide:not(:hover):not(:focus-within)::-webkit-scrollbar-thumb {
+  background: transparent;
 }
 
 /* Chat-specific animations */
 .chat-message-enter {
+  animation: slideInUp 0.3s ease-out;
+}
+
+.animate-slideInUp {
   animation: slideInUp 0.3s ease-out;
 }
 
@@ -184,6 +279,20 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Message group animations */
+.message-container {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
@@ -199,4 +308,89 @@
 /* Global smooth transitions */
 * {
   @apply transition-colors duration-200;
+}
+
+/* Responsive layout utilities */
+@layer utilities {
+  /* Dynamic viewport height support */
+  .h-screen-dynamic {
+    height: 100vh;
+    height: 100dvh;
+  }
+  
+  .max-h-screen-dynamic {
+    max-height: 100vh;
+    max-height: 100dvh;
+  }
+  
+  /* Touch target optimization */
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
+  
+  /* Text size optimization for mobile */
+  @media (max-width: 640px) {
+    .text-responsive {
+      font-size: max(16px, 1rem); /* Prevent zoom on iOS */
+    }
+  }
+  
+  /* Safe area insets */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0);
+  }
+  
+  /* Container query utilities */
+  .container-responsive {
+    width: min(800px, calc(100vw - 2rem));
+  }
+  
+  /* Mobile keyboard handling */
+  @supports (-webkit-appearance: none) {
+    .ios-keyboard-fix {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+    }
+  }
+}
+
+/* Mobile-specific improvements */
+@media (max-width: 640px) {
+  /* Ensure proper touch scrolling */
+  .message-container {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Optimize tap targets */
+  button, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+    touch-action: manipulation;
+  }
+  
+  /* Prevent text size adjustment */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+}
+
+/* Tablet-specific improvements */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .tablet-responsive {
+    max-width: 90vw;
+  }
+}
+
+/* High DPI display optimization */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .high-dpi-border {
+    border-width: 0.5px;
+  }
 }
