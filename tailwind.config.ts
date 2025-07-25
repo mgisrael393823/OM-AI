@@ -59,6 +59,36 @@ const config: Config = {
   				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
   				border: 'hsl(var(--sidebar-border))',
   				ring: 'hsl(var(--sidebar-ring))'
+  			},
+  			// Chat-specific design tokens
+  			chat: {
+  				user: {
+  					bg: 'hsl(var(--chat-user-bg))',
+  					fg: 'hsl(var(--chat-user-fg))'
+  				},
+  				assistant: {
+  					bg: 'hsl(var(--chat-assistant-bg))',
+  					fg: 'hsl(var(--chat-assistant-fg))'
+  				},
+  				timestamp: 'hsl(var(--chat-timestamp))',
+  				divider: 'hsl(var(--chat-divider))',
+  				hover: 'hsl(var(--chat-hover-bg))'
+  			},
+  			avatar: {
+  				user: {
+  					bg: 'hsl(var(--avatar-user-bg))',
+  					fg: 'hsl(var(--avatar-user-fg))'
+  				},
+  				assistant: {
+  					bg: 'hsl(var(--avatar-assistant-bg))',
+  					fg: 'hsl(var(--avatar-assistant-fg))'
+  				}
+  			},
+  			status: {
+  				success: 'hsl(var(--status-success))',
+  				warning: 'hsl(var(--status-warning))',
+  				error: 'hsl(var(--status-error))',
+  				info: 'hsl(var(--status-info))'
   			}
   		},
   		borderRadius: {

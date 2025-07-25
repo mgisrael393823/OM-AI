@@ -4,78 +4,7 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
-  }
-
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-}
-
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
-}
-
-@layer base {
-  :root {
+    /* Base Design System Colors - WCAG AA Compliant */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -95,13 +24,38 @@
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
+    --radius: 0.75rem;
+
+    /* Chat-Specific Design Tokens */
+    --chat-user-bg: 221.2 83.2% 53.3%;
+    --chat-user-fg: 210 40% 98%;
+    --chat-assistant-bg: 210 40% 96%;
+    --chat-assistant-fg: 222.2 84% 4.9%;
+    --chat-bubble-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    --chat-timestamp: 215.4 16.3% 56.9%;
+    --chat-divider: 214.3 31.8% 91.4%;
+    --chat-hover-bg: 210 40% 94%;
+    
+    /* Avatar Colors */
+    --avatar-user-bg: 215.4 16.3% 46.9%;
+    --avatar-user-fg: 210 40% 98%;
+    --avatar-assistant-bg: 221.2 83.2% 93%;
+    --avatar-assistant-fg: 221.2 83.2% 53.3%;
+    
+    /* Status Colors */
+    --status-success: 142.1 76.2% 36.3%;
+    --status-warning: 47.9 95.8% 53.1%;
+    --status-error: 0 84.2% 60.2%;
+    --status-info: 221.2 83.2% 53.3%;
+
+    /* Chart Colors */
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.75rem;
   }
+
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
@@ -122,6 +76,30 @@
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 94.1%;
+
+    /* Chat-Specific Dark Mode */
+    --chat-user-bg: 217.2 91.2% 59.8%;
+    --chat-user-fg: 222.2 84% 4.9%;
+    --chat-assistant-bg: 217.2 32.6% 17.5%;
+    --chat-assistant-fg: 210 40% 98%;
+    --chat-bubble-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --chat-timestamp: 215 20.2% 65.1%;
+    --chat-divider: 217.2 32.6% 17.5%;
+    --chat-hover-bg: 217.2 32.6% 20.5%;
+
+    /* Avatar Colors Dark */
+    --avatar-user-bg: 215 20.2% 65.1%;
+    --avatar-user-fg: 222.2 84% 4.9%;
+    --avatar-assistant-bg: 217.2 32.6% 17.5%;
+    --avatar-assistant-fg: 217.2 91.2% 59.8%;
+
+    /* Status Colors Dark */
+    --status-success: 142.1 70.6% 45.3%;
+    --status-warning: 47.9 95.8% 53.1%;
+    --status-error: 0 72.2% 50.6%;
+    --status-info: 217.2 91.2% 59.8%;
+
+    /* Chart Colors Dark */
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
@@ -151,6 +129,29 @@
   .gradient-text {
     @apply bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent;
   }
+  
+  /* Chat Message Bubbles */
+  .chat-bubble-user {
+    @apply bg-chat-user-bg text-chat-user-fg rounded-2xl rounded-br-md px-4 py-3 max-w-2xl ml-auto;
+    box-shadow: var(--chat-bubble-shadow);
+  }
+  
+  .chat-bubble-assistant {
+    @apply bg-chat-assistant-bg text-chat-assistant-fg rounded-2xl rounded-bl-md px-4 py-3 max-w-2xl mr-auto;
+    box-shadow: var(--chat-bubble-shadow);
+  }
+  
+  .chat-timestamp {
+    @apply text-chat-timestamp text-xs font-medium;
+  }
+  
+  .chat-avatar-user {
+    @apply bg-avatar-user-bg text-avatar-user-fg;
+  }
+  
+  .chat-avatar-assistant {
+    @apply bg-avatar-assistant-bg text-avatar-assistant-fg;
+  }
 }
 
 /* Custom scrollbar */
@@ -170,7 +171,32 @@
   @apply bg-slate-400 dark:bg-slate-500;
 }
 
-/* Smooth animations */
+/* Chat-specific animations */
+.chat-message-enter {
+  animation: slideInUp 0.3s ease-out;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Loading dots animation delays */
+.animation-delay-200 { 
+  animation-delay: 0.2s; 
+}
+
+.animation-delay-400 { 
+  animation-delay: 0.4s; 
+}
+
+/* Global smooth transitions */
 * {
   @apply transition-colors duration-200;
 }
