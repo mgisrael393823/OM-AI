@@ -37,3 +37,6 @@ next-env.d.ts
 
 # firebase
 firebase-service-account.json
+
+# Claude Code configuration
+.claude/

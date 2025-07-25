@@ -169,9 +169,14 @@ Unified chat endpoint supporting session persistence and advanced options.
 }
 ```
 
-> **Note**
-> Endpoints `/api/chat-v2` and `/api/chat-enhanced` are deprecated and now
-> redirect here.
+> **Migration Notice**
+> Endpoints `/api/chat-v2` and `/api/chat-enhanced` are deprecated as of 2025-01-25 and will be removed on 2025-04-01.
+> They currently redirect to the unified `/api/chat` endpoint with full backward compatibility.
+> 
+> **Migration Guide:**
+> - Replace `/api/chat-enhanced` calls with simple format: `{ "message": "...", "sessionId": "..." }`
+> - Replace `/api/chat-v2` calls with complex format: `{ "messages": [...], "options": {...} }`
+> - All existing functionality is preserved with improved performance and reliability
 
 #### POST `/api/upload`
 Upload a PDF document
