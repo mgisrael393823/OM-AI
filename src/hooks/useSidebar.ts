@@ -88,14 +88,13 @@ export function useSidebar(options: UseSidebarOptions = {}): UseSidebarReturn {
 
   // Auto-adjust sidebar behavior based on device type
   useEffect(() => {
-    if (deviceType === 'mobile') {
-      // Mobile: Always start closed
+    if (deviceType === 'mobile' || deviceType === 'tablet') {
+      // Mobile & Tablet: Always start closed (overlay behavior)
       setSidebarOpenInternal(false)
     } else if (deviceType === 'desktop') {
       // Desktop: Default to open unless user specifically closed it
       setSidebarOpenInternal(true)
     }
-    // Tablet: Keep current state
   }, [deviceType])
 
   // Save state to localStorage when it changes
@@ -126,11 +125,11 @@ export function useSidebar(options: UseSidebarOptions = {}): UseSidebarReturn {
   }, [storageKey])
 
   const toggleSidebar = useCallback(() => {
-    if (deviceType === 'mobile') {
-      // Mobile: Toggle overlay
+    if (deviceType === 'mobile' || deviceType === 'tablet') {
+      // Mobile & Tablet: Toggle overlay
       setSidebarOpen(!sidebarOpen)
     } else {
-      // Desktop/Tablet: Toggle between collapsed and normal
+      // Desktop: Toggle between collapsed and normal
       if (sidebarState === 'collapsed') {
         setSidebarState('normal')
       } else {
@@ -140,7 +139,7 @@ export function useSidebar(options: UseSidebarOptions = {}): UseSidebarReturn {
   }, [deviceType, sidebarOpen, sidebarState, setSidebarOpen, setSidebarState])
 
   const collapseSidebar = useCallback(() => {
-    if (deviceType === 'mobile') {
+    if (deviceType === 'mobile' || deviceType === 'tablet') {
       setSidebarOpen(false)
     } else {
       setSidebarState('collapsed')
@@ -148,7 +147,7 @@ export function useSidebar(options: UseSidebarOptions = {}): UseSidebarReturn {
   }, [deviceType, setSidebarOpen, setSidebarState])
 
   const expandSidebar = useCallback(() => {
-    if (deviceType === 'mobile') {
+    if (deviceType === 'mobile' || deviceType === 'tablet') {
       setSidebarOpen(true)
     } else {
       setSidebarState('expanded')

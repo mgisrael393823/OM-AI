@@ -159,6 +159,7 @@
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--border)) transparent;
   scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch; /* Enable momentum scrolling on iOS */
 }
 
 .scroll-container:hover {
@@ -214,6 +215,7 @@
 .virtual-scroll-list .react-window-list {
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--border)) transparent;
+  -webkit-overflow-scrolling: touch; /* Enable momentum scrolling */
 }
 
 .virtual-scroll-list .react-window-list::-webkit-scrollbar {
@@ -236,10 +238,31 @@
   background: hsl(var(--border) / 0.8);
 }
 
-/* Ensure proper touch scrolling on mobile */
-@media (hover: none) {
+/* Comprehensive momentum scrolling for touch devices */
+@media (max-width: 768px) {
+  /* Apply momentum scrolling to all scrollable elements */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Specific scrollable containers */
   .scroll-container,
-  .virtual-scroll-list {
+  .virtual-scroll-list,
+  .message-container,
+  [data-scroll="true"],
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .overflow-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+  
+  /* Chat-specific scrollable areas */
+  .chat-messages,
+  .sidebar-content,
+  .document-list,
+  .chat-history {
     -webkit-overflow-scrolling: touch;
   }
 }
@@ -252,6 +275,7 @@
 /* Auto-hide scrollbar animation */
 .scrollbar-auto-hide {
   transition: scrollbar-color 0.3s ease;
+  -webkit-overflow-scrolling: touch; /* Ensure momentum scrolling */
 }
 
 .scrollbar-auto-hide:not(:hover):not(:focus-within) {
@@ -260,6 +284,13 @@
 
 .scrollbar-auto-hide:not(:hover):not(:focus-within)::-webkit-scrollbar-thumb {
   background: transparent;
+}
+
+/* Chat Interface Momentum Scrolling */
+.chat-interface-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain; /* Prevent page bounce on iOS */
 }
 
 /* Chat-specific animations */
@@ -397,8 +428,18 @@
 
 /* Mobile-specific improvements */
 @media (max-width: 640px) {
-  /* Ensure proper touch scrolling */
-  .message-container {
+  /* Enhanced momentum scrolling for mobile */
+  body,
+  html {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+  
+  /* Ensure proper touch scrolling for all containers */
+  .message-container,
+  .chat-container,
+  .sidebar-container,
+  textarea {
     -webkit-overflow-scrolling: touch;
   }
   

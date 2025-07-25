@@ -195,7 +195,7 @@ export default function AppPage() {
 
   // Focus management for accessibility
   useEffect(() => {
-    if (!isMobile) return
+    if (!isMobile && !isTablet) return
     if (sidebarOpen && sidebarRef.current) {
       const firstFocusable = sidebarRef.current.querySelector(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -204,11 +204,11 @@ export default function AppPage() {
         firstFocusable.focus()
       }
     }
-  }, [sidebarOpen, isMobile])
+  }, [sidebarOpen, isMobile, isTablet])
 
-  // Handle escape key to close sidebar on mobile
+  // Handle escape key to close sidebar on mobile & tablet
   useEffect(() => {
-    if (!isMobile) return
+    if (!isMobile && !isTablet) return
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && sidebarOpen) {
@@ -218,7 +218,7 @@ export default function AppPage() {
 
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [sidebarOpen, isMobile, setSidebarOpen])
+  }, [sidebarOpen, isMobile, isTablet, setSidebarOpen])
 
   // Optimized status icon function to prevent unnecessary re-renders
   const getStatusIcon = useCallback((status: Document['status']) => {
@@ -301,7 +301,7 @@ export default function AppPage() {
                 sidebarOpen ? 'translate-x-0' : '-translate-x-full'
               }`
             : isTablet
-            ? `relative flex-shrink-0 transform transition-all duration-300 ease-in-out ${
+            ? `fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out ${
                 sidebarOpen ? 'translate-x-0' : '-translate-x-full'
               }`
             : `relative flex-shrink-0 transition-all duration-300 ease-in-out`
@@ -313,8 +313,10 @@ export default function AppPage() {
         style={{
           width: isMobile 
             ? '100%' 
+            : isTablet
+            ? `${sidebarWidth}px` // Fixed width for tablet overlay
             : sidebarOpen || isDesktop 
-            ? `${Math.min(sidebarWidth, window.innerWidth * 0.4)}px` // Max 40% of screen width
+            ? `${sidebarWidth}px` // Use fixed pixel widths from SIDEBAR_WIDTHS constants
             : '0px'
         }}
         ref={sidebarRef}
@@ -323,14 +325,14 @@ export default function AppPage() {
           {/* Sidebar Content */}
           <div className={`
             flex flex-col h-full
-            ${sidebarState === 'collapsed' && !isMobile ? 'items-center' : ''}
+            ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'items-center' : ''}
           `}>
           {/* Sidebar Header - Fixed */}
           <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
-              <div className={`flex items-center space-x-2 ${sidebarState === 'collapsed' && !isMobile ? 'justify-center' : ''}`}>
+              <div className={`flex items-center space-x-2 ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'justify-center' : ''}`}>
                 <Building2 className="h-6 w-6 text-blue-600" />
-                {(sidebarState !== 'collapsed' || isMobile) && (
+                {(sidebarState !== 'collapsed' || isMobile || isTablet) && (
                   <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
                 )}
               </div>
@@ -378,8 +380,8 @@ export default function AppPage() {
                   </Button>
                 )}
                 
-                {/* Mobile close button */}
-                {isMobile && (
+                {/* Mobile & Tablet close button */}
+                {(isMobile || isTablet) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -395,7 +397,7 @@ export default function AppPage() {
 
           {/* New Chat Button - Fixed */}
           <div className="flex-shrink-0 p-4">
-            {sidebarState === 'collapsed' && !isMobile ? (
+            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
               <Button 
                 className="w-full justify-center p-2" 
                 variant="outline"
@@ -429,7 +431,7 @@ export default function AppPage() {
           </div>
 
           {/* Documents Section - Collapsed State (Desktop Only) */}
-          {sidebarState === 'collapsed' && !isMobile && documents.length > 0 && (
+          {sidebarState === 'collapsed' && !isMobile && !isTablet && documents.length > 0 && (
             <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 p-2">
               <div className="flex flex-col items-center space-y-1">
                 {documents.slice(0, 3).map((doc) => (
@@ -462,7 +464,7 @@ export default function AppPage() {
           )}
 
           {/* Documents Section - Collapsible Accordion */}
-          {(sidebarState !== 'collapsed' || isMobile) && (
+          {(sidebarState !== 'collapsed' || isMobile || isTablet) && (
             <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700">
               <Accordion
                 type="single"
@@ -599,7 +601,7 @@ export default function AppPage() {
 
           {/* User Profile - Fixed at bottom */}
           <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
-            {sidebarState === 'collapsed' && !isMobile ? (
+            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
               /* Collapsed view */
               <div className="flex flex-col items-center space-y-2">
                 <Avatar className="h-8 w-8">
@@ -647,8 +649,8 @@ export default function AppPage() {
           </div>
         </div>
 
-        {/* Mobile Overlay Backdrop */}
-        {isMobile && sidebarOpen && (
+        {/* Mobile & Tablet Overlay Backdrop */}
+        {(isMobile || isTablet) && sidebarOpen && (
           <div 
             className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300"
             onClick={() => setSidebarOpen(false)}
@@ -754,19 +756,17 @@ export default function AppPage() {
                     />
                   </div>
                 ) : (
-                  // Responsive Message Thread with adaptive spacing
-                  <div className="w-full min-h-full">
-                    <div className="max-w-full mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
-                      <div className="max-w-[min(800px,calc(100vw-2rem))] mx-auto space-y-4 sm:space-y-6 lg:space-y-8">
-                        <MessageGroup
-                          messages={messages}
-                          isLoading={isLoading}
-                          onCopy={(content) => {
-                            // Optional: Add analytics or toast notification
-                            console.log('Message copied:', content.slice(0, 50) + '...')
-                          }}
-                        />
-                      </div>
+                  // Simplified Message Thread Container
+                  <div className="w-full min-h-full px-4 md:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+                    <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6 lg:space-y-8">
+                      <MessageGroup
+                        messages={messages}
+                        isLoading={isLoading}
+                        onCopy={(content) => {
+                          // Optional: Add analytics or toast notification
+                          console.log('Message copied:', content.slice(0, 50) + '...')
+                        }}
+                      />
                     </div>
                   </div>
                 )}
@@ -795,9 +795,9 @@ export default function AppPage() {
                 paddingBottom: 'env(safe-area-inset-bottom, 0)' // Safe area for devices with home indicator
               }}
             >
-              <div className="max-w-full mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4">
-                <div className="max-w-[min(800px,calc(100vw-2rem))] mx-auto">
-                  <div className="relative flex items-end space-x-2 sm:space-x-3">
+              <div className="px-4 md:px-6 lg:px-8 py-3 sm:py-4">
+                <div className="max-w-3xl mx-auto">
+                  <div className="relative flex items-end space-x-3">
                     <div className="flex-1 relative">
                       <textarea
                         value={message}
@@ -812,39 +812,30 @@ export default function AppPage() {
                           ? "Ask anything..." 
                           : "Ask anything about commercial real estate..."
                         }
-                        className={`
+                        className="
                           w-full resize-none rounded-2xl border border-border bg-background shadow-sm 
                           focus:ring-2 focus:ring-primary focus:border-transparent transition-all
-                          ${isMobile 
-                            ? 'min-h-[44px] max-h-28 px-3 py-2.5 pr-24 text-base' 
-                            : 'min-h-[52px] max-h-32 px-4 py-3 pr-32 text-base'
-                          }
-                        `}
+                          min-h-[56px] max-h-[200px] px-4 py-3 pr-24 text-base
+                        "
                         disabled={isLoading}
                         rows={1}
                         style={{
                           scrollbarWidth: 'thin',
                           scrollbarColor: 'hsl(var(--border)) transparent',
-                          fontSize: isMobile ? '16px' : '14px' // Prevent zoom on iOS
+                          fontSize: '16px' // Consistent font size to prevent zoom on iOS
                         }}
                       />
                       
                       {/* Responsive Input Actions */}
-                      <div className={`
-                        absolute right-2 bottom-2 flex items-center
-                        ${isMobile ? 'space-x-0.5' : 'space-x-1'}
-                      `}>
+                      <div className="absolute right-2 bottom-2 flex items-center space-x-1">
                         <Button 
                           variant="ghost" 
                           size="sm"
                           onClick={() => setShowUpload(true)}
                           title="Upload document"
-                          className={`
-                            p-0 hover:bg-muted touch-manipulation
-                            ${isMobile ? 'h-7 w-7' : 'h-8 w-8'}
-                          `}
+                          className="h-8 w-8 p-0 hover:bg-muted touch-manipulation"
                         >
-                          <Paperclip className={isMobile ? "h-3.5 w-3.5" : "h-4 w-4"} />
+                          <Paperclip className="h-4 w-4" />
                         </Button>
                         {!isMobile && (
                           <Button 
@@ -860,16 +851,13 @@ export default function AppPage() {
                           size="sm"
                           onClick={handleSendMessage}
                           disabled={!message.trim() || isLoading}
-                          className={`
-                            p-0 rounded-lg touch-manipulation
-                            ${isMobile ? 'h-7 w-7' : 'h-8 w-8'}
-                          `}
+                          className="h-8 w-8 p-0 rounded-lg touch-manipulation"
                           title="Send message"
                         >
                           {isLoading ? (
-                            <Loader2 className={`animate-spin ${isMobile ? "h-3.5 w-3.5" : "h-4 w-4"}`} />
+                            <Loader2 className="animate-spin h-4 w-4" />
                           ) : (
-                            <Send className={isMobile ? "h-3.5 w-3.5" : "h-4 w-4"} />
+                            <Send className="h-4 w-4" />
                           )}
                         </Button>
                       </div>
