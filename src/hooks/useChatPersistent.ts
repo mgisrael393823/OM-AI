@@ -99,18 +99,25 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     setIsLoading(true)
 
     try {
-      const response = await fetch(`${window.location.origin}/api/chat-enhanced`, {
+      const payload = {
+        message: content.trim(),
+        sessionId: currentSessionId,
+        documentId: documentId || selectedDocumentId,
+        options: {
+          stream: true
+        }
+      }
+      
+      console.log('📤 CLIENT PAYLOAD:', payload)
+      
+      const response = await fetch(`${window.location.origin}/api/chat`, {
         method: "POST",
         credentials: 'include',
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${getAuthToken()}`
         },
-        body: JSON.stringify({
-          message: content.trim(),
-          chat_session_id: currentSessionId,
-          document_id: documentId || selectedDocumentId
-        }),
+        body: JSON.stringify(payload),
       })
 
       if (!response.ok) {

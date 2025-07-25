@@ -1,20 +1,61 @@
-import { NextApiRequest, NextApiResponse } from "next"
+import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from "@/lib/auth-middleware"
-import { openai, isOpenAIConfigured } from "@/lib/openai-client"
-import { checkEnvironment, getConfig } from "@/lib/config"
-import { logError, logConfigError } from "@/lib/error-logger"
+import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { openai, isOpenAIConfigured } from '@/lib/openai-client'
+import { checkEnvironment, getConfig } from '@/lib/config'
+import { logError } from '@/lib/error-logger'
+import type { Database } from '@/types/database'
+
+// Unified request type supporting both simple and complex formats
+interface UnifiedChatRequest {
+  // Simple format (chat-enhanced compatibility)
+  message?: string
+  sessionId?: string
+  chat_session_id?: string // legacy field
+  documentId?: string
+  document_id?: string // legacy field
+  
+  // Complex format (chat-v2 compatibility)
+  messages?: Array<{
+    role: 'user' | 'assistant' | 'system'
+    content: string
+  }>
+  documentContext?: {
+    documentIds: string[]
+    maxChunks?: number
+    relevanceThreshold?: number
+  }
+  options?: {
+    model?: string
+    temperature?: number
+    maxTokens?: number
+    stream?: boolean
+  }
+}
+
+// Migration helper function to normalize different request formats
+function normalizeRequest(body: any): UnifiedChatRequest {
+  return {
+    message: body.message,
+    messages: body.messages,
+    sessionId: body.sessionId || body.chat_session_id,
+    documentId: body.documentId || body.document_id,
+    documentContext: body.documentContext,
+    options: body.options || {}
+  }
+}
 
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
-    return apiError(res, 405, "Method not allowed", "METHOD_NOT_ALLOWED")
+  console.log('📥 BODY:', req.body)
+  
+  if (req.method !== 'POST') {
+    return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
   }
 
   // Validate environment at runtime (non-blocking)
   const validation = checkEnvironment()
   if (!validation.isValid) {
     console.warn("Environment validation warnings:", validation.errors)
-    // Continue anyway in development - don't block chat functionality
   }
 
   // Check if OpenAI is properly configured
@@ -23,19 +64,35 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       "OpenAI API key is not configured. Please contact support.")
   }
 
-  const { messages, documentContext } = req.body
+  // Normalize and validate request format
+  const normalizedRequest = normalizeRequest(req.body)
+  const isSimple = typeof normalizedRequest.message === 'string'
 
-  if (!messages || !Array.isArray(messages)) {
-    return apiError(res, 400, "Messages array is required", "INVALID_MESSAGES")
+  // Validate request format
+  if (isSimple && !normalizedRequest.message) {
+    return apiError(res, 400, 'Message is required for simple format', 'MISSING_MESSAGE')
+  }
+  if (!isSimple && (!normalizedRequest.messages || !Array.isArray(normalizedRequest.messages))) {
+    return apiError(res, 400, 'Messages array is required for complex format', 'INVALID_MESSAGES')
+  }
+
+  // Log deprecated endpoint usage
+  const deprecatedEndpoint = req.headers['x-deprecated-endpoint'] as string
+  if (deprecatedEndpoint) {
+    console.warn(`Deprecated endpoint used: /api/${deprecatedEndpoint}`, {
+      userId: req.user.id,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString()
+    })
   }
 
   const config = getConfig()
-  const supabase = createClient(
+  const supabase = createClient<Database>(
     config.supabase.url,
     config.supabase.serviceRoleKey
   )
 
-  // Apply rate limiting per user
+  // Apply rate limiting per user (simplified for now)
   try {
     await withRateLimit(req.user.id, 20, 2, async () => {
       // Rate limit: 20 requests per user, refill 2 tokens per minute
@@ -44,32 +101,52 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
   }
 
-  // Retrieve document context if specified
-  let contextualInformation = ""
-  if (documentContext && Array.isArray(documentContext.documentIds) && documentContext.documentIds.length > 0) {
-    try {
-      // Get relevant document chunks based on the user's query
-      const userQuery = messages[messages.length - 1]?.content || ""
-      
-      // Search for relevant content in specified documents using full-text search
-      const { data: relevantChunks, error: searchError } = await supabase
-        .from('document_chunks')
-        .select(`
-          content,
-          page_number,
-          chunk_type,
-          documents!inner(original_filename)
-        `)
-        .eq('user_id', req.user.id)
-        .in('document_id', documentContext.documentIds)
-        .textSearch('content', userQuery)
-        .limit(5)
+  try {
+    // Handle session management
+    let sessionId = normalizedRequest.sessionId
+    if (isSimple && !sessionId) {
+      // Auto-create session for simple format
+      const { data: newSession, error: sessionError } = await supabase
+        .from('chat_sessions')
+        .insert({
+          user_id: req.user.id,
+          title: normalizedRequest.message!.slice(0, 50) + (normalizedRequest.message!.length > 50 ? '...' : ''),
+          document_id: normalizedRequest.documentId || null
+        })
+        .select()
+        .single()
 
-      if (searchError) {
-        console.error('Document search error:', searchError)
+      if (sessionError) {
+        return apiError(res, 500, 'Failed to create chat session', 'SESSION_ERROR')
+      }
+
+      sessionId = newSession.id
+    } else if (sessionId) {
+      // Verify session belongs to user
+      const { error: sessionVerifyError } = await supabase
+        .from('chat_sessions')
+        .select('id')
+        .eq('id', sessionId)
+        .eq('user_id', req.user.id)
+        .single()
+
+      if (sessionVerifyError) {
+        return apiError(res, 404, 'Chat session not found', 'SESSION_NOT_FOUND')
+      }
+    }
+
+    // Handle document context
+    let contextualInformation = ""
+    const documentIds = normalizedRequest.documentContext?.documentIds || 
+      (normalizedRequest.documentId ? [normalizedRequest.documentId] : [])
+    
+    if (documentIds.length > 0) {
+      try {
+        const userQuery = isSimple ? normalizedRequest.message : 
+          normalizedRequest.messages?.[normalizedRequest.messages.length - 1]?.content || ""
         
-        // Fallback: get all chunks from the documents if search fails
-        const { data: allChunks, error: fallbackError } = await supabase
+        // Get document chunks
+        const { data: relevantChunks, error: searchError } = await supabase
           .from('document_chunks')
           .select(`
             content,
@@ -78,28 +155,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             documents!inner(original_filename)
           `)
           .eq('user_id', req.user.id)
-          .in('document_id', documentContext.documentIds)
-          .order('page_number', { ascending: true })
-          .limit(10)
+          .in('document_id', documentIds)
+          .textSearch('content', userQuery)
+          .limit(5)
 
-        if (!fallbackError && allChunks && allChunks.length > 0) {
+        if (!searchError && relevantChunks && relevantChunks.length > 0) {
           contextualInformation = `
-
-DOCUMENT CONTEXT:
-The following information is from the user's uploaded documents:
-
-${allChunks
-  .map((chunk, index) => {
-    const docName = (chunk as any).documents?.original_filename ?? 'Unknown';
-    return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
-${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}`;
-  })
-  .join('\n')}
-
-Please reference this document context in your response when relevant.`
-        }
-      } else if (relevantChunks && relevantChunks.length > 0) {
-        contextualInformation = `
 
 DOCUMENT CONTEXT:
 The following information is from the user's uploaded documents:
@@ -113,15 +174,44 @@ ${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}`;
   .join('\n')}
 
 Please reference this document context in your response when relevant.`
+        }
+      } catch (error) {
+        console.error('Error retrieving document context:', error)
       }
-    } catch (error) {
-      console.error('Error retrieving document context:', error)
     }
-  }
 
-  const systemMessage = {
-    role: "system" as const,
-    content: `You are OM Intel, an advanced AI assistant specializing in commercial real estate analysis and document review. You are professional, insightful, and highly knowledgeable about:
+    // Build messages for OpenAI
+    let messages: Array<{ role: 'user' | 'assistant' | 'system', content: string }> = []
+    
+    if (isSimple) {
+      // For simple format, save user message and get conversation history
+      if (sessionId) {
+        await supabase.from('messages').insert({
+          chat_session_id: sessionId,
+          role: 'user',
+          content: normalizedRequest.message!
+        })
+
+        // Get conversation history
+        const { data: history } = await supabase
+          .from('messages')
+          .select('role, content')
+          .eq('chat_session_id', sessionId)
+          .order('created_at', { ascending: true })
+
+        messages = (history || []) as Array<{ role: 'user' | 'assistant' | 'system', content: string }>
+      } else {
+        // No session, just use the current message
+        messages = [{ role: 'user', content: normalizedRequest.message! }]
+      }
+    } else {
+      // For complex format, use provided messages
+      messages = normalizedRequest.messages!
+    }
+
+    const systemMessage = {
+      role: "system" as const,
+      content: `You are OM Intel, an advanced AI assistant specializing in commercial real estate analysis and document review. You are professional, insightful, and highly knowledgeable about:
 
 - Commercial real estate transactions and valuations
 - Property investment analysis and due diligence
@@ -146,94 +236,153 @@ When analyzing documents or answering questions:
 - When document context is provided, reference specific details from the documents
 - Cite page numbers and document names when referencing uploaded content
 
-Do not start responses with greetings or introductions. Answer user questions directly and professionally. Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.${contextualInformation}`
-  }
-
-  try {
-    // Set up Server-Sent Events headers for proper streaming
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
-      "X-Accel-Buffering": "no", // Disable Nginx buffering
-    })
-
-    // Create streaming response using the standard chat completions API
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [systemMessage, ...messages],
-      temperature: 0.7,
-      max_tokens: 2000,
-      stream: true,
-      // Note: Add functions here if needed
-      // functions: [ /* your function schemas */ ],
-    })
-
-    // Buffer for smoother streaming
-    let buffer = ''
-    let lastFlush = Date.now()
-    const FLUSH_INTERVAL = 50 // milliseconds
-    const MIN_CHUNK_SIZE = 5 // characters
-    
-    const flushBuffer = () => {
-      if (buffer) {
-        res.write(`data: ${JSON.stringify({ content: buffer })}\n\n`)
-        buffer = ''
-        lastFlush = Date.now()
-      }
+Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.${contextualInformation}`
     }
 
-    // Stream chunks as Server-Sent Events with buffering
-    for await (const chunk of response) {
-      const content = chunk.choices[0]?.delta?.content || ""
-      if (content) {
-        buffer += content
-        
-        // Flush buffer based on size or time
-        const shouldFlush = buffer.length >= MIN_CHUNK_SIZE || 
-                           (Date.now() - lastFlush) >= FLUSH_INTERVAL
-        
-        if (shouldFlush) {
-          flushBuffer()
+    // Always use SSE format for backward compatibility (since frontend expects it)
+    const useSSEFormat = true
+    const shouldStream = normalizedRequest.options?.stream !== false
+
+    if (shouldStream) {
+      // Set up streaming headers
+      const headers: Record<string, string> = {
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      }
+      
+      if (useSSEFormat) {
+        headers['Content-Type'] = 'text/event-stream'
+        headers['X-Accel-Buffering'] = 'no'
+      } else {
+        headers['Content-Type'] = 'text/plain; charset=utf-8'
+      }
+      
+      if (sessionId) {
+        headers['X-Chat-Session-Id'] = sessionId
+      }
+      
+      res.writeHead(200, headers)
+
+      // Create streaming response
+      const response = await openai.chat.completions.create({
+        model: normalizedRequest.options?.model || "gpt-4o",
+        messages: [systemMessage, ...messages],
+        temperature: normalizedRequest.options?.temperature || 0.7,
+        max_tokens: normalizedRequest.options?.maxTokens || 2000,
+        stream: true,
+      })
+
+      let assistantResponse = ""
+      let buffer = ''
+      let lastFlush = Date.now()
+      const FLUSH_INTERVAL = 50
+      const MIN_CHUNK_SIZE = 5
+      
+      const flushBuffer = () => {
+        if (buffer) {
+          if (useSSEFormat) {
+            res.write(`data: ${JSON.stringify({ content: buffer })}\n\n`)
+          } else {
+            res.write(buffer)
+          }
+          assistantResponse += buffer
+          buffer = ''
+          lastFlush = Date.now()
+        }
+      }
+
+      for await (const chunk of response) {
+        console.log('🔄 CHUNK:', chunk.choices[0]?.delta || chunk)
+        const content = chunk.choices[0]?.delta?.content || ""
+        if (content) {
+          buffer += content
+          
+          const shouldFlush = buffer.length >= MIN_CHUNK_SIZE || 
+                             (Date.now() - lastFlush) >= FLUSH_INTERVAL
+          
+          if (shouldFlush) {
+            flushBuffer()
+          }
         }
       }
       
-      // Send function calls if present
-      if (chunk.choices[0]?.delta?.function_call) {
-        flushBuffer() // Flush any buffered content first
-        res.write(`data: ${JSON.stringify({ 
-          function_call: chunk.choices[0].delta.function_call 
-        })}\n\n`)
-      }
-    }
-    
-    // Flush any remaining buffered content
-    flushBuffer()
+      flushBuffer()
 
-    // Send completion event
-    res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
-    res.end()
+      if (useSSEFormat) {
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
+      }
+
+      // Save assistant response if we have a session
+      if (sessionId && assistantResponse) {
+        await supabase.from('messages').insert({
+          chat_session_id: sessionId,
+          role: 'assistant',
+          content: assistantResponse
+        })
+
+        await supabase.from('chat_sessions')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', sessionId)
+      }
+
+      res.end()
+    } else {
+      // Non-streaming response
+      const response = await openai.chat.completions.create({
+        model: normalizedRequest.options?.model || "gpt-4o",
+        messages: [systemMessage, ...messages],
+        temperature: normalizedRequest.options?.temperature || 0.7,
+        max_tokens: normalizedRequest.options?.maxTokens || 2000,
+        stream: false,
+      })
+
+      const assistantContent = response.choices[0]?.message?.content || ""
+
+      // Save messages if we have a session
+      if (sessionId) {
+        await supabase.from('messages').insert({
+          chat_session_id: sessionId,
+          role: 'assistant',
+          content: assistantContent
+        })
+
+        await supabase.from('chat_sessions')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', sessionId)
+      }
+
+      res.status(200).json({
+        id: response.id,
+        content: assistantContent,
+        model: response.model,
+        usage: response.usage,
+        sessionId
+      })
+    }
+
   } catch (error) {
     logError(error, {
       endpoint: '/api/chat',
       userId: req.user.id,
-      errorType: 'OPENAI_API_ERROR'
+      errorType: 'CHAT_ERROR'
     })
     
-    // If headers haven't been sent yet, send error response
     if (!res.headersSent) {
       return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
         error instanceof Error ? error.message : "Unknown error")
     } else {
-      // If streaming has started, send error as SSE
-      res.write(`data: ${JSON.stringify({ 
-        error: error instanceof Error ? error.message : "Unknown error" 
-      })}\n\n`)
+      if (deprecatedEndpoint === 'chat-enhanced' || deprecatedEndpoint === 'chat') {
+        res.write(`data: ${JSON.stringify({ 
+          error: error instanceof Error ? error.message : "Unknown error" 
+        })}\n\n`)
+      }
       res.end()
     }
   }
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
   return withAuth(req, res, chatHandler)
 }
+
+export { chatHandler }

@@ -159,8 +159,8 @@ const result = await pdfParser.parse({
 | context | Message[] | tokens | number |
 | userId | string | session | ChatSession |
 
-**Integration Points:**
-- `/api/chat` and `/api/chat-enhanced` endpoints
+- **Integration Points:**
+- `/api/chat` endpoint (unified)
 - OpenAI GPT-4 API
 - Supabase database (messages, chat_sessions)
 - Rate limiting middleware

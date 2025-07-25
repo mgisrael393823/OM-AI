@@ -152,23 +152,31 @@ OM-AI/
 ### Core Endpoints
 
 #### POST `/api/chat`
-Send a message to the AI assistant
+Unified chat endpoint supporting session persistence and advanced options.
 ```json
 {
-  "messages": [
-    { "role": "user", "content": "Analyze this lease agreement" }
-  ]
+  "message": "What are the key terms?",       // simple format
+  "sessionId": "session-uuid",               // optional
+  "documentId": "doc-uuid"                   // optional
+}
+
+// or
+
+{
+  "messages": [ { "role": "user", "content": "Analyze this lease" } ],
+  "documentContext": { "documentIds": ["doc-uuid"] },
+  "options": { "stream": true }
 }
 ```
 
-#### POST `/api/chat-enhanced`
-Enhanced chat with session persistence
-```json
-{
-  "message": "What are the key terms?",
-  "chat_session_id": "session-uuid" // optional
-}
-```
+> **Migration Notice**
+> Endpoints `/api/chat-v2` and `/api/chat-enhanced` are deprecated as of 2025-01-25 and will be removed on 2025-04-01.
+> They currently redirect to the unified `/api/chat` endpoint with full backward compatibility.
+> 
+> **Migration Guide:**
+> - Replace `/api/chat-enhanced` calls with simple format: `{ "message": "...", "sessionId": "..." }`
+> - Replace `/api/chat-v2` calls with complex format: `{ "messages": [...], "options": {...} }`
+> - All existing functionality is preserved with improved performance and reliability
 
 #### POST `/api/upload`
 Upload a PDF document
