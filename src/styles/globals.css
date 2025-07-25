@@ -132,12 +132,12 @@
   
   /* Chat Message Bubbles */
   .chat-bubble-user {
-    @apply bg-chat-user-bg text-chat-user-fg rounded-2xl rounded-br-md px-4 py-3 max-w-2xl ml-auto;
+    @apply bg-chat-user-bg text-chat-user-fg;
     box-shadow: var(--chat-bubble-shadow);
   }
   
   .chat-bubble-assistant {
-    @apply bg-chat-assistant-bg text-chat-assistant-fg rounded-2xl rounded-bl-md px-4 py-3 max-w-2xl mr-auto;
+    @apply bg-chat-assistant-bg text-chat-assistant-fg;
     box-shadow: var(--chat-bubble-shadow);
   }
   
@@ -347,6 +347,41 @@
   /* Container query utilities */
   .container-responsive {
     width: min(800px, calc(100vw - 2rem));
+  }
+  
+  /* Flex utilities for responsive design */
+  .flex-responsive {
+    @apply flex flex-wrap min-w-0;
+  }
+  
+  .flex-responsive > * {
+    @apply min-w-0 flex-shrink;
+  }
+  
+  /* Overflow handling utilities */
+  .overflow-wrap-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+  }
+  
+  /* Responsive grid utilities */
+  .grid-responsive-cards {
+    @apply grid gap-3 sm:gap-4;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  
+  @media (max-width: 375px) {
+    .grid-responsive-cards {
+      grid-template-columns: 1fr;
+    }
+  }
+  
+  /* Width constraint utilities */
+  .w-full-constrained {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
   
   /* Mobile keyboard handling */
