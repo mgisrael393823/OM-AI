@@ -131,6 +131,9 @@ export function useScrollPosition(options: UseScrollPositionOptions = {}): UseSc
     const scrollTarget = targetElement || window
     if (event.target !== scrollTarget && !element) return
 
+    // Ensure scrollTarget is HTMLElement or Window for function calls
+    const validScrollTarget = scrollTarget as HTMLElement | Window
+
     // Cancel any pending RAF
     if (rafId.current) {
       cancelAnimationFrame(rafId.current)
@@ -138,11 +141,11 @@ export function useScrollPosition(options: UseScrollPositionOptions = {}): UseSc
 
     // Use RAF for smooth updates
     rafId.current = requestAnimationFrame(() => {
-      throttledUpdate(scrollTarget)
+      throttledUpdate(validScrollTarget)
     })
 
     // Also debounce for final accurate position
-    debouncedUpdate(scrollTarget)
+    debouncedUpdate(validScrollTarget)
   }, [disabled, element, throttledUpdate, debouncedUpdate])
 
   useEffect(() => {
@@ -152,14 +155,17 @@ export function useScrollPosition(options: UseScrollPositionOptions = {}): UseSc
     const targetElement = element && 'current' in element ? element.current : element
     const scrollTarget = targetElement || window
     
+    // Ensure scrollTarget is HTMLElement or Window for function calls
+    const validScrollTarget = scrollTarget as HTMLElement | Window
+    
     // Initial position
-    updateScrollPosition(scrollTarget)
+    updateScrollPosition(validScrollTarget)
 
     // Add scroll listener
-    scrollTarget.addEventListener('scroll', handleScroll, { passive: true })
+    validScrollTarget.addEventListener('scroll', handleScroll, { passive: true })
 
     return () => {
-      scrollTarget.removeEventListener('scroll', handleScroll)
+      validScrollTarget.removeEventListener('scroll', handleScroll)
       if (rafId.current) {
         cancelAnimationFrame(rafId.current)
       }

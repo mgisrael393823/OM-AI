@@ -141,7 +141,9 @@ const VirtualScrollList = React.forwardRef<List, VirtualScrollListProps>(
 
       return () => {
         if (listRef.current) {
-          const currentOffset = listRef.current.state?.scrollOffset || 0
+          // Access scroll offset through the outer ref's scrollTop property
+          const outerRef = (listRef.current as any)._outerRef
+          const currentOffset = outerRef?.scrollTop || 0
           sessionStorage.setItem(`virtual-scroll-${scrollKey}`, currentOffset.toString())
         }
       }
