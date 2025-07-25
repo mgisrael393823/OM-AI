@@ -94,11 +94,11 @@ export function MessageBubble({
       {isGrouped && <div className="h-8 w-8 flex-shrink-0" />}
 
       {/* Message Content */}
-      <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-2xl`}>
+      <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} w-full max-w-4xl min-w-0`}>
         {/* Message Bubble */}
         <div 
           className={`
-            relative px-4 py-3 rounded-2xl
+            relative px-4 py-3 rounded-2xl w-full max-w-full min-w-0
             ${isUser 
               ? 'chat-bubble-user rounded-br-md' 
               : 'chat-bubble-assistant rounded-bl-md'
@@ -107,7 +107,7 @@ export function MessageBubble({
           role="article"
           aria-label={`${isUser ? 'User' : 'Assistant'} message`}
         >
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
             {content}
           </p>
           
