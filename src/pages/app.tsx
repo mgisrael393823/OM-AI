@@ -218,94 +218,94 @@ export default function AppPage() {
             </Button>
           </div>
 
-          {/* Scrollable Content Area */}
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {/* Chat History - Scrollable */}
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <div className="h-full overflow-y-auto">
-                <ChatHistory
-                  sessions={chatSessions}
-                  currentSessionId={currentSessionId}
-                  isLoading={isLoadingHistory}
-                  onSelectSession={loadChatSession}
-                  onDeleteSession={deleteChatSession}
-                  onRenameSession={renameChatSession}
-                />
-              </div>
-            </div>
+          {/* Single Scrollable Content Area - Chat History takes priority */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ChatHistory
+              sessions={chatSessions}
+              currentSessionId={currentSessionId}
+              isLoading={isLoadingHistory}
+              onSelectSession={loadChatSession}
+              onDeleteSession={deleteChatSession}
+              onRenameSession={renameChatSession}
+            />
+          </div>
 
-            {/* Documents Section - Scrollable with max height */}
-            <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700">
-              <div className="p-4">
-                <div className="mb-3">
-                  <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Documents
+          {/* Documents Section - Fixed height with internal scroll */}
+          <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 max-h-48">
+            <div className="h-full flex flex-col">
+              <div className="flex-shrink-0 p-3 pb-2">
+                <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Documents
+                </div>
+              </div>
+              
+              <div className="flex-1 min-h-0 overflow-hidden">
+                {isLoadingDocuments ? (
+                  <div className="px-4 py-4 text-center">
+                    <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Loading documents...
+                    </p>
                   </div>
-                  {isLoadingDocuments ? (
-                    <div className="px-2 py-4 text-center">
-                      <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Loading documents...
-                      </p>
-                    </div>
-                  ) : documents.length > 0 ? (
-                    <div className="max-h-48 overflow-y-auto">
-                      <div className="space-y-1" role="list">
-                        {documents.slice(0, 5).map((doc) => (
-                          <div
-                            key={doc.id}
-                            role="listitem"
-                            aria-selected={selectedDocumentId === doc.id}
-                            className={`px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors ${
-                              selectedDocumentId === doc.id
-                                ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
-                                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                            } ${
-                              doc.status === 'completed' ? '' : 'opacity-60 cursor-not-allowed'
-                            }`}
-                            onClick={() => {
-                              if (doc.status === 'completed') {
-                                setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
-                              }
-                            }}
-                          >
-                            <div className="flex items-start space-x-2">
-                              <FileText className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                                selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
-                              }`} />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                  {doc.name}
+                ) : documents.length > 0 ? (
+                  <div className="h-full overflow-y-auto px-3">
+                    <div className="space-y-1" role="list">
+                      {documents.slice(0, 5).map((doc) => (
+                        <div
+                          key={doc.id}
+                          role="listitem"
+                          aria-selected={selectedDocumentId === doc.id}
+                          className={`px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors ${
+                            selectedDocumentId === doc.id
+                              ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
+                              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                          } ${
+                            doc.status === 'completed' ? '' : 'opacity-60 cursor-not-allowed'
+                          }`}
+                          onClick={() => {
+                            if (doc.status === 'completed') {
+                              setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
+                            }
+                          }}
+                        >
+                          <div className="flex items-start space-x-2">
+                            <FileText className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+                              selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
+                            }`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                {doc.name}
+                              </p>
+                              <div className="flex items-center space-x-2 mt-0.5">
+                                {getStatusIcon(doc.status)}
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {doc.size}MB
                                 </p>
-                                <div className="flex items-center space-x-2 mt-0.5">
-                                  {getStatusIcon(doc.status)}
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    {doc.size}MB
-                                  </p>
-                                  {selectedDocumentId === doc.id && (
-                                    <span className="text-xs text-blue-600 font-medium">Selected</span>
-                                  )}
-                                </div>
+                                {selectedDocumentId === doc.id && (
+                                  <span className="text-xs text-blue-600 font-medium">Selected</span>
+                                )}
                               </div>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                      {documents.length > 5 && (
-                        <button className="text-xs text-blue-600 hover:underline mt-2 px-2">
+                        </div>
+                      ))}
+                    </div>
+                    {documents.length > 5 && (
+                      <div className="px-2 pb-2">
+                        <button className="text-xs text-blue-600 hover:underline mt-2">
                           View All Documents
                         </button>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="px-2 py-4 text-center">
-                      <FileText className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        No documents yet
-                      </p>
-                    </div>
-                  )}
-                </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="px-4 py-4 text-center">
+                    <FileText className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      No documents yet
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
