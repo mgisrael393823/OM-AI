@@ -155,6 +155,69 @@ export default function AppPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
+  // Swipe gesture handling for mobile
+  const bind = useDrag(
+    ({ down, movement: [mx], direction: [dx], distance, cancel, last }) => {
+      if (!isMobile || !sidebarOpen) return
+
+      if (dx > 0 || (Array.isArray(distance) ? distance[0] : distance) < 50) {
+        if (last) cancel?.()
+        return
+      }
+
+      if (last && mx < -100) {
+        setSidebarOpen(false)
+      }
+    },
+    {
+      axis: 'x',
+      threshold: 10,
+      filterTaps: true,
+      preventScroll: true
+    }
+  )
+
+  // Focus management for accessibility
+  useEffect(() => {
+    if (!isMobile) return
+    if (sidebarOpen && sidebarRef.current) {
+      const firstFocusable = sidebarRef.current.querySelector(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      ) as HTMLElement
+      if (firstFocusable) {
+        firstFocusable.focus()
+      }
+    }
+  }, [sidebarOpen, isMobile])
+
+  // Handle escape key to close sidebar on mobile
+  useEffect(() => {
+    if (!isMobile) return
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && sidebarOpen) {
+        setSidebarOpen(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [sidebarOpen, isMobile, setSidebarOpen])
+
+  // Optimized status icon function to prevent unnecessary re-renders
+  const getStatusIcon = useCallback((status: Document['status']) => {
+    switch (status) {
+      case "uploading":
+        return <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+      case "processing":
+        return <Clock className="h-3 w-3 text-yellow-500" />
+      case "completed":
+        return <CheckCircle className="h-3 w-3 text-green-500" />
+      case "error":
+        return <AlertCircle className="h-3 w-3 text-red-500" />
+    }
+  }, [])
+
   // Show loading until authenticated
   if (loading || !user) {
     return (
@@ -192,70 +255,6 @@ export default function AppPage() {
   const handleNewChat = () => {
     createNewChat()
   }
-
-  // Swipe gesture handling for mobile
-  const bind = useDrag(
-    ({ down, movement: [mx], direction: [dx], distance, cancel, last }) => {
-      // Only handle swipes on mobile when sidebar is open
-      if (!isMobile || !sidebarOpen) return
-
-      // If dragging right or distance is too small, cancel
-      if (dx > 0 || (Array.isArray(distance) ? distance[0] : distance) < 50) {
-        if (last) cancel?.()
-        return
-      }
-
-      // If swiping left with enough distance, close sidebar
-      if (last && mx < -100) {
-        setSidebarOpen(false)
-      }
-    },
-    {
-      axis: 'x',
-      threshold: 10,
-      filterTaps: true,
-      preventScroll: true
-    }
-  )
-
-  // Focus management for accessibility
-  useEffect(() => {
-    if (sidebarOpen && isMobile && sidebarRef.current) {
-      // Focus the first focusable element in sidebar when opened on mobile
-      const firstFocusable = sidebarRef.current.querySelector(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      ) as HTMLElement
-      if (firstFocusable) {
-        firstFocusable.focus()
-      }
-    }
-  }, [sidebarOpen, isMobile])
-
-  // Handle escape key to close sidebar on mobile
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && sidebarOpen && isMobile) {
-        setSidebarOpen(false)
-      }
-    }
-
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [sidebarOpen, isMobile, setSidebarOpen])
-
-  // Optimized status icon function to prevent unnecessary re-renders
-  const getStatusIcon = useCallback((status: Document['status']) => {
-    switch (status) {
-      case "uploading":
-        return <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-      case "processing":
-        return <Clock className="h-3 w-3 text-yellow-500" />
-      case "completed":
-        return <CheckCircle className="h-3 w-3 text-green-500" />
-      case "error":
-        return <AlertCircle className="h-3 w-3 text-red-500" />
-    }
-  }, [])
 
   return (
     <ErrorBoundary>
