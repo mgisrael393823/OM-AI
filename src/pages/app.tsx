@@ -188,8 +188,8 @@ export default function AppPage() {
       if (!isMobile || !sidebarOpen) return
 
       // If dragging right or distance is too small, cancel
-      if (dx > 0 || distance < 50) {
-        if (last) cancel()
+      if (dx > 0 || (Array.isArray(distance) ? distance[0] : distance) < 50) {
+        if (last) cancel?.()
         return
       }
 

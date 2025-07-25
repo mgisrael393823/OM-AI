@@ -578,6 +578,7 @@ export function ChatHistory({
           <List
             ref={listRef}
             height={containerHeight - 80} // Account for header heights
+            width="100%"
             itemCount={virtualListItems.length}
             itemSize={viewMode === 'compact' ? 48 : 64}
             itemData={virtualListItems}
