@@ -372,14 +372,12 @@ export function ChatHistory({
 
   // Handle loading more sessions
   const handleLoadMore = useCallback(async () => {
-    if (isLoadingMore || !hasMore) return
-    
     setIsLoadingMore(true)
     // Simulate loading delay
     await new Promise(resolve => setTimeout(resolve, 500))
     setDisplayedCount(prev => prev + LOAD_MORE_COUNT)
     setIsLoadingMore(false)
-  }, [isLoadingMore])
+  }, [])
 
   // Filter and group sessions with pagination
   const { virtualListItems, hasMore, totalCount } = useMemo(() => {
