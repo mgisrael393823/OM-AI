@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import Head from "next/head"
 import { useRouter } from "next/router"
 import { Button } from "@/components/ui/button"
@@ -158,23 +158,38 @@ export default function AppPage() {
     createNewChat()
   }
 
+  // Optimized status icon function to prevent unnecessary re-renders
+  const getStatusIcon = useCallback((status: Document['status']) => {
+    switch (status) {
+      case "uploading":
+        return <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+      case "processing":
+        return <Clock className="h-3 w-3 text-yellow-500" />
+      case "completed":
+        return <CheckCircle className="h-3 w-3 text-green-500" />
+      case "error":
+        return <AlertCircle className="h-3 w-3 text-red-500" />
+    }
+  }, [])
+
   return (
     <ErrorBoundary>
-      <>
-        <Head>
-          <title>OM Intel Chat</title>
-          <meta name="description" content="AI-powered commercial real estate analysis" />
-        </Head>
+      <Head>
+        <title>OM Intel Chat</title>
+        <meta name="description" content="AI-powered commercial real estate analysis" />
+      </Head>
 
-      <div className="flex h-screen bg-white dark:bg-gray-900">
-        {/* Sidebar */}
+      {/* Main Grid Container - Fixed viewport height with overflow control */}
+      <div className="grid grid-cols-1 md:grid-cols-[256px_1fr] h-screen bg-white dark:bg-gray-900 overflow-hidden overflow-x-hidden">
+        {/* Sidebar - Fixed height with internal scrolling */}
         <div className={`
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
-          md:translate-x-0 fixed md:relative z-50 w-64 h-full bg-gray-50 dark:bg-gray-800 
-          border-r border-gray-200 dark:border-gray-700 transition-transform duration-300
+          md:translate-x-0 fixed md:relative z-50 w-64 md:w-auto h-screen
+          bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 
+          transition-transform duration-300 flex flex-col overflow-hidden
         `}>
-          {/* Sidebar Header */}
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          {/* Sidebar Header - Fixed */}
+          <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Building2 className="h-6 w-6 text-blue-600" />
@@ -191,8 +206,8 @@ export default function AppPage() {
             </div>
           </div>
 
-          {/* New Chat Button */}
-          <div className="p-4">
+          {/* New Chat Button - Fixed */}
+          <div className="flex-shrink-0 p-4">
             <Button 
               className="w-full justify-start" 
               variant="outline"
@@ -203,102 +218,100 @@ export default function AppPage() {
             </Button>
           </div>
 
-          {/* Chat History & Documents */}
-          <div className="flex-1 flex flex-col">
-            {/* Chat History with enhanced search & organization */}
-            <div className="flex-1 min-h-0">
-              <ChatHistory
-                sessions={chatSessions}
-                currentSessionId={currentSessionId}
-                isLoading={isLoadingHistory}
-                onSelectSession={loadChatSession}
-                onDeleteSession={deleteChatSession}
-                onRenameSession={renameChatSession}
-              />
+          {/* Scrollable Content Area */}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Chat History - Scrollable */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <div className="h-full overflow-y-auto">
+                <ChatHistory
+                  sessions={chatSessions}
+                  currentSessionId={currentSessionId}
+                  isLoading={isLoadingHistory}
+                  onSelectSession={loadChatSession}
+                  onDeleteSession={deleteChatSession}
+                  onRenameSession={renameChatSession}
+                />
+              </div>
             </div>
 
-            {/* Documents Section */}
-            <div className="border-t p-4">
-              <div className="mb-3">
-                <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Documents
-                </div>
-                {isLoadingDocuments ? (
-                  <div className="px-2 py-4 text-center">
-                    <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Loading documents...
-                    </p>
+            {/* Documents Section - Scrollable with max height */}
+            <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700">
+              <div className="p-4">
+                <div className="mb-3">
+                  <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Documents
                   </div>
-                ) : documents.length > 0 ? (
-                  <div className="space-y-1">
-                    {documents.map((doc) => {
-                      const getStatusIcon = (status: Document['status']) => {
-                        switch (status) {
-                          case "uploading":
-                            return <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-                          case "processing":
-                            return <Clock className="h-3 w-3 text-yellow-500" />
-                          case "completed":
-                            return <CheckCircle className="h-3 w-3 text-green-500" />
-                          case "error":
-                            return <AlertCircle className="h-3 w-3 text-red-500" />
-                        }
-                      }
-                      
-                      return (
-                        <div
-                          key={doc.id}
-                          className={`px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors ${
-                            selectedDocumentId === doc.id
-                              ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
-                              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                          } ${
-                            doc.status === 'completed' ? '' : 'opacity-60 cursor-not-allowed'
-                          }`}
-                          onClick={() => {
-                            if (doc.status === 'completed') {
-                              setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
-                            }
-                          }}
-                        >
-                          <div className="flex items-start space-x-2">
-                            <FileText className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                              selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
-                            }`} />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                {doc.name}
-                              </p>
-                              <div className="flex items-center space-x-2 mt-0.5">
-                                {getStatusIcon(doc.status)}
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                  {doc.size}MB
+                  {isLoadingDocuments ? (
+                    <div className="px-2 py-4 text-center">
+                      <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Loading documents...
+                      </p>
+                    </div>
+                  ) : documents.length > 0 ? (
+                    <div className="max-h-48 overflow-y-auto">
+                      <div className="space-y-1" role="list">
+                        {documents.slice(0, 5).map((doc) => (
+                          <div
+                            key={doc.id}
+                            role="listitem"
+                            aria-selected={selectedDocumentId === doc.id}
+                            className={`px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors ${
+                              selectedDocumentId === doc.id
+                                ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
+                                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                            } ${
+                              doc.status === 'completed' ? '' : 'opacity-60 cursor-not-allowed'
+                            }`}
+                            onClick={() => {
+                              if (doc.status === 'completed') {
+                                setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
+                              }
+                            }}
+                          >
+                            <div className="flex items-start space-x-2">
+                              <FileText className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+                                selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
+                              }`} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                  {doc.name}
                                 </p>
-                                {selectedDocumentId === doc.id && (
-                                  <span className="text-xs text-blue-600 font-medium">Selected</span>
-                                )}
+                                <div className="flex items-center space-x-2 mt-0.5">
+                                  {getStatusIcon(doc.status)}
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {doc.size}MB
+                                  </p>
+                                  {selectedDocumentId === doc.id && (
+                                    <span className="text-xs text-blue-600 font-medium">Selected</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="px-2 py-4 text-center">
-                    <FileText className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      No documents yet
-                    </p>
-                  </div>
-                )}
+                        ))}
+                      </div>
+                      {documents.length > 5 && (
+                        <button className="text-xs text-blue-600 hover:underline mt-2 px-2">
+                          View All Documents
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="px-2 py-4 text-center">
+                      <FileText className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        No documents yet
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* User Profile */}
-          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+          {/* User Profile - Fixed at bottom */}
+          <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
             <div className="flex items-center space-x-3">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
@@ -333,8 +346,8 @@ export default function AppPage() {
           />
         )}
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col">
+        {/* Main Content - Grid column 2 */}
+        <div className="flex flex-col overflow-hidden">
           {/* Mobile Header */}
           <div className="md:hidden flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
             <Button
@@ -368,10 +381,10 @@ export default function AppPage() {
             </div>
           )}
 
-          {/* Chat Area */}
-          <div className="flex-1 flex flex-col">
-            {/* Messages */}
-            <ScrollArea className="flex-1">
+          {/* Chat Area - Proper flex layout with overflow */}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Messages - Independent scroll zone */}
+            <div className="flex-1 overflow-y-auto">
               <div className="max-w-3xl mx-auto px-4 py-8">
                 {messages.length === 0 ? (
                   // Welcome State
@@ -461,7 +474,7 @@ export default function AppPage() {
                   </div>
                 )}
               </div>
-            </ScrollArea>
+            </div>
 
             {/* Input Area */}
             <div className="border-t border-gray-200 dark:border-gray-700 p-4">
@@ -551,7 +564,6 @@ export default function AppPage() {
           </div>
         </div>
       )}
-      </>
     </ErrorBoundary>
   )
 }
