@@ -25,7 +25,10 @@ import {
   ChevronLeft,
   ChevronRight,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  ChevronDown,
+  ExternalLink,
+  Eye
 } from "lucide-react"
 import { useDrag } from '@use-gesture/react'
 import { useChatPersistent } from "@/hooks/useChatPersistent"
@@ -35,6 +38,13 @@ import { MessageBubble } from "@/components/app/MessageBubble"
 import { ChatHistory } from "@/components/app/ChatHistory"
 import { useAuth } from "@/contexts/AuthContext"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+import { Badge } from "@/components/ui/badge"
 
 interface Document {
   id: string
@@ -69,6 +79,8 @@ export default function AppPage() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
+  const [showAllDocuments, setShowAllDocuments] = useState(false)
+  const [documentsAccordionValue, setDocumentsAccordionValue] = useState<string>('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
   
@@ -386,98 +398,174 @@ export default function AppPage() {
             />
           </div>
 
-          {/* Documents Section - Fixed height with internal scroll */}
-          <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 max-h-48">
-            <div className="h-full flex flex-col">
-              {(sidebarState !== 'collapsed' || isMobile) && (
-                <div className="flex-shrink-0 p-3 pb-2">
-                  <div className="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Documents
-                  </div>
-                </div>
-              )}
-              
-              <div className="flex-1 min-h-0 overflow-hidden">
-                {isLoadingDocuments ? (
-                  <div className="px-4 py-4 text-center">
-                    <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Loading documents...
-                    </p>
-                  </div>
-                ) : documents.length > 0 ? (
-                  <div className="h-full overflow-y-auto px-3">
-                    <div className="space-y-1" role="list">
-                      {documents.slice(0, sidebarState === 'collapsed' && !isMobile ? 3 : 5).map((doc) => (
-                        <div
-                          key={doc.id}
-                          role="listitem"
-                          aria-selected={selectedDocumentId === doc.id}
-                          className={`px-3 py-2 mx-1 rounded-md cursor-pointer transition-colors ${
-                            selectedDocumentId === doc.id
-                              ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
-                              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                          } ${
-                            doc.status === 'completed' ? '' : 'opacity-60 cursor-not-allowed'
-                          }`}
-                          onClick={() => {
-                            if (doc.status === 'completed') {
-                              setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
-                            }
-                          }}
-                          title={sidebarState === 'collapsed' && !isMobile ? doc.name : undefined}
-                        >
-                          {sidebarState === 'collapsed' && !isMobile ? (
-                            /* Collapsed view - icon only */
-                            <div className="flex items-center justify-center">
-                              <FileText className={`h-4 w-4 ${
-                                selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
-                              }`} />
-                            </div>
-                          ) : (
-                            /* Normal/expanded view */
-                            <div className="flex items-start space-x-2">
-                              <FileText className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+          {/* Documents Section - Collapsed State (Desktop Only) */}
+          {sidebarState === 'collapsed' && !isMobile && documents.length > 0 && (
+            <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 p-2">
+              <div className="flex flex-col items-center space-y-1">
+                {documents.slice(0, 3).map((doc) => (
+                  <Button
+                    key={doc.id}
+                    variant="ghost"
+                    size="sm"
+                    className={`h-8 w-8 p-0 ${
+                      selectedDocumentId === doc.id
+                        ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-600'
+                        : 'text-gray-400 hover:text-gray-600'
+                    }`}
+                    onClick={() => {
+                      if (doc.status === 'completed') {
+                        setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
+                      }
+                    }}
+                    title={doc.name}
+                  >
+                    <FileText className="h-4 w-4" />
+                  </Button>
+                ))}
+                {documents.length > 3 && (
+                  <Badge variant="secondary" className="text-xs px-1 py-0 h-4">
+                    +{documents.length - 3}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Documents Section - Collapsible Accordion */}
+          {(sidebarState !== 'collapsed' || isMobile) && (
+            <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700">
+              <Accordion
+                type="single"
+                collapsible
+                value={documentsAccordionValue}
+                onValueChange={setDocumentsAccordionValue}
+                className="w-full"
+              >
+                <AccordionItem value="documents" className="border-0">
+                  <AccordionTrigger className="px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:no-underline">
+                    <div className="flex items-center justify-between w-full">
+                      <span>Documents</span>
+                      <div className="flex items-center space-x-2">
+                        {documents.length > 0 && (
+                          <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4">
+                            {documents.length}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-2 pb-2">
+                    {isLoadingDocuments ? (
+                      <div className="py-4 text-center">
+                        <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Loading documents...
+                        </p>
+                      </div>
+                    ) : documents.length > 0 ? (
+                      <div className="space-y-1" role="list">
+                        {/* Compact Document Items */}
+                        {documents.slice(0, showAllDocuments ? documents.length : 5).map((doc) => (
+                          <div
+                            key={doc.id}
+                            role="listitem"
+                            aria-selected={selectedDocumentId === doc.id}
+                            className={`group relative px-2 py-1.5 mx-1 rounded-md cursor-pointer transition-all duration-200 ${
+                              selectedDocumentId === doc.id
+                                ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
+                                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                            } ${
+                              doc.status === 'completed' ? '' : 'opacity-60 cursor-not-allowed'
+                            }`}
+                            onClick={() => {
+                              if (doc.status === 'completed') {
+                                setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
+                              }
+                            }}
+                          >
+                            <div className="flex items-center space-x-2">
+                              <FileText className={`h-3.5 w-3.5 flex-shrink-0 ${
                                 selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
                               }`} />
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
                                   {doc.name}
                                 </p>
-                                <div className="flex items-center space-x-2 mt-0.5">
+                                <div className="flex items-center space-x-1.5 mt-0.5">
                                   {getStatusIcon(doc.status)}
                                   <p className="text-xs text-gray-500 dark:text-gray-400">
                                     {doc.size}MB
                                   </p>
                                   {selectedDocumentId === doc.id && (
-                                    <span className="text-xs text-blue-600 font-medium">Selected</span>
+                                    <span className="text-xs text-blue-600 font-medium">Active</span>
                                   )}
                                 </div>
                               </div>
+                              {/* Quick Actions */}
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    // TODO: Open document preview
+                                  }}
+                                  title="Preview document"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                </Button>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    {documents.length > (sidebarState === 'collapsed' && !isMobile ? 3 : 5) && (sidebarState !== 'collapsed' || isMobile) && (
-                      <div className="px-2 pb-2">
-                        <button className="text-xs text-blue-600 hover:underline mt-2">
-                          View All Documents
-                        </button>
+                          </div>
+                        ))}
+                        
+                        {/* View All / Show Less Toggle */}
+                        {documents.length > 5 && (
+                          <div className="px-2 pt-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="w-full h-6 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                              onClick={() => setShowAllDocuments(!showAllDocuments)}
+                            >
+                              {showAllDocuments ? (
+                                <>
+                                  <ChevronDown className="h-3 w-3 mr-1 rotate-180" />
+                                  Show Less
+                                </>
+                              ) : (
+                                <>
+                                  <ExternalLink className="h-3 w-3 mr-1" />
+                                  View All ({documents.length})
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="py-4 text-center">
+                        <FileText className="h-5 w-5 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          No documents yet
+                        </p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-2 h-6 text-xs text-blue-600"
+                          onClick={() => setShowUpload(true)}
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Upload Document
+                        </Button>
                       </div>
                     )}
-                  </div>
-                ) : (
-                  <div className="px-4 py-4 text-center">
-                    <FileText className="h-6 w-6 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      No documents yet
-                    </p>
-                  </div>
-                )}
-              </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
-          </div>
+          )}
 
           {/* User Profile - Fixed at bottom */}
           <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
@@ -798,6 +886,8 @@ export default function AppPage() {
                 onUploadComplete={(document) => {
                   console.log('Document uploaded:', document)
                   setShowUpload(false)
+                  // Auto-expand documents accordion after upload
+                  setDocumentsAccordionValue('documents')
                 }}
                 onDocumentListRefresh={fetchDocuments}
               />
