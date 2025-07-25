@@ -40,12 +40,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      console.log('🔍 Initial session check:', session?.user?.email || 'No user')
       setSession(session)
       setUser(session?.user ?? null)
+      
       if (session?.user) {
-        fetchUserProfile(session.user.id, session.user)
+        console.log('👤 Fetching user profile for:', session.user.email)
+        await fetchUserProfile(session.user.id, session.user)
+        console.log('✅ Profile fetch completed')
       }
+      
+      console.log('🏁 Setting loading to false')
       setLoading(false)
     })
 
@@ -53,15 +59,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔄 Auth state change:', event, session?.user?.email || 'No user')
       setSession(session)
       setUser(session?.user ?? null)
       
       if (session?.user) {
+        console.log('👤 Fetching user profile for:', session.user.email)
         await fetchUserProfile(session.user.id, session.user)
+        console.log('✅ Profile fetch completed')
       } else {
         setProfile(null)
       }
       
+      console.log('🏁 Setting loading to false')
       setLoading(false)
     })
 

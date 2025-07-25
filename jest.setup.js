@@ -1,6 +1,8 @@
 // Optional: configure or set up a testing framework before each test
 // If you delete this file, remove `setupFilesAfterEnv` from `jest.config.js`
 
+import '@testing-library/jest-dom'
+
 // Mock Next.js router
 jest.mock('next/router', () => ({
   useRouter() {
@@ -22,6 +24,28 @@ jest.mock('next/router', () => ({
       },
     }
   },
+}))
+
+// Mock window.matchMedia
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: jest.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(), // Deprecated
+    removeListener: jest.fn(), // Deprecated
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })),
+})
+
+// Mock ResizeObserver
+global.ResizeObserver = jest.fn().mockImplementation(() => ({
+  observe: jest.fn(),
+  unobserve: jest.fn(),
+  disconnect: jest.fn(),
 }))
 
 // Mock environment variables

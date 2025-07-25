@@ -18,8 +18,13 @@ const customJestConfig = {
   },
   collectCoverageFrom: [
     'src/pages/api/**/*.ts',
+    'src/components/**/*.{ts,tsx}',
+    'src/hooks/**/*.ts',
     '!src/pages/api/**/*.d.ts',
-    '!src/pages/api/__tests__/**'
+    '!src/pages/api/__tests__/**',
+    '!src/components/**/*.d.ts',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/__tests__/**'
   ],
   coverageReporters: ['text', 'lcov', 'html']
 }

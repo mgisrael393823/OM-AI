@@ -46,7 +46,7 @@ function normalizeRequest(body: any): UnifiedChatRequest {
 }
 
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
-  console.log('📥 BODY:', req.body)
+  // Request body logging removed for production
   
   if (req.method !== 'POST') {
     return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
