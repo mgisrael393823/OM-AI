@@ -71,7 +71,7 @@ export function MessageBubble({
     <div 
       className={`group grid items-start animate-slideInUp ${
         isUser ? 'grid-cols-[1fr_auto] justify-items-end' : 'grid-cols-[auto_1fr]'
-      } gap-3`}
+      } gap-2`}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
@@ -94,7 +94,7 @@ export function MessageBubble({
       {isGrouped && <div className="h-8 w-8 flex-shrink-0" />}
 
       {/* Message Content */}
-      <div className={`grid grid-rows-[auto_auto] ${isUser ? 'justify-items-end' : 'justify-items-start'} w-full max-w-4xl min-w-0 gap-1`}>
+      <div className={`grid ${isUser ? 'justify-items-end' : 'justify-items-start'} w-full max-w-4xl min-w-0`}>
         {/* Message Bubble */}
         <div 
           className={`
@@ -107,21 +107,23 @@ export function MessageBubble({
           role="article"
           aria-label={`${isUser ? 'User' : 'Assistant'} message`}
         >
-          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-            {content}
-          </p>
-          
-          {/* Loading indicator for streaming */}
-          {isLoading && !isUser && (
-            <div className="grid grid-cols-[auto_auto] items-center gap-2 mt-2" aria-live="polite">
-              <div className="animate-pulse grid grid-cols-3 gap-1" role="status" aria-label="AI is thinking">
-                <div className="w-2 h-2 bg-current rounded-full opacity-40"></div>
-                <div className="w-2 h-2 bg-current rounded-full opacity-60 animation-delay-200"></div>
-                <div className="w-2 h-2 bg-current rounded-full opacity-80 animation-delay-400"></div>
+          <div className="grid grid-cols-1 gap-2">
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+              {content}
+            </p>
+            
+            {/* Loading indicator for streaming */}
+            {isLoading && !isUser && (
+              <div className="grid grid-cols-[auto_auto] items-center gap-2" aria-live="polite">
+                <div className="animate-pulse grid grid-cols-3 gap-1" role="status" aria-label="AI is thinking">
+                  <div className="w-2 h-2 bg-current rounded-full opacity-40"></div>
+                  <div className="w-2 h-2 bg-current rounded-full opacity-60 animation-delay-200"></div>
+                  <div className="w-2 h-2 bg-current rounded-full opacity-80 animation-delay-400"></div>
+                </div>
+                <span className="text-xs opacity-70">Thinking...</span>
               </div>
-              <span className="text-xs opacity-70">Thinking...</span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Timestamp and Actions - Only show for non-grouped messages */}

@@ -770,7 +770,7 @@ export default function AppPage() {
                 ) : (
                   // Message Thread Container - Grid Layout
                   <div className="grid grid-cols-1 justify-items-center w-full min-h-full p-4">
-                    <div className="grid grid-cols-1 w-full max-w-3xl gap-6">
+                    <div className="grid grid-cols-1 w-full max-w-3xl gap-3">
                       <MessageGroup
                         messages={messages}
                         isLoading={isLoading}

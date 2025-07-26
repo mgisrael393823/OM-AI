@@ -58,27 +58,17 @@ export function MessageGroup({ messages, isLoading = false, onCopy }: MessageGro
   if (!messages.length) return null
 
   return (
-    <div className="grid grid-cols-1 gap-6">
+    <div className="grid grid-cols-1 gap-3">
       {messages.map((message, index) => {
         const previousMessage = messages[index - 1]
-        const showTimestamp = shouldShowTimestamp(message, previousMessage)
         const isGrouped = shouldGroupMessages(message, previousMessage)
         const isLastMessage = index === messages.length - 1
         const showLoading = isLoading && isLastMessage && message.role === 'assistant'
 
         return (
           <div key={message.id} className="message-container">
-            {/* Timestamp Header */}
-            {showTimestamp && (
-              <div className="grid grid-cols-1 justify-items-center mb-4">
-                <div className="text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-3 py-1 rounded-full border">
-                  {formatMessageTime(message.timestamp)}
-                </div>
-              </div>
-            )}
-
             {/* Message */}
-            <div className={`message-wrapper grid grid-cols-1 ${isGrouped ? 'pt-1' : 'pt-4'}`}>
+            <div className="message-wrapper grid grid-cols-1">
               <MessageBubble
                 role={message.role}
                 content={message.content}
