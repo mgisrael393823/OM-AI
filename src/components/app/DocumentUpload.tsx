@@ -31,6 +31,13 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
 
   const { startUpload, isUploading } = useUploadThing("pdfUploader", {
+    headers: async () => {
+      const { supabase } = await import("@/lib/supabase")
+      const { data: { session } } = await supabase.auth.getSession()
+      return session?.access_token
+        ? { Authorization: `Bearer ${session.access_token}` }
+        : {}
+    },
     onClientUploadComplete: (res) => {
       console.log("Upload complete:", res)
       
@@ -134,34 +141,11 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
 
       setUploadFiles(prev => [...prev, ...newFiles])
 
-      // Store auth token in a way UploadThing middleware can access it
-      // The middleware will read the auth header from the request
-      const originalFetch = window.fetch
-      window.fetch = function(input, init) {
-        if (typeof input === 'string' && input.includes('uploadthing')) {
-          init = init || {}
-          init.headers = {
-            ...init.headers,
-            'Authorization': `Bearer ${session.access_token}`
-          }
-        }
-        return originalFetch.call(this, input, init)
-      }
-
       // Start upload
       await startUpload(files)
-
-      // Restore original fetch
-      window.fetch = originalFetch
     } catch (error) {
       console.error("Error starting upload:", error)
       toast.error("Failed to start upload")
-      
-      // Restore original fetch on error
-      const originalFetch = (window as any)._originalFetch
-      if (originalFetch) {
-        window.fetch = originalFetch
-      }
     }
   }, [startUpload])
 
