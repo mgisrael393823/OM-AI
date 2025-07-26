@@ -9,11 +9,45 @@ const __dirname = dirname(__filename);
 const nextConfig = {
   reactStrictMode: true,
   
+  // Development-specific headers for cache busting
+  headers: async () => {
+    if (process.env.NODE_ENV === 'development') {
+      return [
+        {
+          source: '/(.*)',
+          headers: [
+            {
+              key: 'Cache-Control',
+              value: 'no-cache, no-store, must-revalidate',
+            },
+            {
+              key: 'Pragma',
+              value: 'no-cache',
+            },
+            {
+              key: 'Expires',
+              value: '0',
+            },
+          ],
+        },
+        {
+          source: '/_next/static/(.*)',
+          headers: [
+            {
+              key: 'Cache-Control',
+              value: 'no-cache, no-store, must-revalidate',
+            },
+          ],
+        },
+      ];
+    }
+    return [];
+  },
+  
   // Optimize build performance
   experimental: {
-    turbo: {
-      // Enable Turbopack for faster builds in development
-    },
+    // Disable Turbopack in development for better HMR stability
+    // turbo: {},
   },
   
   images: {
@@ -28,14 +62,23 @@ const nextConfig = {
   
   // Configure webpack for better caching
   webpack: (config, { dev, isServer }) => {
-    // Enable persistent caching
-    config.cache = {
-      type: 'filesystem',
-      allowCollectingMemory: false,
-      buildDependencies: {
-        config: [__filename],
-      },
-    };
+    // Configure caching - less aggressive in development for better HMR
+    if (dev) {
+      // Development: Use memory cache for faster HMR
+      config.cache = {
+        type: 'memory',
+        maxGenerations: 1,
+      };
+    } else {
+      // Production: Use filesystem cache
+      config.cache = {
+        type: 'filesystem',
+        allowCollectingMemory: false,
+        buildDependencies: {
+          config: [__filename],
+        },
+      };
+    }
     
     // Optimize bundle splitting
     if (!dev && !isServer) {
@@ -57,8 +100,29 @@ const nextConfig = {
       };
     }
     
+    // Development optimizations for better HMR
+    if (dev) {
+      // Faster rebuilds and better HMR boundaries
+      config.optimization.removeAvailableModules = false;
+      config.optimization.removeEmptyChunks = false;
+      config.optimization.splitChunks = false;
+      
+      // Better source maps for debugging
+      config.devtool = 'eval-cheap-module-source-map';
+    }
+    
     return config;
   },
+  
+  // Development server optimizations
+  ...(process.env.NODE_ENV === 'development' && {
+    onDemandEntries: {
+      // Period (in ms) where the server will keep pages in the buffer
+      maxInactiveAge: 25 * 1000,
+      // Number of pages that should be kept simultaneously without being disposed
+      pagesBufferLength: 2,
+    },
+  }),
 };
 
 export default withSentryConfig(

@@ -7,6 +7,19 @@ const config: Config = {
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  // Development optimizations
+  ...(process.env.NODE_ENV === 'development' && {
+    // Enable JIT compilation for faster builds
+    mode: 'jit',
+    // Watch additional files for changes
+    safelist: [
+      // Preserve commonly used dynamic classes
+      'grid-cols-1', 'grid-cols-2', 'grid-cols-3',
+      'gap-1', 'gap-2', 'gap-3', 'gap-4',
+      'p-1', 'p-2', 'p-3', 'p-4',
+      'm-1', 'm-2', 'm-3', 'm-4',
+    ],
+  }),
   theme: {
   	extend: {
   		colors: {

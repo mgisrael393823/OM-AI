@@ -40,3 +40,8 @@ firebase-service-account.json
 
 # Claude Code configuration
 .claude/
+
+# Development helper files (local only)
+next-dev.config.js
+scripts/dev-setup.js
+README-dev-caching.md

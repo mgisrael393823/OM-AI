@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:clean": "npm run clean && next dev",
+    "dev:force": "npm run clean:all && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -11,7 +13,10 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "check-config": "npx tsx src/scripts/check-config.ts",
-    "predev": "npm run check-config"
+    "predev": "npm run check-config",
+    "clean": "rm -rf .next && rm -rf node_modules/.cache",
+    "clean:all": "npm run clean && rm -rf node_modules && npm install",
+    "clear-cache": "rm -rf .next/cache && rm -rf node_modules/.cache/webpack"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
