@@ -38,20 +38,16 @@ interface ChatHistoryProps {
   onRenameSession?: (sessionId: string, newTitle: string) => void
 }
 
-// View modes for chat items
-type ViewMode = 'compact' | 'expanded'
 
 // Virtual list item data
 interface ListItemData {
-  type: 'group' | 'session' | 'loadMore'
-  groupName?: string
+  type: 'session' | 'loadMore'
   session?: ChatSession
   index: number
   isSelected?: boolean
   onSelect?: (sessionId: string) => void
   onDelete?: (sessionId: string) => void
   onRename?: (sessionId: string, newTitle: string) => void
-  viewMode?: ViewMode
   onToggleExpanded?: (sessionId: string) => void
   isExpanded?: boolean
   onLoadMore?: () => void
@@ -59,15 +55,12 @@ interface ListItemData {
 }
 
 // Constants
-const ITEM_HEIGHT = 56 // Compact item height (includes p-2 wrapper)
-const EXPANDED_ITEM_HEIGHT = 72 // Expanded item height (includes p-2 wrapper)
-const GROUP_HEADER_HEIGHT = 32 // Group header height (includes p-2 wrapper)
-const LOAD_MORE_HEIGHT = 48 // Load more height (includes p-2 wrapper)
+const ITEM_HEIGHT = 56 // Compact item height (includes p-1 wrapper)
+const EXPANDED_ITEM_HEIGHT = 72 // Expanded item height (includes p-1 wrapper)
+const LOAD_MORE_HEIGHT = 48 // Load more height (includes p-1 wrapper)
 const INITIAL_LOAD_COUNT = 20
 const LOAD_MORE_COUNT = 20
 
-// Group order for sorting (most recent first)
-const GROUP_ORDER = ['Today', 'Yesterday', 'This Week', 'This Month', 'Older'] as const
 
 // Memoized date formatter
 const dateFormatter = new Intl.DateTimeFormat('en-US', {
@@ -79,9 +72,8 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
 
 // Loading skeleton component
 const ChatItemSkeleton = React.memo(() => (
-  <div className="grid grid-cols-1 p-2">
-    <div className="grid grid-cols-[auto_1fr] items-center gap-2 animate-pulse">
-      <div className="w-4 h-4 bg-muted rounded" />
+  <div className="grid grid-cols-1 p-1">
+    <div className="grid grid-cols-1 gap-2 animate-pulse p-2">
       <div className="grid grid-rows-2 gap-1">
         <div className="h-3.5 bg-muted rounded w-3/4" />
         <div className="h-2.5 bg-muted rounded w-1/2" />
@@ -96,18 +88,6 @@ ChatItemSkeleton.displayName = 'ChatItemSkeleton'
 const ListItem = React.memo<{ index: number; style: React.CSSProperties; data: ListItemData[] }>(
   ({ index, style, data }) => {
     const item = data[index]
-    
-    if (item.type === 'group') {
-      return (
-        <div style={style} className="grid grid-cols-1">
-          <div className="grid grid-cols-1 p-2">
-            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              {item.groupName}
-            </span>
-          </div>
-        </div>
-      )
-    }
     
     if (item.type === 'loadMore') {
       return (
@@ -138,7 +118,6 @@ const ListItem = React.memo<{ index: number; style: React.CSSProperties; data: L
           <ChatSessionItem
             session={item.session}
             isSelected={item.isSelected || false}
-            viewMode={item.viewMode || 'compact'}
             isExpanded={item.isExpanded || false}
             onSelect={item.onSelect}
             onDelete={item.onDelete}
@@ -159,13 +138,12 @@ ListItem.displayName = 'ListItem'
 const ChatSessionItem = React.memo<{
   session: ChatSession
   isSelected: boolean
-  viewMode: ViewMode
   isExpanded: boolean
   onSelect?: (sessionId: string) => void
   onDelete?: (sessionId: string) => void
   onRename?: (sessionId: string, newTitle: string) => void
   onToggleExpanded?: (sessionId: string) => void
-}>(({ session, isSelected, viewMode, isExpanded, onSelect, onDelete, onRename, onToggleExpanded }) => {
+}>(({ session, isSelected, isExpanded, onSelect, onDelete, onRename, onToggleExpanded }) => {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState("")
   
@@ -202,15 +180,14 @@ const ChatSessionItem = React.memo<{
   }, [session.updated_at])
 
   const title = session.title || 'Untitled Chat'
-  const showExpanded = viewMode === 'expanded' || isExpanded
 
   return (
-    <div className="grid grid-cols-1 p-2">
+    <div className="grid grid-cols-1 p-1">
       <div className={`
-        group relative rounded-md transition-all duration-200
+        group relative rounded-md transition-colors duration-200
         ${isSelected 
-          ? 'bg-accent text-accent-foreground border border-accent-foreground/20' 
-          : 'hover:bg-muted/50'
+          ? 'bg-accent text-accent-foreground' 
+          : 'hover:bg-muted/10'
         }
       `}>
         {editingSessionId === session.id ? (
@@ -232,7 +209,7 @@ const ChatSessionItem = React.memo<{
         ) : (
           // Display Mode
           <div 
-            className="cursor-pointer"
+            className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset rounded-md"
             onClick={() => onSelect?.(session.id)}
             role="button"
             tabIndex={0}
@@ -245,14 +222,11 @@ const ChatSessionItem = React.memo<{
             aria-current={isSelected ? 'true' : 'false'}
             aria-label={`${title}, ${relativeTime}`}
           >
-            <div className="grid grid-cols-[auto_1fr_auto] gap-2 p-2">
-              {/* Icon Column */}
-              <MessageSquare className="w-4 h-4 opacity-60" aria-hidden="true" />
-              
+            <div className="grid grid-cols-[1fr_auto] gap-2 p-2">
               {/* Content Column */}
               <div className="grid grid-rows-auto gap-1 min-w-0">
                 {/* Title Row */}
-                <p className={`truncate font-medium ${showExpanded ? 'text-sm' : 'text-xs'}`}>
+                <p className="truncate font-medium text-xs">
                   {title}
                 </p>
                 
@@ -269,7 +243,7 @@ const ChatSessionItem = React.memo<{
                 </div>
                 
                 {/* Expanded Details Row */}
-                {showExpanded && (
+                {isExpanded && (
                   <p className="text-xs text-muted-foreground">
                     {session.messages?.length || 0} messages
                   </p>
@@ -346,7 +320,6 @@ export function ChatHistory({
   onRenameSession
 }: ChatHistoryProps) {
   const [searchQuery, setSearchQuery] = useState("")
-  const [viewMode, setViewMode] = useState<ViewMode>("compact")
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
   const [displayedCount, setDisplayedCount] = useState(INITIAL_LOAD_COUNT)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -391,7 +364,7 @@ export function ChatHistory({
     setIsLoadingMore(false)
   }, [])
 
-  // Filter and group sessions with pagination
+  // Filter and sort sessions with pagination (flat list)
   const { virtualListItems, hasMore, totalCount } = useMemo(() => {
     const filtered = sessions.filter(session => {
       if (!searchQuery.trim()) return true
@@ -402,87 +375,35 @@ export function ChatHistory({
       return title.includes(query)
     })
 
-    // Group by date
-    const grouped = filtered.reduce((groups, session) => {
-      const date = new Date(session.created_at)
-      const today = new Date()
-      const yesterday = new Date(today)
-      yesterday.setDate(yesterday.getDate() - 1)
-      
-      let groupKey: string
-      
-      if (date.toDateString() === today.toDateString()) {
-        groupKey = 'Today'
-      } else if (date.toDateString() === yesterday.toDateString()) {
-        groupKey = 'Yesterday'
-      } else if (date > new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)) {
-        groupKey = 'This Week'
-      } else if (date > new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000)) {
-        groupKey = 'This Month'
-      } else {
-        groupKey = 'Older'
-      }
-
-      if (!groups[groupKey]) {
-        groups[groupKey] = []
-      }
-      groups[groupKey].push(session)
-      return groups
-    }, {} as Record<string, ChatSession[]>)
-
-    // Sort sessions within each group by updated_at (most recent first)
-    Object.keys(grouped).forEach(key => {
-      grouped[key].sort((a, b) => 
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      )
-    })
-
-    // Sort groups by predefined order
-    const sortedGroups = Object.entries(grouped).sort((a, b) => {
-      const indexA = GROUP_ORDER.indexOf(a[0] as typeof GROUP_ORDER[number])
-      const indexB = GROUP_ORDER.indexOf(b[0] as typeof GROUP_ORDER[number])
-      return indexA - indexB
-    })
+    // Sort sessions by updated_at (most recent first)
+    const sortedSessions = filtered.sort((a, b) => 
+      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    )
 
     // Create virtual list items with pagination
     const listItems: ListItemData[] = []
     let itemIndex = 0
-    let sessionCount = 0
 
-    for (const [groupName, groupSessions] of sortedGroups) {
-      if (sessionCount >= displayedCount) break
-
-      // Add group header
+    // Add sessions (limited by displayedCount)
+    const sessionsToShow = sortedSessions.slice(0, displayedCount)
+    
+    for (const session of sessionsToShow) {
       listItems.push({
-        type: 'group',
-        groupName,
-        index: itemIndex++
+        type: 'session',
+        session,
+        index: itemIndex++,
+        isSelected: currentSessionId === session.id,
+        onSelect: onSelectSession,
+        onDelete: onDeleteSession,
+        onRename: onRenameSession,
+        isExpanded: expandedSessions.has(session.id),
+        onToggleExpanded: handleToggleExpanded
       })
-
-      // Add sessions (limited by displayedCount)
-      const remainingSlots = displayedCount - sessionCount
-      const sessionsToShow = groupSessions.slice(0, remainingSlots)
-      
-      for (const session of sessionsToShow) {
-        listItems.push({
-          type: 'session',
-          session,
-          index: itemIndex++,
-          isSelected: currentSessionId === session.id,
-          onSelect: onSelectSession,
-          onDelete: onDeleteSession,
-          onRename: onRenameSession,
-          viewMode,
-          isExpanded: expandedSessions.has(session.id),
-          onToggleExpanded: handleToggleExpanded
-        })
-        sessionCount++
-      }
     }
 
     // Add load more button if there are more sessions
     const totalSessionCount = filtered.length
-    const hasMoreSessions = sessionCount < totalSessionCount
+    const hasMoreSessions = sessionsToShow.length < totalSessionCount
 
     if (hasMoreSessions) {
       listItems.push({
@@ -498,7 +419,7 @@ export function ChatHistory({
       hasMore: hasMoreSessions,
       totalCount: totalSessionCount
     }
-  }, [sessions, searchQuery, displayedCount, currentSessionId, viewMode, expandedSessions, onSelectSession, onDeleteSession, onRenameSession, handleToggleExpanded, handleLoadMore])
+  }, [sessions, searchQuery, displayedCount, currentSessionId, expandedSessions, onSelectSession, onDeleteSession, onRenameSession, handleToggleExpanded, handleLoadMore])
 
   // Reset displayed count when search changes
   useEffect(() => {
@@ -509,10 +430,9 @@ export function ChatHistory({
   // Calculate item height dynamically
   const getItemHeight = useCallback((index: number) => {
     const item = virtualListItems[index]
-    if (item?.type === 'group') return GROUP_HEADER_HEIGHT
     if (item?.type === 'loadMore') return LOAD_MORE_HEIGHT
     if (item?.type === 'session') {
-      const isExpanded = item.isExpanded || item.viewMode === 'expanded'
+      const isExpanded = item.isExpanded || false
       return isExpanded ? EXPANDED_ITEM_HEIGHT : ITEM_HEIGHT
     }
     return ITEM_HEIGHT
@@ -537,7 +457,7 @@ export function ChatHistory({
   return (
     <div className="flex flex-col h-full" ref={containerRef}>
       {/* Header Section - Grid Layout */}
-      <div className="grid grid-rows-2 border-b">
+      <div className="grid grid-rows-1 border-b border-muted">
         {/* Search Row */}
         <div className="grid grid-cols-1 p-2">
           <div className="relative">
@@ -546,7 +466,7 @@ export function ChatHistory({
               placeholder="Search conversations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 h-8 text-xs"
+              className="pl-8 h-8 text-xs border-0 bg-transparent hover:bg-muted/10 focus:bg-background focus-visible:ring-2 focus-visible:ring-accent transition-colors"
               aria-label="Search conversations"
             />
           </div>
@@ -557,25 +477,6 @@ export function ChatHistory({
           )}
         </div>
 
-        {/* View Mode Toggle Row */}
-        <div className="grid grid-cols-2 gap-2 p-2">
-          <Button
-            variant={viewMode === 'compact' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => setViewMode('compact')}
-          >
-            Compact
-          </Button>
-          <Button
-            variant={viewMode === 'expanded' ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => setViewMode('expanded')}
-          >
-            Detailed
-          </Button>
-        </div>
       </div>
 
       {/* Chat Sessions List */}
@@ -590,7 +491,7 @@ export function ChatHistory({
         ) : (
           <List
             ref={listRef}
-            height={containerHeight - 96} // Account for grid header heights
+            height={containerHeight - 48} // Account for single header row
             width="100%"
             itemCount={virtualListItems.length}
             itemSize={getItemHeight}

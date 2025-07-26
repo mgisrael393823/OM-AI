@@ -402,8 +402,8 @@ export default function AppPage() {
           <div className="flex-shrink-0 p-4">
             {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
               <Button 
-                className="w-full justify-center p-2" 
-                variant="outline"
+                className="w-full justify-center p-2 hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
+                variant="ghost"
                 onClick={handleNewChat}
                 title="New Chat"
               >
@@ -411,8 +411,8 @@ export default function AppPage() {
               </Button>
             ) : (
               <Button 
-                className="w-full justify-start" 
-                variant="outline"
+                className="w-full justify-start hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
+                variant="ghost"
                 onClick={handleNewChat}
               >
                 <Plus className="h-4 w-4 mr-2" />
