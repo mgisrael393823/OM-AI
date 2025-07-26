@@ -79,10 +79,10 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
 
 // Loading skeleton component
 const ChatItemSkeleton = React.memo(() => (
-  <div className="px-2 py-1.5 mx-1">
-    <div className="flex items-center gap-2 animate-pulse">
-      <div className="w-4 h-4 bg-muted rounded flex-shrink-0" />
-      <div className="flex-1 space-y-1">
+  <div className="grid grid-cols-1 p-2">
+    <div className="grid grid-cols-[auto_1fr] items-center gap-2 animate-pulse">
+      <div className="w-4 h-4 bg-muted rounded" />
+      <div className="grid grid-rows-2 gap-1">
         <div className="h-3.5 bg-muted rounded w-3/4" />
         <div className="h-2.5 bg-muted rounded w-1/2" />
       </div>
@@ -525,7 +525,7 @@ export function ChatHistory({
         <div className="p-2 border-b">
           <div className="h-8 bg-muted rounded animate-pulse" />
         </div>
-        <div className="flex-1 p-2 space-y-2" role="status" aria-label="Loading conversations">
+        <div className="flex-1 grid grid-cols-1 gap-2 p-2" role="status" aria-label="Loading conversations">
           {[...Array(6)].map((_, i) => (
             <ChatItemSkeleton key={`skeleton-${i}`} />
           ))}

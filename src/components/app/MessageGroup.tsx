@@ -58,7 +58,7 @@ export function MessageGroup({ messages, isLoading = false, onCopy }: MessageGro
   if (!messages.length) return null
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 gap-6">
       {messages.map((message, index) => {
         const previousMessage = messages[index - 1]
         const showTimestamp = shouldShowTimestamp(message, previousMessage)
@@ -70,7 +70,7 @@ export function MessageGroup({ messages, isLoading = false, onCopy }: MessageGro
           <div key={message.id} className="message-container">
             {/* Timestamp Header */}
             {showTimestamp && (
-              <div className="flex justify-center mb-4">
+              <div className="grid grid-cols-1 justify-items-center mb-4">
                 <div className="text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-3 py-1 rounded-full border">
                   {formatMessageTime(message.timestamp)}
                 </div>
@@ -78,7 +78,7 @@ export function MessageGroup({ messages, isLoading = false, onCopy }: MessageGro
             )}
 
             {/* Message */}
-            <div className={`message-wrapper ${isGrouped ? 'mt-1' : 'mt-4'}`}>
+            <div className={`message-wrapper grid grid-cols-1 ${isGrouped ? 'pt-1' : 'pt-4'}`}>
               <MessageBubble
                 role={message.role}
                 content={message.content}
@@ -119,13 +119,13 @@ export function DateSeparator({ date }: { date: string }) {
   }
 
   return (
-    <div className="flex items-center justify-center my-8">
-      <div className="flex items-center space-x-4">
-        <div className="h-px bg-border flex-1" />
+    <div className="grid grid-cols-1 justify-items-center my-8">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 w-full max-w-lg">
+        <div className="h-px bg-border" />
         <div className="text-sm font-medium text-muted-foreground bg-background px-4 py-2 rounded-full border">
           {displayText}
         </div>
-        <div className="h-px bg-border flex-1" />
+        <div className="h-px bg-border" />
       </div>
     </div>
   )

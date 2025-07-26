@@ -33,17 +33,17 @@ export function ChatWelcome({ onStartChat, hasDocuments, onUploadDocument }: Cha
   ]
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full px-4 sm:px-6 py-6 sm:py-12">
-      <div className="max-w-full sm:max-w-2xl mx-auto text-center space-y-6 sm:space-y-8">
+    <div className="grid grid-cols-1 justify-items-center content-center h-full w-full px-4 sm:px-6 py-6 sm:py-12">
+      <div className="grid grid-cols-1 justify-items-center text-center gap-6 sm:gap-8 max-w-full sm:max-w-2xl">
         {/* Welcome Header */}
-        <div className="space-y-3 sm:space-y-4">
-          <div className="flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 mx-auto bg-primary/10 rounded-full">
-            <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-primary" />
+        <div className="grid grid-cols-1 justify-items-center gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 justify-items-center w-12 h-12 sm:w-16 sm:h-16 bg-primary/10 rounded-full">
+            <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-primary self-center" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
             Welcome to OM Intel Chat
           </h1>
-          <p className="text-base sm:text-lg text-muted-foreground max-w-sm sm:max-w-lg mx-auto">
+          <p className="text-base sm:text-lg text-muted-foreground max-w-sm sm:max-w-lg">
             Your AI-powered assistant for commercial real estate analysis and investment insights
           </p>
         </div>
@@ -58,11 +58,11 @@ export function ChatWelcome({ onStartChat, hasDocuments, onUploadDocument }: Cha
               }`}
               onClick={suggestion.disabled ? undefined : suggestion.action}
             >
-              <div className="space-y-2 sm:space-y-3">
-                <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg ${
+              <div className="grid grid-cols-1 justify-items-center gap-2 sm:gap-3">
+                <div className={`grid grid-cols-1 justify-items-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg ${
                   suggestion.disabled ? 'bg-muted' : 'bg-primary/10 group-hover:bg-primary/20'
                 } transition-colors`}>
-                  <div className={suggestion.disabled ? 'text-muted-foreground' : 'text-primary'}>
+                  <div className={`${suggestion.disabled ? 'text-muted-foreground' : 'text-primary'} self-center`}>
                     {React.cloneElement(suggestion.icon as React.ReactElement, {
                       className: 'h-4 w-4 sm:h-5 sm:w-5'
                     })}
@@ -78,11 +78,11 @@ export function ChatWelcome({ onStartChat, hasDocuments, onUploadDocument }: Cha
         </div>
 
         {/* Responsive Quick Start */}
-        <div className="space-y-3 sm:space-y-4">
+        <div className="grid grid-cols-1 justify-items-center gap-3 sm:gap-4">
           <div className="text-xs sm:text-sm text-muted-foreground">
             Or start with a sample question:
           </div>
-          <div className="flex flex-col sm:flex-row flex-wrap gap-2 justify-center max-w-3xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 justify-items-center max-w-3xl">
             {[
               "Key office building metrics?",
               "Explain cap rates",
@@ -106,8 +106,10 @@ export function ChatWelcome({ onStartChat, hasDocuments, onUploadDocument }: Cha
 
         {/* Status */}
         {hasDocuments && (
-          <div className="text-xs sm:text-sm text-muted-foreground bg-muted/30 rounded-lg p-3 max-w-md mx-auto">
-            📄 You have documents ready for analysis. Ask me anything about them!
+          <div className="grid grid-cols-1 justify-items-center">
+            <div className="text-xs sm:text-sm text-muted-foreground bg-muted/30 rounded-lg p-3 max-w-md">
+              📄 You have documents ready for analysis. Ask me anything about them!
+            </div>
           </div>
         )}
       </div>

@@ -327,18 +327,21 @@ export default function AppPage() {
             flex flex-col h-full
             ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'items-center' : ''}
           `}>
-          {/* Sidebar Header - Fixed */}
+          {/* Sidebar Header - Grid Layout */}
           <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between">
-              <div className={`flex items-center space-x-2 ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'justify-center' : ''}`}>
+            <div className="grid grid-cols-[1fr_auto] items-center">
+              {/* Brand Section */}
+              <div className={`grid ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'grid-cols-1 justify-items-center' : 'grid-cols-[auto_1fr] gap-2'} items-center`}>
                 <Building2 className="h-6 w-6 text-blue-600" />
                 {(sidebarState !== 'collapsed' || isMobile || isTablet) && (
                   <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
                 )}
               </div>
               
-              {/* Controls */}
-              <div className="flex items-center space-x-1">
+              {/* Controls Section */}
+              <div className={`grid gap-1 ${
+                isDesktop && sidebarState !== 'collapsed' ? 'grid-cols-2' : 'grid-cols-1'
+              }`}>
                 {/* Desktop sidebar controls */}
                 {isDesktop && sidebarState !== 'collapsed' && (
                   <>
@@ -495,14 +498,14 @@ export default function AppPage() {
                         </p>
                       </div>
                     ) : documents.length > 0 ? (
-                      <div className="space-y-1" role="list">
-                        {/* Compact Document Items */}
+                      <div className="grid grid-cols-1 gap-0" role="list">
+                        {/* Document Items */}
                         {documents.slice(0, showAllDocuments ? documents.length : 5).map((doc) => (
                           <div
                             key={doc.id}
                             role="listitem"
                             aria-selected={selectedDocumentId === doc.id}
-                            className={`group relative px-2 py-1.5 mx-1 rounded-md cursor-pointer transition-all duration-200 ${
+                            className={`group relative p-2 rounded-md cursor-pointer transition-all duration-200 ${
                               selectedDocumentId === doc.id
                                 ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
                                 : 'hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -515,15 +518,18 @@ export default function AppPage() {
                               }
                             }}
                           >
-                            <div className="flex items-center space-x-2">
-                              <FileText className={`h-3.5 w-3.5 flex-shrink-0 ${
+                            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+                              {/* Icon Column */}
+                              <FileText className={`h-3.5 w-3.5 ${
                                 selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
                               }`} />
-                              <div className="flex-1 min-w-0">
+                              
+                              {/* Content Column */}
+                              <div className="grid grid-rows-2 gap-0 min-w-0">
                                 <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
                                   {doc.name}
                                 </p>
-                                <div className="flex items-center space-x-1.5 mt-0.5">
+                                <div className="grid grid-cols-[auto_auto_1fr] items-center gap-2">
                                   {getStatusIcon(doc.status)}
                                   <p className="text-xs text-gray-500 dark:text-gray-400">
                                     {doc.size}MB
@@ -533,12 +539,13 @@ export default function AppPage() {
                                   )}
                                 </div>
                               </div>
-                              {/* Quick Actions */}
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1">
+                              
+                              {/* Actions Column */}
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-5 w-5 p-0"
+                                  className="h-6 w-6 p-0"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     // TODO: Open document preview
@@ -554,42 +561,46 @@ export default function AppPage() {
                         
                         {/* View All / Show Less Toggle */}
                         {documents.length > 5 && (
-                          <div className="px-2 pt-2">
+                          <div className="grid grid-cols-1 p-2">
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="w-full h-6 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                              className="h-8 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                               onClick={() => setShowAllDocuments(!showAllDocuments)}
                             >
-                              {showAllDocuments ? (
-                                <>
-                                  <ChevronDown className="h-3 w-3 mr-1 rotate-180" />
-                                  Show Less
-                                </>
-                              ) : (
-                                <>
-                                  <ExternalLink className="h-3 w-3 mr-1" />
-                                  View All ({documents.length})
-                                </>
-                              )}
+                              <div className="grid grid-cols-[auto_1fr] items-center gap-1">
+                                {showAllDocuments ? (
+                                  <>
+                                    <ChevronDown className="h-3 w-3 rotate-180" />
+                                    <span>Show Less</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ExternalLink className="h-3 w-3" />
+                                    <span>View All ({documents.length})</span>
+                                  </>
+                                )}
+                              </div>
                             </Button>
                           </div>
                         )}
                       </div>
                     ) : (
-                      <div className="py-4 text-center">
-                        <FileText className="h-5 w-5 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                      <div className="grid grid-cols-1 justify-items-center p-4 gap-2">
+                        <FileText className="h-5 w-5 text-gray-300 dark:text-gray-600" />
                         <p className="text-xs text-gray-500 dark:text-gray-400">
                           No documents yet
                         </p>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="mt-2 h-6 text-xs text-blue-600"
+                          className="h-8 text-xs text-blue-600"
                           onClick={() => setShowUpload(true)}
                         >
-                          <Plus className="h-3 w-3 mr-1" />
-                          Upload Document
+                          <div className="grid grid-cols-[auto_1fr] items-center gap-1">
+                            <Plus className="h-3 w-3" />
+                            <span>Upload Document</span>
+                          </div>
                         </Button>
                       </div>
                     )}
@@ -599,11 +610,11 @@ export default function AppPage() {
             </div>
           )}
 
-          {/* User Profile - Fixed at bottom */}
+          {/* User Profile - Grid Layout */}
           <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
             {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
-              /* Collapsed view */
-              <div className="flex flex-col items-center space-y-2">
+              /* Collapsed view - Centered Grid */
+              <div className="grid grid-cols-1 justify-items-center gap-2">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
                     {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
@@ -614,20 +625,20 @@ export default function AppPage() {
                   size="sm"
                   onClick={() => router.push('/settings')}
                   title="Settings"
-                  className="h-7 w-7 p-0"
+                  className="h-8 w-8 p-0"
                 >
                   <Settings className="h-4 w-4" />
                 </Button>
               </div>
             ) : (
-              /* Normal/expanded view */
-              <div className="flex items-center space-x-3">
+              /* Normal/expanded view - Three Column Grid */
+              <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
                     {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
                   </AvatarFallback>
                 </Avatar>
-                <div className="flex-1 min-w-0">
+                <div className="grid grid-rows-2 gap-0 min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                     {userDisplayData.name}
                   </p>
@@ -640,6 +651,7 @@ export default function AppPage() {
                   size="sm"
                   onClick={() => router.push('/settings')}
                   title="Settings"
+                  className="h-8 w-8 p-0"
                 >
                   <Settings className="h-4 w-4" />
                 </Button>
@@ -756,9 +768,9 @@ export default function AppPage() {
                     />
                   </div>
                 ) : (
-                  // Simplified Message Thread Container
-                  <div className="w-full min-h-full px-4 md:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
-                    <div className="max-w-3xl mx-auto space-y-4 sm:space-y-6 lg:space-y-8">
+                  // Message Thread Container - Grid Layout
+                  <div className="grid grid-cols-1 justify-items-center w-full min-h-full p-4">
+                    <div className="grid grid-cols-1 w-full max-w-3xl gap-6">
                       <MessageGroup
                         messages={messages}
                         isLoading={isLoading}
@@ -788,46 +800,47 @@ export default function AppPage() {
               />
             </div>
 
-            {/* Fully Responsive Fixed Input Area */}
+            {/* Input Area - Grid Layout */}
             <div 
               className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border"
               style={{
                 paddingBottom: 'env(safe-area-inset-bottom, 0)' // Safe area for devices with home indicator
               }}
             >
-              <div className="px-4 md:px-6 lg:px-8 py-3 sm:py-4">
-                <div className="max-w-3xl mx-auto">
-                  <div className="relative flex items-end space-x-3">
-                    <div className="flex-1 relative">
-                      <textarea
-                        value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault()
-                            handleSendMessage()
-                          }
-                        }}
-                        placeholder={isMobile 
-                          ? "Ask anything..." 
-                          : "Ask anything about commercial real estate..."
+              <div className="grid grid-cols-1 justify-items-center p-4">
+                <div className="grid grid-cols-1 w-full max-w-3xl gap-2">
+                  {/* Input Row */}
+                  <div className="grid grid-cols-1 relative">
+                    <textarea
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          handleSendMessage()
                         }
-                        className="
-                          w-full resize-none rounded-2xl border border-border bg-background shadow-sm 
-                          focus:ring-2 focus:ring-primary focus:border-transparent transition-all
-                          min-h-[56px] max-h-[200px] px-4 py-3 pr-24 text-base
-                        "
-                        disabled={isLoading}
-                        rows={1}
-                        style={{
-                          scrollbarWidth: 'thin',
-                          scrollbarColor: 'hsl(var(--border)) transparent',
-                          fontSize: '16px' // Consistent font size to prevent zoom on iOS
-                        }}
-                      />
-                      
-                      {/* Responsive Input Actions */}
-                      <div className="absolute right-2 bottom-2 flex items-center space-x-1">
+                      }}
+                      placeholder={isMobile 
+                        ? "Ask anything..." 
+                        : "Ask anything about commercial real estate..."
+                      }
+                      className="
+                        w-full resize-none rounded-2xl border border-border bg-background shadow-sm 
+                        focus:ring-2 focus:ring-primary focus:border-transparent transition-all
+                        min-h-[56px] max-h-[200px] p-4 pr-24 text-base
+                      "
+                      disabled={isLoading}
+                      rows={1}
+                      style={{
+                        scrollbarWidth: 'thin',
+                        scrollbarColor: 'hsl(var(--border)) transparent',
+                        fontSize: '16px' // Consistent font size to prevent zoom on iOS
+                      }}
+                    />
+                    
+                    {/* Input Actions - Absolute Grid */}
+                    <div className="absolute right-2 bottom-2">
+                      <div className={`grid ${!isMobile ? 'grid-cols-3' : 'grid-cols-2'} gap-1`}>
                         <Button 
                           variant="ghost" 
                           size="sm"
@@ -864,22 +877,16 @@ export default function AppPage() {
                     </div>
                   </div>
                   
-                  {/* Responsive Input Footer */}
-                  <div className={`
-                    flex items-center justify-between mt-2 text-xs text-muted-foreground
-                    ${isMobile ? 'flex-col space-y-2' : 'flex-row'}
-                  `}>
+                  {/* Footer Row */}
+                  <div className={`grid text-xs text-muted-foreground ${isMobile ? 'grid-cols-1 justify-items-center gap-2' : 'grid-cols-[1fr_auto] items-center'}`}>
                     {!isMobile && (
-                      <div className="flex items-center space-x-4">
+                      <div>
                         <span>Press Enter to send, Shift + Enter for new line</span>
                       </div>
                     )}
-                    <div className={`
-                      flex items-center space-x-2
-                      ${isMobile ? 'flex-wrap justify-center' : ''}
-                    `}>
+                    <div className={`grid gap-2 ${isMobile ? 'grid-cols-1 justify-items-center' : 'grid-cols-[repeat(auto-fit,_minmax(100px,_auto))]'}`}>
                       {selectedDocumentId && (
-                        <div className="flex items-center space-x-1 px-2 py-1 bg-primary/10 rounded-md">
+                        <div className="grid grid-cols-[auto_1fr] items-center gap-1 p-2 bg-primary/10 rounded-md">
                           <FileText className="h-3 w-3 text-primary" />
                           <span className="text-primary text-xs">
                             {isMobile ? 'Doc' : 'Doc attached'}
@@ -887,7 +894,7 @@ export default function AppPage() {
                         </div>
                       )}
                       {!isMobile && (
-                        <Button variant="ghost" size="sm" className="h-auto p-1 text-xs hover:bg-muted opacity-70">
+                        <Button variant="ghost" size="sm" className="h-auto p-2 text-xs hover:bg-muted opacity-70">
                           <span>AI can make mistakes. Verify important information.</span>
                         </Button>
                       )}
