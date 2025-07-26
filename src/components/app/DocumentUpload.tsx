@@ -11,6 +11,8 @@ import {
   AlertCircle,
   Loader2
 } from "lucide-react"
+import { useUploadThing } from "@/utils/uploadthing"
+import { toast } from "sonner"
 
 interface UploadFile {
   id: string
@@ -28,108 +30,144 @@ interface DocumentUploadProps {
 export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: DocumentUploadProps) {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
 
-  const uploadToSupabase = async (uploadFile: UploadFile) => {
+  const { startUpload, isUploading } = useUploadThing("pdfUploader", {
+    onClientUploadComplete: (res) => {
+      console.log("Upload complete:", res)
+      
+      res?.forEach((uploadedFile) => {
+        // Find the corresponding upload file
+        const uploadFileEntry = uploadFiles.find(f => 
+          f.file.name === uploadedFile.name && f.status === "uploading"
+        )
+        
+        if (uploadFileEntry) {
+          // Update status to processing
+          setUploadFiles(prev => prev.map(f => 
+            f.id === uploadFileEntry.id 
+              ? { ...f, status: "processing", progress: 100 } 
+              : f
+          ))
+
+          // Check server response for document data
+          const serverData = uploadedFile.serverData as any
+          if (serverData?.error) {
+            // Server processing error
+            setUploadFiles(prev => prev.map(f => 
+              f.id === uploadFileEntry.id 
+                ? { ...f, status: "error", error: serverData.error } 
+                : f
+            ))
+            toast.error(`Failed to process ${uploadedFile.name}: ${serverData.error}`)
+          } else if (serverData?.document) {
+            // Success
+            setUploadFiles(prev => prev.map(f => 
+              f.id === uploadFileEntry.id 
+                ? { ...f, status: "completed" } 
+                : f
+            ))
+            
+            if (onUploadComplete) {
+              onUploadComplete(serverData.document)
+            }
+            
+            toast.success(`${uploadedFile.name} uploaded successfully`)
+          } else {
+            // Unknown response
+            setUploadFiles(prev => prev.map(f => 
+              f.id === uploadFileEntry.id 
+                ? { ...f, status: "completed" } 
+                : f
+            ))
+          }
+
+          // Refresh document list
+          if (onDocumentListRefresh) {
+            onDocumentListRefresh()
+          }
+
+          // Remove from list after 10 seconds
+          setTimeout(() => {
+            setUploadFiles(prev => prev.filter(f => f.id !== uploadFileEntry.id))
+          }, 10000)
+        }
+      })
+    },
+    onUploadProgress: (progress) => {
+      // Update progress for all uploading files
+      setUploadFiles(prev => prev.map(f => 
+        f.status === "uploading" 
+          ? { ...f, progress: Math.min(progress, 95) } // Cap at 95% until processing
+          : f
+      ))
+    },
+    onUploadError: (error) => {
+      console.error("Upload error:", error)
+      toast.error(`Upload failed: ${error.message}`)
+      
+      // Mark all uploading files as error
+      setUploadFiles(prev => prev.map(f => 
+        f.status === "uploading" 
+          ? { ...f, status: "error", error: error.message } 
+          : f
+      ))
+    }
+  })
+
+  const uploadWithAuth = useCallback(async (files: File[]) => {
     try {
+      // Get auth token
       const { supabase } = await import('@/lib/supabase')
       const { data: { session } } = await supabase.auth.getSession()
       
       if (!session?.access_token) {
-        setUploadFiles(prev => prev.map(f => 
-          f.id === uploadFile.id 
-            ? { ...f, status: "error", error: "Not authenticated" } 
-            : f
-        ))
+        toast.error("Not authenticated")
         return
       }
 
-      const formData = new FormData()
-      formData.append('file', uploadFile.file)
+      // Create upload entries
+      const newFiles = files.map((file, index) => ({
+        id: `upload-${Date.now()}-${index}`,
+        file,
+        progress: 0,
+        status: "uploading" as const
+      }))
 
-      // Update progress periodically
-      const progressInterval = setInterval(() => {
-        setUploadFiles(prev => prev.map(f => 
-          f.id === uploadFile.id && f.progress < 90
-            ? { ...f, progress: f.progress + 10 }
-            : f
-        ))
-      }, 200)
+      setUploadFiles(prev => [...prev, ...newFiles])
 
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: formData
-      })
-
-      clearInterval(progressInterval)
-
-      if (!response.ok) {
-        let errorMessage = 'Upload failed'
-        try {
-          const errorData = await response.json()
-          if (errorData?.error) {
-            errorMessage = errorData.error
+      // Store auth token in a way UploadThing middleware can access it
+      // The middleware will read the auth header from the request
+      const originalFetch = window.fetch
+      window.fetch = function(input, init) {
+        if (typeof input === 'string' && input.includes('uploadthing')) {
+          init = init || {}
+          init.headers = {
+            ...init.headers,
+            'Authorization': `Bearer ${session.access_token}`
           }
-        } catch (e) {
-          // ignore json parse errors
         }
-        throw new Error(errorMessage)
+        return originalFetch.call(this, input, init)
       }
 
-      const data = await response.json()
+      // Start upload
+      await startUpload(files)
 
-      // Update to completed
-      setUploadFiles(prev => prev.map(f => 
-        f.id === uploadFile.id 
-          ? { ...f, progress: 100, status: "completed" } 
-          : f
-      ))
-
-      // Call completion callback
-      if (onUploadComplete && data.document) {
-        onUploadComplete(data.document)
-      }
-
-      // Refresh document list to show the new upload
-      if (onDocumentListRefresh) {
-        onDocumentListRefresh()
-      }
-
-      // Remove from list after 10 seconds (increased from 3)
-      setTimeout(() => {
-        setUploadFiles(prev => prev.filter(f => f.id !== uploadFile.id))
-      }, 10000)
-
+      // Restore original fetch
+      window.fetch = originalFetch
     } catch (error) {
-      setUploadFiles(prev => prev.map(f => 
-        f.id === uploadFile.id 
-          ? { 
-              ...f, 
-              status: "error", 
-              error: error instanceof Error ? error.message : "Upload failed" 
-            } 
-          : f
-      ))
+      console.error("Error starting upload:", error)
+      toast.error("Failed to start upload")
+      
+      // Restore original fetch on error
+      const originalFetch = (window as any)._originalFetch
+      if (originalFetch) {
+        window.fetch = originalFetch
+      }
     }
-  }
+  }, [startUpload])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    const newFiles = acceptedFiles.map((file, index) => ({
-      id: `upload-${Date.now()}-${index}`,
-      file,
-      progress: 0,
-      status: "uploading" as const
-    }))
-
-    setUploadFiles(prev => [...prev, ...newFiles])
-
-    // Upload files
-    newFiles.forEach(uploadFile => {
-      uploadToSupabase(uploadFile)
-    })
-  }, [uploadToSupabase])
-
+    uploadWithAuth(acceptedFiles)
+  }, [uploadWithAuth])
 
   const removeFile = (fileId: string) => {
     setUploadFiles(prev => prev.filter(f => f.id !== fileId))
@@ -140,8 +178,9 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
     accept: {
       'application/pdf': ['.pdf']
     },
-    maxSize: 10 * 1024 * 1024, // 10MB
-    multiple: true
+    maxSize: 16 * 1024 * 1024, // 16MB (UploadThing limit)
+    multiple: true,
+    disabled: isUploading
   })
 
   return (
@@ -155,6 +194,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
             : 'border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500'
           }
+          ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}
         `}
       >
         <input {...getInputProps()} />
@@ -163,7 +203,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
           {isDragActive ? "Drop files here" : "Upload PDF documents"}
         </p>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Drag & drop or click to browse • Max 10MB per file
+          Drag & drop or click to browse • Max 16MB per file
         </p>
       </div>
 
@@ -238,7 +278,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription className="text-xs">
-          Supported format: PDF • Maximum file size: 10MB • 
+          Supported format: PDF • Maximum file size: 16MB • 
           Text will be extracted automatically for AI analysis
         </AlertDescription>
       </Alert>
