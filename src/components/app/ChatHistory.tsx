@@ -36,6 +36,7 @@ interface ChatHistoryProps {
   onSelectSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
   onRenameSession?: (sessionId: string, newTitle: string) => void
+  isCollapsed?: boolean
 }
 
 
@@ -226,7 +227,7 @@ const ChatSessionItem = React.memo<{
               {/* Content Column */}
               <div className="grid grid-rows-auto gap-1 min-w-0">
                 {/* Title Row */}
-                <p className="truncate font-medium text-xs">
+                <p className="truncate text-sm text-muted-foreground">
                   {title}
                 </p>
                 
@@ -317,7 +318,8 @@ export function ChatHistory({
   isLoading,
   onSelectSession,
   onDeleteSession,
-  onRenameSession
+  onRenameSession,
+  isCollapsed = false
 }: ChatHistoryProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
@@ -456,32 +458,36 @@ export function ChatHistory({
 
   return (
     <div className="flex flex-col h-full" ref={containerRef}>
-      {/* Header Section - Grid Layout */}
-      <div className="grid grid-rows-1 border-b border-muted">
-        {/* Search Row */}
-        <div className="grid grid-cols-1 p-2">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Search conversations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 h-8 text-xs border-0 bg-transparent hover:bg-muted/10 focus:bg-background focus-visible:ring-2 focus-visible:ring-accent transition-colors"
-              aria-label="Search conversations"
-            />
-          </div>
-          {searchQuery && (
-            <div className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">
-              {totalCount} result{totalCount !== 1 ? 's' : ''}
+      {/* Header Section - Hidden when collapsed */}
+      {!isCollapsed && (
+        <div className="grid grid-rows-1 border-b border-muted">
+          {/* Search Row */}
+          <div className="grid grid-cols-1 p-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search conversations..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 h-8 text-xs border-0 bg-transparent hover:bg-muted/10 focus:bg-background focus-visible:ring-2 focus-visible:ring-accent transition-colors"
+                aria-label="Search conversations"
+              />
             </div>
-          )}
+            {searchQuery && (
+              <div className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">
+                {totalCount} result{totalCount !== 1 ? 's' : ''}
+              </div>
+            )}
+          </div>
         </div>
-
-      </div>
+      )}
 
       {/* Chat Sessions List */}
       <div className="flex-1 min-h-0" role="navigation" aria-label="Conversation history">
-        {virtualListItems.length === 0 ? (
+        {isCollapsed ? (
+          /* Collapsed: Hide all chat sessions to match ChatGPT behavior */
+          <div className="flex-1" />
+        ) : virtualListItems.length === 0 ? (
           <div className="p-4 text-center">
             <MessageSquare className="h-6 w-6 mx-auto text-muted-foreground mb-2" />
             <p className="text-xs text-muted-foreground">
@@ -491,7 +497,7 @@ export function ChatHistory({
         ) : (
           <List
             ref={listRef}
-            height={containerHeight - 48} // Account for single header row
+            height={containerHeight - (isCollapsed ? 0 : 48)} // Account for header when not collapsed
             width="100%"
             itemCount={virtualListItems.length}
             itemSize={getItemHeight}
@@ -505,7 +511,7 @@ export function ChatHistory({
       </div>
 
       {/* Loading indicator for load more */}
-      {isLoadingMore && (
+      {!isCollapsed && isLoadingMore && (
         <div className="flex-shrink-0 p-2 text-center">
           <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
         </div>

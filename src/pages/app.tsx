@@ -301,105 +301,99 @@ export default function AppPage() {
                 sidebarOpen ? 'translate-x-0' : '-translate-x-full'
               }`
             : isTablet
-            ? `fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out ${
+            ? `fixed inset-y-0 left-0 z-50 w-[260px] transform transition-transform duration-300 ease-in-out ${
                 sidebarOpen ? 'translate-x-0' : '-translate-x-full'
               }`
-            : `relative flex-shrink-0 transition-all duration-300 ease-in-out`
+            : `relative flex-shrink-0 transition-all duration-300 ease-in-out ${
+                sidebarState === 'collapsed' ? 'w-16' : 'w-[260px]'
+              }`
           }
           bg-muted/30 border-r border-border
           flex flex-col overflow-hidden
           h-full
         `}
-        style={{
-          width: isMobile 
-            ? '100%' 
-            : isTablet
-            ? `${sidebarWidth}px` // Fixed width for tablet overlay
-            : sidebarOpen || isDesktop 
-            ? `${sidebarWidth}px` // Use fixed pixel widths from SIDEBAR_WIDTHS constants
-            : '0px'
-        }}
         ref={sidebarRef}
         {...(isMobile ? bind() : {})}
         >
           {/* Sidebar Content */}
-          <div className={`
-            flex flex-col h-full
-            ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'items-center' : ''}
-          `}>
-          {/* Sidebar Header - Grid Layout */}
-          <div className="flex-shrink-0 p-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="grid grid-cols-[1fr_auto] items-center">
-              {/* Brand Section */}
-              <div className={`grid ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'grid-cols-1 justify-items-center' : 'grid-cols-[auto_1fr] gap-2'} items-center`}>
+          <div className={`flex flex-col h-full ${
+            sidebarState === 'collapsed' && !isMobile && !isTablet 
+              ? 'px-2 py-4 items-center' 
+              : 'px-3 py-4'
+          }`}>
+          {/* Sidebar Header */}
+          <div className={`flex-shrink-0 ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'pb-4' : 'pb-4 border-b border-border'}`}>
+            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
+              /* Collapsed: Icon with expand button */
+              <div className="flex flex-col items-center gap-2">
                 <Building2 className="h-6 w-6 text-blue-600" />
-                {(sidebarState !== 'collapsed' || isMobile || isTablet) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSidebarState('normal')}
+                  title="Expand sidebar"
+                  className="h-6 w-6 p-0"
+                >
+                  <ChevronRight className="h-3 w-3" />
+                </Button>
+              </div>
+            ) : (
+              /* Expanded: Full header with controls */
+              <div className="grid grid-cols-[1fr_auto] items-center">
+                {/* Brand Section */}
+                <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
+                  <Building2 className="h-6 w-6 text-blue-600" />
                   <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
-                )}
-              </div>
-              
-              {/* Controls Section */}
-              <div className={`grid gap-1 ${
-                isDesktop && sidebarState !== 'collapsed' ? 'grid-cols-2' : 'grid-cols-1'
-              }`}>
-                {/* Desktop sidebar controls */}
-                {isDesktop && sidebarState !== 'collapsed' && (
-                  <>
+                </div>
+                
+                {/* Controls Section */}
+                <div className="grid gap-1 grid-cols-2">
+                  {/* Desktop sidebar controls */}
+                  {isDesktop && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSidebarState(sidebarState === 'expanded' ? 'normal' : 'expanded')}
+                        title={sidebarState === 'expanded' ? 'Collapse to normal' : 'Expand sidebar'}
+                        className="h-7 w-7 p-0"
+                      >
+                        {sidebarState === 'expanded' ? (
+                          <PanelLeftClose className="h-4 w-4" />
+                        ) : (
+                          <PanelLeftOpen className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSidebarState('collapsed')}
+                        title="Collapse sidebar"
+                        className="h-7 w-7 p-0"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+                  
+                  {/* Mobile & Tablet close button */}
+                  {(isMobile || isTablet) && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setSidebarState(sidebarState === 'expanded' ? 'normal' : 'expanded')}
-                      title={sidebarState === 'expanded' ? 'Collapse to normal' : 'Expand sidebar'}
+                      onClick={() => setSidebarOpen(false)}
                       className="h-7 w-7 p-0"
                     >
-                      {sidebarState === 'expanded' ? (
-                        <PanelLeftClose className="h-4 w-4" />
-                      ) : (
-                        <PanelLeftOpen className="h-4 w-4" />
-                      )}
+                      <X className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSidebarState('collapsed')}
-                      title="Collapse sidebar"
-                      className="h-7 w-7 p-0"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                  </>
-                )}
-                
-                {/* Collapsed state expand button */}
-                {isDesktop && sidebarState === 'collapsed' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSidebarState('normal')}
-                    title="Expand sidebar"
-                    className="h-7 w-7 p-0"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                )}
-                
-                {/* Mobile & Tablet close button */}
-                {(isMobile || isTablet) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSidebarOpen(false)}
-                    className="h-7 w-7 p-0"
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* New Chat Button - Fixed */}
-          <div className="flex-shrink-0 p-4">
+          <div className="flex-shrink-0 pt-4">
             {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
               <Button 
                 className="w-full justify-center p-2 hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
@@ -430,13 +424,14 @@ export default function AppPage() {
               onSelectSession={loadChatSession}
               onDeleteSession={deleteChatSession}
               onRenameSession={renameChatSession}
+              isCollapsed={sidebarState === 'collapsed' && !isMobile && !isTablet}
             />
           </div>
 
           {/* Documents Section - Collapsed State (Desktop Only) */}
           {sidebarState === 'collapsed' && !isMobile && !isTablet && documents.length > 0 && (
-            <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 p-2">
-              <div className="flex flex-col items-center space-y-1">
+            <div className="flex-shrink-0 border-t border-border pt-2">
+              <div className="flex flex-col items-center gap-1">
                 {documents.slice(0, 3).map((doc) => (
                   <Button
                     key={doc.id}
@@ -468,7 +463,7 @@ export default function AppPage() {
 
           {/* Documents Section - Collapsible Accordion */}
           {(sidebarState !== 'collapsed' || isMobile || isTablet) && (
-            <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700">
+            <div className="flex-shrink-0 border-t border-border pt-4">
               <Accordion
                 type="single"
                 collapsible
@@ -477,7 +472,7 @@ export default function AppPage() {
                 className="w-full"
               >
                 <AccordionItem value="documents" className="border-0">
-                  <AccordionTrigger className="px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:no-underline">
+                  <AccordionTrigger className="px-0 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
                     <div className="flex items-center justify-between w-full">
                       <span>Documents</span>
                       <div className="flex items-center space-x-2">
@@ -489,7 +484,7 @@ export default function AppPage() {
                       </div>
                     </div>
                   </AccordionTrigger>
-                  <AccordionContent className="px-2 pb-2">
+                  <AccordionContent className="px-0 pb-2">
                     {isLoadingDocuments ? (
                       <div className="py-4 text-center">
                         <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
@@ -610,8 +605,8 @@ export default function AppPage() {
             </div>
           )}
 
-          {/* User Profile - Grid Layout */}
-          <div className="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
+          {/* User Profile */}
+          <div className="flex-shrink-0 pt-4 border-t border-border">
             {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
               /* Collapsed view - Centered Grid */
               <div className="grid grid-cols-1 justify-items-center gap-2">
@@ -822,7 +817,7 @@ export default function AppPage() {
                       }}
                       placeholder={isMobile 
                         ? "Ask anything..." 
-                        : "Ask anything about commercial real estate..."
+                        : "Try: Summarize the key deal points from the uploaded OM"
                       }
                       className="
                         w-full resize-none rounded-2xl border border-border bg-background shadow-sm 

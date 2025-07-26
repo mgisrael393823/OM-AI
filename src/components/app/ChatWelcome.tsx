@@ -1,7 +1,6 @@
 import React from 'react'
-import { MessageCircle, FileText, Zap, Sparkles } from 'lucide-react'
+import { MessageCircle, FileText, Zap, Sparkles, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 
 interface ChatWelcomeProps {
   onStartChat: () => void
@@ -12,97 +11,54 @@ interface ChatWelcomeProps {
 export function ChatWelcome({ onStartChat, hasDocuments, onUploadDocument }: ChatWelcomeProps) {
   const suggestions = [
     {
-      icon: <FileText className="h-5 w-5" />,
-      title: "Analyze a Document",
-      description: "Upload an offering memorandum or investment document for AI analysis",
+      icon: <FileText className="h-4 w-4 text-muted-foreground" />,
+      title: "Analyze Document",
       action: onUploadDocument,
       disabled: !onUploadDocument
     },
     {
-      icon: <MessageCircle className="h-5 w-5" />,
-      title: "Ask a Question",
-      description: "Start a conversation about commercial real estate or investments",
+      icon: <MessageCircle className="h-4 w-4 text-muted-foreground" />,
+      title: "Ask Question",
       action: onStartChat
     },
     {
-      icon: <Zap className="h-5 w-5" />,
+      icon: <Zap className="h-4 w-4 text-muted-foreground" />,
       title: "Quick Analysis",
-      description: "Get insights on market trends, deal structures, or investment metrics",
       action: onStartChat
     }
   ]
 
   return (
     <div className="grid grid-cols-1 justify-items-center content-center h-full w-full px-4 sm:px-6 py-6 sm:py-12">
-      <div className="grid grid-cols-1 justify-items-center text-center gap-6 sm:gap-8 max-w-full sm:max-w-2xl">
+      <div className="grid grid-cols-1 justify-items-center text-center gap-4 sm:gap-6 max-w-full sm:max-w-2xl">
         {/* Welcome Header */}
-        <div className="grid grid-cols-1 justify-items-center gap-3 sm:gap-4">
-          <div className="grid grid-cols-1 justify-items-center w-12 h-12 sm:w-16 sm:h-16 bg-primary/10 rounded-full">
-            <Sparkles className="h-6 w-6 sm:h-8 sm:w-8 text-primary self-center" />
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+        <div className="grid grid-cols-1 justify-items-center gap-2">
+          <Sparkles className="h-8 w-8 text-muted-foreground" />
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
             Welcome to OM Intel Chat
           </h1>
-          <p className="text-base sm:text-lg text-muted-foreground max-w-sm sm:max-w-lg">
-            Your AI-powered assistant for commercial real estate analysis and investment insights
+          <p className="text-sm sm:text-base text-muted-foreground">
+            AI-powered CRE analysis
           </p>
         </div>
 
-        {/* Responsive Action Cards */}
-        <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-4xl mx-auto">
+        {/* Compact Action Buttons */}
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-3 justify-items-center max-w-2xl">
           {suggestions.map((suggestion, index) => (
-            <Card
+            <Button
               key={index}
-              className={`p-4 sm:p-6 transition-all duration-200 hover:shadow-md cursor-pointer group ${
-                suggestion.disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted/30'
-              }`}
+              variant="outline"
+              size="sm"
+              disabled={suggestion.disabled}
               onClick={suggestion.disabled ? undefined : suggestion.action}
+              className="grid grid-cols-[auto_1fr] items-center gap-2 px-4 py-2 h-auto text-sm transition-colors hover:bg-muted/50 rounded-md"
             >
-              <div className="grid grid-cols-1 justify-items-center gap-2 sm:gap-3">
-                <div className={`grid grid-cols-1 justify-items-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg ${
-                  suggestion.disabled ? 'bg-muted' : 'bg-primary/10 group-hover:bg-primary/20'
-                } transition-colors`}>
-                  <div className={`${suggestion.disabled ? 'text-muted-foreground' : 'text-primary'} self-center`}>
-                    {React.cloneElement(suggestion.icon as React.ReactElement, {
-                      className: 'h-4 w-4 sm:h-5 sm:w-5'
-                    })}
-                  </div>
-                </div>
-                <h3 className="font-semibold text-sm sm:text-base">{suggestion.title}</h3>
-                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                  {suggestion.description}
-                </p>
-              </div>
-            </Card>
+              {suggestion.icon}
+              <span>{suggestion.title}</span>
+            </Button>
           ))}
         </div>
 
-        {/* Responsive Quick Start */}
-        <div className="grid grid-cols-1 justify-items-center gap-3 sm:gap-4">
-          <div className="text-xs sm:text-sm text-muted-foreground">
-            Or start with a sample question:
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 justify-items-center max-w-3xl">
-            {[
-              "Key office building metrics?",
-              "Explain cap rates",
-              "Analyze cash flow projections"
-            ].map((question, index) => (
-              <Button
-                key={index}
-                variant="outline"
-                size="sm"
-                className="text-xs px-3 py-2 h-auto whitespace-nowrap touch-manipulation"
-                onClick={() => {
-                  // You could pass this question to the chat input
-                  onStartChat()
-                }}
-              >
-                {question}
-              </Button>
-            ))}
-          </div>
-        </div>
 
         {/* Status */}
         {hasDocuments && (
