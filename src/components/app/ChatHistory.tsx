@@ -18,7 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { FixedSizeList as List } from 'react-window'
+import { VariableSizeList as List } from 'react-window'
 
 export interface ChatSession {
   id: string
@@ -59,10 +59,10 @@ interface ListItemData {
 }
 
 // Constants
-const ITEM_HEIGHT = 48 // Compact item height
-const EXPANDED_ITEM_HEIGHT = 64 // Expanded item height  
-const GROUP_HEADER_HEIGHT = 32
-const LOAD_MORE_HEIGHT = 40
+const ITEM_HEIGHT = 56 // Compact item height (includes p-2 wrapper)
+const EXPANDED_ITEM_HEIGHT = 72 // Expanded item height (includes p-2 wrapper)
+const GROUP_HEADER_HEIGHT = 32 // Group header height (includes p-2 wrapper)
+const LOAD_MORE_HEIGHT = 48 // Load more height (includes p-2 wrapper)
 const INITIAL_LOAD_COUNT = 20
 const LOAD_MORE_COUNT = 20
 
@@ -99,9 +99,11 @@ const ListItem = React.memo<{ index: number; style: React.CSSProperties; data: L
     
     if (item.type === 'group') {
       return (
-        <div style={style}>
-          <div className="px-3 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            {item.groupName}
+        <div style={style} className="grid grid-cols-1">
+          <div className="grid grid-cols-1 p-2">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              {item.groupName}
+            </span>
           </div>
         </div>
       )
@@ -109,25 +111,23 @@ const ListItem = React.memo<{ index: number; style: React.CSSProperties; data: L
     
     if (item.type === 'loadMore') {
       return (
-        <div style={style}>
-          <div className="px-2 mx-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full h-8 text-xs text-muted-foreground"
-              onClick={item.onLoadMore}
-              disabled={!item.hasMore}
-            >
-              {item.hasMore ? (
-                <>
-                  <ChevronDown className="w-3 h-3 mr-1" />
-                  Show More
-                </>
-              ) : (
-                'No more conversations'
-              )}
-            </Button>
-          </div>
+        <div style={style} className="grid grid-cols-1 p-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full h-8 text-xs text-muted-foreground"
+            onClick={item.onLoadMore}
+            disabled={!item.hasMore}
+          >
+            {item.hasMore ? (
+              <>
+                <ChevronDown className="w-3 h-3 mr-1" />
+                Show More
+              </>
+            ) : (
+              'No more conversations'
+            )}
+          </Button>
         </div>
       )
     }
@@ -205,55 +205,82 @@ const ChatSessionItem = React.memo<{
   const showExpanded = viewMode === 'expanded' || isExpanded
 
   return (
-    <div className={`
-      group relative mx-1 rounded-md transition-all duration-200
-      ${isSelected 
-        ? 'bg-accent text-accent-foreground border border-accent-foreground/20' 
-        : 'hover:bg-muted/50'
-      }
-    `}>
-      {editingSessionId === session.id ? (
-        // Edit Mode
-        <div className="p-2">
-          <Input
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
+    <div className="grid grid-cols-1 p-2">
+      <div className={`
+        group relative rounded-md transition-all duration-200
+        ${isSelected 
+          ? 'bg-accent text-accent-foreground border border-accent-foreground/20' 
+          : 'hover:bg-muted/50'
+        }
+      `}>
+        {editingSessionId === session.id ? (
+          // Edit Mode
+          <div className="grid grid-cols-1 p-2">
+            <Input
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSaveEdit()
+                if (e.key === 'Escape') handleCancelEdit()
+              }}
+              onBlur={handleSaveEdit}
+              className="h-8 text-xs"
+              autoFocus
+              aria-label="Edit conversation title"
+            />
+          </div>
+        ) : (
+          // Display Mode
+          <div 
+            className="cursor-pointer"
+            onClick={() => onSelect?.(session.id)}
+            role="button"
+            tabIndex={0}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSaveEdit()
-              if (e.key === 'Escape') handleCancelEdit()
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onSelect?.(session.id)
+              }
             }}
-            onBlur={handleSaveEdit}
-            className="h-7 text-xs"
-            autoFocus
-            aria-label="Edit conversation title"
-          />
-        </div>
-      ) : (
-        // Display Mode
-        <div 
-          className="w-full cursor-pointer"
-          onClick={() => onSelect?.(session.id)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              onSelect?.(session.id)
-            }
-          }}
-          aria-current={isSelected ? 'true' : 'false'}
-          aria-label={`${title}, ${relativeTime}`}
-        >
-          <div className={`flex items-start gap-2 w-full p-2 ${showExpanded ? 'pb-3' : ''}`}>
-            <MessageSquare className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 opacity-60" aria-hidden="true" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
+            aria-current={isSelected ? 'true' : 'false'}
+            aria-label={`${title}, ${relativeTime}`}
+          >
+            <div className="grid grid-cols-[auto_1fr_auto] gap-2 p-2">
+              {/* Icon Column */}
+              <MessageSquare className="w-4 h-4 opacity-60" aria-hidden="true" />
+              
+              {/* Content Column */}
+              <div className="grid grid-rows-auto gap-1 min-w-0">
+                {/* Title Row */}
                 <p className={`truncate font-medium ${showExpanded ? 'text-sm' : 'text-xs'}`}>
                   {title}
                 </p>
+                
+                {/* Metadata Row */}
+                <div className="flex items-center gap-2">
+                  <time className="text-xs text-muted-foreground">
+                    {relativeTime}
+                  </time>
+                  {session.document_id && (
+                    <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4">
+                      Doc
+                    </Badge>
+                  )}
+                </div>
+                
+                {/* Expanded Details Row */}
+                {showExpanded && (
+                  <p className="text-xs text-muted-foreground">
+                    {session.messages?.length || 0} messages
+                  </p>
+                )}
+              </div>
+              
+              {/* Actions Column */}
+              <div className="flex items-start">
                 {onToggleExpanded && (
                   <button
-                    className="h-4 w-4 p-0 opacity-0 group-hover:opacity-60 hover:opacity-100 rounded flex items-center justify-center transition-opacity"
+                    className="h-6 w-6 p-0 opacity-0 group-hover:opacity-60 hover:opacity-100 rounded flex items-center justify-center transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation()
                       onToggleExpanded(session.id)
@@ -268,61 +295,42 @@ const ChatSessionItem = React.memo<{
                   </button>
                 )}
               </div>
-              
-              <div className="flex items-center gap-2 mt-0.5">
-                <time className={`text-muted-foreground ${showExpanded ? 'text-xs' : 'text-xs'}`}>
-                  {relativeTime}
-                </time>
-                {session.document_id && (
-                  <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4">
-                    Doc
-                  </Badge>
-                )}
-              </div>
-              
-              {showExpanded && (
-                <div className="mt-1">
-                  <p className="text-xs text-muted-foreground">
-                    {session.messages?.length || 0} messages
-                  </p>
-                </div>
-              )}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Actions Menu */}
-      {editingSessionId !== session.id && (
-        <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="h-5 w-5 p-0 rounded hover:bg-accent flex items-center justify-center transition-colors"
-                onClick={(e) => e.stopPropagation()}
-                aria-label="More actions"
-              >
-                <MoreVertical className="h-3 w-3" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {onRename && (
-                <DropdownMenuItem onClick={handleStartEdit}>
-                  <Edit3 className="h-3 w-3 mr-2" />
-                  Rename
+        {/* Actions Menu */}
+        {editingSessionId !== session.id && (
+          <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="h-5 w-5 p-0 rounded hover:bg-accent flex items-center justify-center transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label="More actions"
+                >
+                  <MoreVertical className="h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {onRename && (
+                  <DropdownMenuItem onClick={handleStartEdit}>
+                    <Edit3 className="h-3 w-3 mr-2" />
+                    Rename
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem 
+                  onClick={() => onDelete?.(session.id)}
+                  className="text-destructive"
+                >
+                  <Trash2 className="h-3 w-3 mr-2" />
+                  Delete
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem 
-                onClick={() => onDelete?.(session.id)}
-                className="text-destructive"
-              >
-                <Trash2 className="h-3 w-3 mr-2" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+      </div>
     </div>
   )
 })
@@ -528,32 +536,33 @@ export function ChatHistory({
 
   return (
     <div className="flex flex-col h-full" ref={containerRef}>
-      {/* Search Header */}
-      <div className="flex-shrink-0 p-2 border-b">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Search conversations..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 h-8 text-xs"
-            aria-label="Search conversations"
-          />
-        </div>
-        {searchQuery && (
-          <div className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">
-            {totalCount} result{totalCount !== 1 ? 's' : ''}
+      {/* Header Section - Grid Layout */}
+      <div className="grid grid-rows-2 border-b">
+        {/* Search Row */}
+        <div className="grid grid-cols-1 p-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 h-8 text-xs"
+              aria-label="Search conversations"
+            />
           </div>
-        )}
-      </div>
+          {searchQuery && (
+            <div className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">
+              {totalCount} result{totalCount !== 1 ? 's' : ''}
+            </div>
+          )}
+        </div>
 
-      {/* View Mode Toggle */}
-      <div className="flex-shrink-0 px-2 py-1 border-b">
-        <div className="flex items-center gap-1">
+        {/* View Mode Toggle Row */}
+        <div className="grid grid-cols-2 gap-2 p-2">
           <Button
             variant={viewMode === 'compact' ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-6 px-2 text-xs"
+            className="h-8 text-xs"
             onClick={() => setViewMode('compact')}
           >
             Compact
@@ -561,7 +570,7 @@ export function ChatHistory({
           <Button
             variant={viewMode === 'expanded' ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-6 px-2 text-xs"
+            className="h-8 text-xs"
             onClick={() => setViewMode('expanded')}
           >
             Detailed
@@ -581,10 +590,10 @@ export function ChatHistory({
         ) : (
           <List
             ref={listRef}
-            height={containerHeight - 80} // Account for header heights
+            height={containerHeight - 96} // Account for grid header heights
             width="100%"
             itemCount={virtualListItems.length}
-            itemSize={viewMode === 'compact' ? 48 : 64}
+            itemSize={getItemHeight}
             itemData={virtualListItems}
             overscanCount={5}
             style={{ overflow: 'auto' }}
