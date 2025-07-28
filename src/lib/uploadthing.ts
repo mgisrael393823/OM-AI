@@ -1,4 +1,4 @@
-import { createUploadthing, type FileRouter } from "uploadthing/next"
+import { createUploadthing, type FileRouter } from "uploadthing/next-legacy"
 import { createClient } from '@supabase/supabase-js'
 import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
@@ -11,35 +11,55 @@ export const ourFileRouter = {
   pdfUploader: f({ pdf: { maxFileSize: "16MB" } })
     // Set permissions and file types for this FileRoute
     .middleware(async ({ req }) => {
+      console.log("🚀 UploadThing middleware: CALLED")
       try {
         console.log("UploadThing middleware: Starting authentication check")
         
+        // Validate environment variables first
+        if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+          console.error("UploadThing middleware: Missing required environment variables")
+          // Return null to indicate unauthorized instead of throwing
+          return null
+        }
+        
         // Get auth token from request headers
-        const authHeader = req.headers.get("authorization")
+        // In Pages Router, headers might be in a different format
+        const authHeader = req.headers instanceof Headers 
+          ? req.headers.get("authorization")
+          : (req.headers as any)?.authorization || (req.headers as any)?.Authorization
+        console.log("UploadThing middleware: Authorization header present:", !!authHeader)
+        
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          console.error("UploadThing middleware: No authorization header or invalid format")
-          throw new Error("Unauthorized: Missing or invalid authorization header")
+          console.error("UploadThing middleware: Missing or invalid authorization header")
+          // Return null to indicate unauthorized instead of throwing
+          return null
         }
 
         const token = authHeader.replace("Bearer ", "")
-        console.log("UploadThing middleware: Token extracted, verifying with Supabase")
+        console.log("UploadThing middleware: Token extracted, length:", token.length)
         
         // Verify user with Supabase using service role key for server-side auth
         const supabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.SUPABASE_SERVICE_ROLE_KEY!
+          process.env.NEXT_PUBLIC_SUPABASE_URL,
+          process.env.SUPABASE_SERVICE_ROLE_KEY
         )
         
+        console.log("UploadThing middleware: Verifying token with Supabase...")
         const { data: { user }, error } = await supabase.auth.getUser(token)
         
         if (error) {
-          console.error("UploadThing middleware: Supabase auth error:", error)
-          throw new Error("Authentication failed: Invalid token")
+          console.error("UploadThing middleware: Supabase auth error:", {
+            message: error.message,
+            code: error.status
+          })
+          // Return null to indicate unauthorized instead of throwing
+          return null
         }
         
         if (!user) {
           console.error("UploadThing middleware: No user found for token")
-          throw new Error("Authentication failed: User not found")
+          // Return null to indicate unauthorized instead of throwing
+          return null
         }
 
         console.log("UploadThing middleware: Authentication successful for user:", user.id)
@@ -47,22 +67,53 @@ export const ourFileRouter = {
         // Pass user id to onUploadComplete
         return { userId: user.id }
       } catch (err) {
-        console.error("UploadThing middleware error:", err)
-        // Re-throw with consistent error format
-        throw new Error(err instanceof Error ? err.message : "Upload authentication failed")
+        console.error("UploadThing middleware unexpected error:", {
+          error: err,
+          message: err instanceof Error ? err.message : "Unknown error",
+          stack: err instanceof Error ? err.stack : undefined
+        })
+        
+        // Return null on any unexpected error instead of throwing
+        return null
       }
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      console.log("Upload complete for userId:", metadata.userId)
-      console.log("File URL:", file.url)
-      
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      )
-
       try {
+        console.log("UploadThing onUploadComplete: Starting")
+        console.log("UploadThing onUploadComplete: Metadata:", metadata)
+        console.log("UploadThing onUploadComplete: File details:", { name: file.name, size: file.size, url: file.url })
+        
+        // Check if metadata is null (unauthorized)
+        if (!metadata || !metadata.userId) {
+          console.log("UploadThing onUploadComplete: No metadata/userId, returning unauthorized error")
+          return {
+            error: "Unauthorized: No user ID in metadata",
+            documentId: null as string | null,
+            success: false
+          }
+        }
+        
+        console.log("UploadThing onUploadComplete: Processing for userId:", metadata.userId)
+        
+        // Validate environment variables
+        if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+          const error = "Missing required Supabase environment variables"
+          console.error("onUploadComplete error:", error)
+          return {
+            error,
+            documentId: null as string | null,
+            success: false
+          }
+        }
+        
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL,
+          process.env.SUPABASE_SERVICE_ROLE_KEY
+        )
+
+        try {
         // Fetch the uploaded file from UploadThing
+        console.log("UploadThing onUploadComplete: Fetching file from URL:", file.url)
         const response = await fetch(file.url)
         if (!response.ok) {
           throw new Error(`Failed to fetch uploaded file: ${response.statusText}`)
@@ -70,8 +121,10 @@ export const ourFileRouter = {
         
         const arrayBuffer = await response.arrayBuffer()
         const fileBuffer = Buffer.from(arrayBuffer)
+        console.log("UploadThing onUploadComplete: File fetched, size:", fileBuffer.length)
         
         // Validate PDF
+        console.log("UploadThing onUploadComplete: Starting PDF validation")
         const quickValidation = PDFValidator.quickValidate(fileBuffer, file.name)
         if (!quickValidation.isValid) {
           throw new Error(quickValidation.error || 'Invalid PDF file')
@@ -206,8 +259,11 @@ export const ourFileRouter = {
           }
         }
 
+        console.log("onUploadComplete: Successfully processed document:", documentData.id)
+        
         // Return document data for client
-        return {
+        const returnValue = {
+          success: true,
           documentId: documentData.id,
           document: {
             id: documentData.id,
@@ -233,12 +289,53 @@ export const ourFileRouter = {
             } : null
           }
         }
+        
+        console.log("onUploadComplete: Returning success response:", {
+          success: returnValue.success,
+          documentId: returnValue.documentId,
+          hasDocument: !!returnValue.document
+        })
+        
+        return returnValue
       } catch (error) {
-        console.error('Error in onUploadComplete:', error)
-        // Log error but don't throw - UploadThing has already stored the file
-        // Consider implementing a retry mechanism or error queue
+        console.error('onUploadComplete error:', {
+          error,
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          userId: metadata.userId,
+          fileName: file.name
+        })
+        
+        // Always return valid JSON structure, never throw
+        const errorResponse = {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error occurred during file processing',
+          documentId: null as string | null,
+          details: {
+            fileName: file.name,
+            fileSize: file.size,
+            userId: metadata.userId,
+            timestamp: new Date().toISOString()
+          }
+        }
+        
+        console.log("onUploadComplete: Returning error response:", errorResponse)
+        
+        return errorResponse
+        }
+      } catch (outerError) {
+        // Outer catch for any unexpected errors
+        console.error("UploadThing onUploadComplete: Unexpected outer error:", {
+          error: outerError,
+          message: outerError instanceof Error ? outerError.message : "Unknown error",
+          stack: outerError instanceof Error ? outerError.stack : undefined
+        })
+        
+        // Always return a valid JSON response
         return {
-          error: error instanceof Error ? error.message : 'Unknown error',
+          success: false,
+          error: "Unexpected error in upload processing",
+          message: outerError instanceof Error ? outerError.message : String(outerError),
           documentId: null as string | null
         }
       }
