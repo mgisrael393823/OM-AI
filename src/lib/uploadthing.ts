@@ -78,6 +78,8 @@ export const ourFileRouter = {
       }
     })
     .onUploadComplete(async ({ metadata, file }) => {
+      const startTime = Date.now()
+      
       try {
         console.log("UploadThing onUploadComplete: Starting")
         console.log("UploadThing onUploadComplete: Metadata:", metadata)
@@ -87,9 +89,9 @@ export const ourFileRouter = {
         if (!metadata || !metadata.userId) {
           console.log("UploadThing onUploadComplete: No metadata/userId, returning unauthorized error")
           return {
-            error: "Unauthorized: No user ID in metadata",
-            documentId: null as string | null,
-            success: false
+            success: false,
+            documentId: null,
+            error: "Unauthorized: No user ID in metadata"
           }
         }
         
@@ -97,12 +99,11 @@ export const ourFileRouter = {
         
         // Validate environment variables
         if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-          const error = "Missing required Supabase environment variables"
-          console.error("onUploadComplete error:", error)
+          console.error("onUploadComplete error: Missing required Supabase environment variables")
           return {
-            error,
-            documentId: null as string | null,
-            success: false
+            success: false,
+            documentId: null,
+            error: "Missing required Supabase environment variables"
           }
         }
         
@@ -110,8 +111,6 @@ export const ourFileRouter = {
           process.env.NEXT_PUBLIC_SUPABASE_URL,
           process.env.SUPABASE_SERVICE_ROLE_KEY
         )
-
-        try {
         // Fetch the uploaded file from UploadThing
         console.log("UploadThing onUploadComplete: Fetching file from URL:", file.url)
         const response = await fetch(file.url)
@@ -261,83 +260,30 @@ export const ourFileRouter = {
 
         console.log("onUploadComplete: Successfully processed document:", documentData.id)
         
-        // Return document data for client
-        const returnValue = {
+        // Return standardized response
+        return {
           success: true,
-          documentId: documentData.id,
-          document: {
-            id: documentData.id,
-            name: documentData.original_filename,
-            filename: documentData.filename,
-            size: documentData.file_size,
-            type: documentData.file_type,
-            status: documentData.status,
-            uploadedAt: documentData.created_at,
-            storagePath: documentData.storage_path,
-            validation: {
-              isValid: validationResult.isValid,
-              warnings: validationResult.warnings,
-              metadata: validationResult.metadata
-            },
-            parsing: parseResult ? {
-              success: parseResult.success,
-              pages: parseResult.pages.length,
-              tables: parseResult.tables.length,
-              chunks: parseResult.chunks.length,
-              processingTime: parseResult.processingTime,
-              error: parseResult.error
-            } : null
-          }
+          documentId: documentData.id
         }
-        
-        console.log("onUploadComplete: Returning success response:", {
-          success: returnValue.success,
-          documentId: returnValue.documentId,
-          hasDocument: !!returnValue.document
-        })
-        
-        return returnValue
       } catch (error) {
-        console.error('onUploadComplete error:', {
+        // Log error details
+        console.error("UploadThing onUploadComplete error:", {
           error,
-          message: error instanceof Error ? error.message : 'Unknown error',
+          message: error instanceof Error ? error.message : "Unknown error",
           stack: error instanceof Error ? error.stack : undefined,
-          userId: metadata.userId,
-          fileName: file.name
-        })
-        
-        // Always return valid JSON structure, never throw
-        const errorResponse = {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error occurred during file processing',
-          documentId: null as string | null,
-          details: {
-            fileName: file.name,
-            fileSize: file.size,
-            userId: metadata.userId,
-            timestamp: new Date().toISOString()
-          }
-        }
-        
-        console.log("onUploadComplete: Returning error response:", errorResponse)
-        
-        return errorResponse
-        }
-      } catch (outerError) {
-        // Outer catch for any unexpected errors
-        console.error("UploadThing onUploadComplete: Unexpected outer error:", {
-          error: outerError,
-          message: outerError instanceof Error ? outerError.message : "Unknown error",
-          stack: outerError instanceof Error ? outerError.stack : undefined
+          userId: metadata?.userId,
+          fileName: file?.name
         })
         
         // Always return a valid JSON response
         return {
           success: false,
-          error: "Unexpected error in upload processing",
-          message: outerError instanceof Error ? outerError.message : String(outerError),
-          documentId: null as string | null
+          documentId: null,
+          error: error instanceof Error ? error.message : "Upload processing failed"
         }
+      } finally {
+        const executionTime = Date.now() - startTime
+        console.log(`UploadThing onUploadComplete: Execution time: ${executionTime}ms`)
       }
     }),
 } satisfies FileRouter
