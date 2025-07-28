@@ -23,11 +23,27 @@ const uploadThingHandler = createRouteHandler({
 const handler: NextApiHandler = async (req, res) => {
   // Track whether we've sent a response
   let responseHandled = false
-  
+
   // Wrap response to debug what UploadThing is returning
   const debugRes = new DebugResponse(res)
-  
+
   try {
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method Not Allowed' })
+    }
+
+    // Basic body presence check using headers. bodyParser is disabled so
+    // req.body will always be empty here. UploadThing expects a small JSON
+    // payload, so if the request declares no content length and isn't
+    // chunked we treat it as an empty body.
+    const hasBody =
+      !!req.headers['content-length'] || !!req.headers['transfer-encoding']
+    if (!hasBody) {
+      return res
+        .status(400)
+        .json({ error: 'Missing or empty JSON body' })
+    }
+
     console.log(`UploadThing API: ${req.method} ${req.url}`)
     console.log(`UploadThing API: Query params:`, req.query)
     console.log(`UploadThing API: Headers:`, Object.fromEntries(
@@ -58,6 +74,16 @@ const handler: NextApiHandler = async (req, res) => {
       stack: error instanceof Error ? error.stack : undefined,
       name: error instanceof Error ? error.name : undefined
     })
+
+    // Handle bad JSON payloads explicitly
+    const jsonError =
+      error instanceof SyntaxError && /JSON/.test(error.message)
+
+    if (jsonError && !res.headersSent && !responseHandled) {
+      res.status(400).json({ error: 'Invalid JSON body' })
+      responseHandled = true
+      return
+    }
     
     // Try to send error response if possible
     if (!res.headersSent && !responseHandled) {
