@@ -10,7 +10,7 @@ export const ourFileRouter = {
   // Define a file route for PDF uploads
   pdfUploader: f({ pdf: { maxFileSize: "16MB" } })
     // Set permissions and file types for this FileRoute
-    .middleware(async ({ req }) => {
+    .middleware(async (req) => {
       console.log("🚀 UploadThing middleware: CALLED")
       try {
         console.log("UploadThing middleware: Starting authentication check")
@@ -18,21 +18,17 @@ export const ourFileRouter = {
         // Validate environment variables first
         if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
           console.error("UploadThing middleware: Missing required environment variables")
-          // Return null to indicate unauthorized instead of throwing
-          return null
+          throw new Error("Missing required environment variables")
         }
         
         // Get auth token from request headers
-        // In Pages Router, headers might be in a different format
-        const authHeader = req.headers instanceof Headers 
-          ? req.headers.get("authorization")
-          : (req.headers as any)?.authorization || (req.headers as any)?.Authorization
+        // In v6, req is the NextApiRequest object
+        const authHeader = req.headers.authorization || req.headers.Authorization
         console.log("UploadThing middleware: Authorization header present:", !!authHeader)
         
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
           console.error("UploadThing middleware: Missing or invalid authorization header")
-          // Return null to indicate unauthorized instead of throwing
-          return null
+          throw new Error("Unauthorized")
         }
 
         const token = authHeader.replace("Bearer ", "")
@@ -52,14 +48,12 @@ export const ourFileRouter = {
             message: error.message,
             code: error.status
           })
-          // Return null to indicate unauthorized instead of throwing
-          return null
+          throw new Error("Authentication failed: " + error.message)
         }
         
         if (!user) {
           console.error("UploadThing middleware: No user found for token")
-          // Return null to indicate unauthorized instead of throwing
-          return null
+          throw new Error("User not found")
         }
 
         console.log("UploadThing middleware: Authentication successful for user:", user.id)
@@ -73,8 +67,8 @@ export const ourFileRouter = {
           stack: err instanceof Error ? err.stack : undefined
         })
         
-        // Return null on any unexpected error instead of throwing
-        return null
+        // Re-throw the error for v6
+        throw err
       }
     })
     .onUploadComplete(async ({ metadata, file }) => {
@@ -88,11 +82,7 @@ export const ourFileRouter = {
         // Check if metadata is null (unauthorized)
         if (!metadata || !metadata.userId) {
           console.log("UploadThing onUploadComplete: No metadata/userId, returning unauthorized error")
-          return {
-            success: false,
-            documentId: null,
-            error: "Unauthorized: No user ID in metadata"
-          }
+          throw new Error("Unauthorized: No user ID in metadata")
         }
         
         console.log("UploadThing onUploadComplete: Processing for userId:", metadata.userId)
@@ -100,11 +90,7 @@ export const ourFileRouter = {
         // Validate environment variables
         if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
           console.error("onUploadComplete error: Missing required Supabase environment variables")
-          return {
-            success: false,
-            documentId: null,
-            error: "Missing required Supabase environment variables"
-          }
+          throw new Error("Missing required Supabase environment variables")
         }
         
         const supabase = createClient(
@@ -260,11 +246,9 @@ export const ourFileRouter = {
 
         console.log("onUploadComplete: Successfully processed document:", documentData.id)
         
-        // Return standardized response
-        return {
-          success: true,
-          documentId: documentData.id
-        }
+        // v6 expects void or a simple object - not our custom format
+        // The document is already saved, so we just need to indicate success
+        return { documentId: documentData.id }
       } catch (error) {
         // Log error details
         console.error("UploadThing onUploadComplete error:", {
@@ -275,12 +259,8 @@ export const ourFileRouter = {
           fileName: file?.name
         })
         
-        // Always return a valid JSON response
-        return {
-          success: false,
-          documentId: null,
-          error: error instanceof Error ? error.message : "Upload processing failed"
-        }
+        // In v6, throwing an error will properly handle the failure
+        throw error
       } finally {
         const executionTime = Date.now() - startTime
         console.log(`UploadThing onUploadComplete: Execution time: ${executionTime}ms`)

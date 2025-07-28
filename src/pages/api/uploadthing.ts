@@ -1,6 +1,5 @@
-import type { NextApiHandler } from "next"
-import { createRouteHandler } from "uploadthing/next-legacy"
-import { ourFileRouter } from "@/lib/uploadthing"
+import { createNextPageApiHandler } from "uploadthing/next-legacy"
+import { ourFileRouter } from "@/lib/uploadthing-simple"
 
 /**
  * Disable Next.js body parsing so UploadThing can handle the request stream.
@@ -12,106 +11,9 @@ export const config = {
   },
 }
 
-const uploadThingHandler = createRouteHandler({
+// In v6, the handler should be used directly
+const handler = createNextPageApiHandler({
   router: ourFileRouter,
-  config: {
-    token: process.env.UPLOADTHING_TOKEN,
-  },
 })
-
-const handler: NextApiHandler = async (req, res) => {
-  try {
-    // Fast-fail validation: Check token first
-    if (!process.env.UPLOADTHING_TOKEN) {
-      console.error("UploadThing API: Missing UPLOADTHING_TOKEN environment variable")
-      return res
-        .status(500)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Missing or invalid UPLOADTHING_TOKEN",
-          documentId: null
-        })
-    }
-
-    // Validate HTTP method
-    if (req.method !== 'POST') {
-      console.warn(`UploadThing API: Invalid method ${req.method}`)
-      return res
-        .status(405)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Method not allowed",
-          documentId: null
-        })
-    }
-
-    // Validate query parameters
-    const { actionType, slug } = req.query
-    
-    if (actionType !== 'upload') {
-      console.warn(`UploadThing API: Invalid actionType ${actionType}`)
-      return res
-        .status(400)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Invalid actionType",
-          documentId: null
-        })
-    }
-
-    if (!slug || typeof slug !== 'string') {
-      console.warn(`UploadThing API: Invalid or missing slug ${slug}`)
-      return res
-        .status(400)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Invalid or missing slug",
-          documentId: null
-        })
-    }
-
-    console.log(`UploadThing API: ${req.method} ${req.url}`)
-    console.log(`UploadThing API: Processing upload for slug: ${slug}`)
-
-    // Delegate to UploadThing handler
-    // Note: uploadThingHandler manages its own response
-    await uploadThingHandler(req, res)
-    
-    // If we get here and no response was sent, something went wrong
-    if (!res.headersSent) {
-      console.error("UploadThing API: Handler completed without sending response")
-      return res
-        .status(500)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Upload handler failed to send response",
-          documentId: null
-        })
-    }
-
-  } catch (error) {
-    console.error("UploadThing API: Unexpected error:", {
-      message: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined
-    })
-
-    // Always return valid JSON on error
-    if (!res.headersSent) {
-      return res
-        .status(500)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-          documentId: null
-        })
-    }
-  }
-}
 
 export default handler

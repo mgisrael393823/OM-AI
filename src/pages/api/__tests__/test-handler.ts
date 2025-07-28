@@ -1,82 +1,32 @@
 import type { NextApiHandler } from "next"
 
-// Test handler that matches the expected behavior without importing uploadthing
+// Mock handler for tests - simulates v6 UploadThing behavior
 const handler: NextApiHandler = async (req, res) => {
-  try {
-    // Fast-fail validation: Check token first
-    if (!process.env.UPLOADTHING_TOKEN) {
-      console.error("UploadThing API: Missing UPLOADTHING_TOKEN environment variable")
-      return res
-        .status(500)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Missing or invalid UPLOADTHING_TOKEN",
-          documentId: null
-        })
-    }
-
-    // Validate HTTP method
-    if (req.method !== 'POST') {
-      console.warn(`UploadThing API: Invalid method ${req.method}`)
-      return res
-        .status(405)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Method not allowed",
-          documentId: null
-        })
-    }
-
-    // Validate query parameters
-    const { actionType, slug } = req.query
-    
-    if (actionType !== 'upload') {
-      console.warn(`UploadThing API: Invalid actionType ${actionType}`)
-      return res
-        .status(400)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Invalid actionType",
-          documentId: null
-        })
-    }
-
-    if (!slug || typeof slug !== 'string') {
-      console.warn(`UploadThing API: Invalid or missing slug ${slug}`)
-      return res
-        .status(400)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: "Invalid or missing slug",
-          documentId: null
-        })
-    }
-
-    // Mock successful upload
-    return res
-      .status(200)
-      .setHeader('Content-Type', 'application/json')
-      .json({
-        success: true,
-        documentId: 'test-document-id'
-      })
-
-  } catch (error) {
-    if (!res.headersSent) {
-      return res
-        .status(500)
-        .setHeader('Content-Type', 'application/json')
-        .json({
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-          documentId: null
-        })
-    }
+  // v6 UploadThing handles its own validation and responses
+  // This is a simplified mock for testing
+  
+  if (req.method === 'GET') {
+    // v6 uses GET for fetching router config
+    return res.status(200).json({
+      routeConfig: {
+        pdfUploader: {
+          maxFileSize: "16MB",
+          maxFileCount: 1
+        }
+      }
+    })
   }
+  
+  if (req.method === 'POST' && req.query.actionType === 'upload') {
+    return res.status(200).json({
+      success: true,
+      documentId: 'test-document-id'
+    })
+  }
+  
+  return res.status(405).json({ 
+    error: "Method not allowed" 
+  })
 }
 
 export default handler

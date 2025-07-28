@@ -37,20 +37,24 @@ const responseSchema = z.object({
 })
 
 describe('/api/uploadthing', () => {
-  const originalEnv = process.env.UPLOADTHING_TOKEN
+  const originalSecret = process.env.UPLOADTHING_SECRET
+  const originalAppId = process.env.UPLOADTHING_APP_ID
 
   beforeEach(() => {
-    // Mock environment variable
-    process.env.UPLOADTHING_TOKEN = 'mock-token'
+    // Mock environment variables
+    process.env.UPLOADTHING_SECRET = 'mock-secret'
+    process.env.UPLOADTHING_APP_ID = 'mock-app-id'
   })
 
   afterEach(() => {
-    process.env.UPLOADTHING_TOKEN = originalEnv
+    process.env.UPLOADTHING_SECRET = originalSecret
+    process.env.UPLOADTHING_APP_ID = originalAppId
   })
 
   describe('Error Path Tests', () => {
-    it('should return 500 with correct JSON when UPLOADTHING_TOKEN is missing', async () => {
-      delete process.env.UPLOADTHING_TOKEN
+    it('should return 500 with correct JSON when UploadThing credentials are missing', async () => {
+      delete process.env.UPLOADTHING_SECRET
+      delete process.env.UPLOADTHING_APP_ID
       
       const { req, res } = createMocks({
         method: 'POST',
@@ -67,7 +71,7 @@ describe('/api/uploadthing', () => {
       
       expect(parsed.success).toBe(false)
       expect(parsed.documentId).toBe(null)
-      expect(parsed.error).toBe('Missing or invalid UPLOADTHING_TOKEN')
+      expect(parsed.error).toBe('Missing UploadThing credentials')
     })
 
     it('should return 405 with correct JSON for wrong method', async () => {
