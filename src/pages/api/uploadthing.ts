@@ -2,6 +2,7 @@ import type { NextApiHandler } from "next"
 import { createRouteHandler } from "uploadthing/next-legacy"
 import { ourFileRouter } from "@/lib/uploadthing"
 import { DebugResponse } from "@/lib/uploadthing-debug"
+import { buffer } from "micro"
 
 /**
  * Disable Next.js body parsing so UploadThing can handle the request stream.
@@ -21,9 +22,37 @@ const uploadThingHandler = createRouteHandler({
 })
 
 const handler: NextApiHandler = async (req, res) => {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method Not Allowed' })
+  }
+
+  let rawBody: Buffer
+  try {
+    rawBody = await buffer(req)
+  } catch {
+    return res.status(400).json({ error: 'Missing or invalid JSON body' })
+  }
+
+  if (!rawBody || rawBody.length === 0) {
+    return res.status(400).json({ error: 'Missing or empty JSON body' })
+  }
+
+  let payload: any
+  try {
+    payload = JSON.parse(rawBody.toString())
+  } catch {
+    return res.status(400).json({ error: 'Invalid JSON body' })
+  }
+
+  if (!payload.actionType && !payload.slug) {
+    return res.status(400).json({ error: 'Missing slug or actionType' })
+  }
+
+  ;(req as any).body = rawBody.toString()
+
   // Track whether we've sent a response
   let responseHandled = false
-  
+
   // Wrap response to debug what UploadThing is returning
   const debugRes = new DebugResponse(res)
   
