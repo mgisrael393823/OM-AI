@@ -88,13 +88,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows returned
-        logError(fetchError, {
-          userId,
-          operation: 'fetch_user_profile'
-        });
+      if (fetchError) {
+        // PGRST116 = no rows returned (expected for new users)
+        if (fetchError.code !== 'PGRST116') {
+          console.error('AuthContext: Error fetching user profile', {
+            error: fetchError,
+            code: fetchError.code,
+            message: fetchError.message,
+            hint: fetchError.hint,
+            details: fetchError.details,
+            userId,
+            operation: 'fetch_user_profile'
+          });
+          
+          logError(fetchError, {
+            userId,
+            operation: 'fetch_user_profile',
+            errorCode: fetchError.code,
+            errorHint: fetchError.hint
+          });
+        }
         
-        // Fall back to default profile on database error
+        // Fall back to default profile on any database error
         setProfile(createFallbackProfile(userId, currentUser));
         return;
       }
