@@ -64,9 +64,8 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         validationResult.errors.join('; '))
     }
 
-    // Generate unique filename
-    const fileExt = file.originalFilename?.split('.').pop() || 'pdf'
-    const fileName = `${req.user.id}/${uuidv4()}.${fileExt}`
+    // Generate unique filename with fixed .pdf extension to prevent path traversal
+    const fileName = `${req.user.id}/${uuidv4()}.pdf`
 
     // Upload to Supabase Storage
     const { data: uploadData, error: uploadError } = await supabase

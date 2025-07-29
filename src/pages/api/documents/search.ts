@@ -2,6 +2,15 @@ import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
 
+/**
+ * Escapes special regex characters to prevent ReDoS attacks
+ * @param str - The string to escape
+ * @returns Escaped string safe for use in RegExp constructor
+ */
+function escapeForRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 interface SearchResult {
   documentId: string
   documentName: string
@@ -76,12 +85,14 @@ async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       let relevanceScore = 0
       const matchedTerms: string[] = []
 
-      // Simple relevance scoring
+      // Simple relevance scoring - escape terms to prevent regex injection
       for (const term of searchTerms) {
-        const matches = (content.match(new RegExp(term, 'g')) || []).length
+        const escapedTerm = escapeForRegExp(term)
+        const countRegex = new RegExp(escapedTerm, 'g')
+        const matches = (content.match(countRegex) || []).length
         if (matches > 0) {
           relevanceScore += matches
-          matchedTerms.push(term)
+          matchedTerms.push(term) // Store original term, not escaped version
         }
       }
 
@@ -130,10 +141,11 @@ async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         excerpt = excerpt.substring(0, 400) + '...'
       }
 
-      // Highlight search terms
+      // Highlight search terms - escape terms to prevent regex injection
       for (const term of searchTerms) {
-        const regex = new RegExp(`(${term})`, 'gi')
-        excerpt = excerpt.replace(regex, '<mark>$1</mark>')
+        const escapedTerm = escapeForRegExp(term)
+        const highlightRegex = new RegExp(`(${escapedTerm})`, 'gi')
+        excerpt = excerpt.replace(highlightRegex, '<mark>$1</mark>')
       }
 
       return {
