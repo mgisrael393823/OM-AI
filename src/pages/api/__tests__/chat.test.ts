@@ -10,6 +10,7 @@ import { withAuth } from '@/lib/auth-middleware'
 // Mock the auth middleware
 jest.mock('@/lib/auth-middleware', () => ({
   withAuth: jest.fn(),
+  withRateLimit: jest.fn((userId: string, limit: number, refill: number, callback: Function) => callback()),
   apiError: (res: any, status: number, message: string, code?: string) => {
     res.status(status).json({ error: message, code })
   }
@@ -23,7 +24,10 @@ jest.mock('@supabase/supabase-js', () => ({
       insert: jest.fn().mockReturnThis(),
       update: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
-      single: jest.fn(() => Promise.resolve({ data: null, error: null }))
+      in: jest.fn().mockReturnThis(),
+      textSearch: jest.fn().mockReturnThis(),
+      single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+      then: jest.fn(() => Promise.resolve({ data: [], error: null }))
     }))
   }))
 }))
@@ -31,8 +35,12 @@ jest.mock('@supabase/supabase-js', () => ({
 // Mock OpenAI service
 jest.mock('@/lib/services/openai', () => ({
   openAIService: {
-    createStreamingCompletion: jest.fn(),
-    createChatCompletion: jest.fn()
+    createStreamingCompletion: jest.fn(() => Promise.resolve({
+      choices: [{ delta: { content: 'Test response' } }]
+    })),
+    createChatCompletion: jest.fn(() => Promise.resolve({
+      choices: [{ message: { content: 'Test response' } }]
+    }))
   }
 }))
 

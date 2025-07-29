@@ -2,6 +2,7 @@
 // If you delete this file, remove `setupFilesAfterEnv` from `jest.config.js`
 
 import '@testing-library/jest-dom'
+import React from 'react'
 
 // Mock Next.js router
 jest.mock('next/router', () => ({
@@ -52,5 +53,47 @@ global.ResizeObserver = jest.fn().mockImplementation(() => ({
 
 // Mock environment variables
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key'
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key'
 process.env.OPENAI_API_KEY = 'test-openai-key'
+
+// Mock OpenAI client to prevent browser environment error
+jest.mock('@/lib/openai-client', () => ({
+  openai: {
+    chat: {
+      completions: {
+        create: jest.fn()
+      }
+    }
+  },
+  isOpenAIConfigured: jest.fn(() => true)
+}))
+
+// Mock Sentry
+jest.mock('@sentry/nextjs', () => ({
+  init: jest.fn(),
+  captureException: jest.fn(),
+  withSentry: jest.fn((handler) => handler),
+  configureScope: jest.fn()
+}))
+
+// Mock error logger
+jest.mock('@/lib/error-logger', () => ({
+  logError: jest.fn(),
+  logWarning: jest.fn()
+}))
+
+// Mock UI components that use complex dependencies
+jest.mock('@/components/ui/dropdown-menu', () => ({
+  DropdownMenu: ({ children }) => children,
+  DropdownMenuContent: ({ children }) => children,
+  DropdownMenuItem: ({ children, onClick }) => 
+    React.createElement('div', { onClick, 'data-testid': 'dropdown-item' }, children),
+  DropdownMenuTrigger: ({ children }) => children
+}))
+
+jest.mock('@/components/ui/button', () => ({
+  Button: ({ children, onClick, className, ...props }) => 
+    React.createElement('button', { onClick, className, ...props }, children)
+}))
+
