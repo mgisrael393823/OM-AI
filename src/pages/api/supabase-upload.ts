@@ -4,6 +4,7 @@ import { withAuth, apiError, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { getConfig } from '@/lib/config'
 import formidable from 'formidable'
 import { readFileSync } from 'fs'
+import { v4 as uuidv4 } from 'uuid'
 import type { Database } from '@/types/database'
 
 // Disable default body parser to handle multipart/form-data
@@ -33,15 +34,13 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
     
     // Extract the uploaded file
     const uploadedFile = Array.isArray(files.file) ? files.file[0] : files.file
-    const fileName = Array.isArray(fields.fileName) ? fields.fileName[0] : fields.fileName
 
     if (!uploadedFile) {
       return apiError(res, 400, 'No file uploaded', 'NO_FILE')
     }
 
-    if (!fileName) {
-      return apiError(res, 400, 'No filename provided', 'NO_FILENAME')
-    }
+    // Generate secure filename with fixed .pdf extension to prevent path traversal
+    const fileName = `${req.user.id}/${uuidv4()}.pdf`
 
     // Validate file type
     if (uploadedFile.mimetype !== 'application/pdf') {
