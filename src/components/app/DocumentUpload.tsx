@@ -11,7 +11,7 @@ import {
   AlertCircle,
   Loader2
 } from "lucide-react"
-import { useUploadThing } from "@/utils/uploadthing"
+import { useSupabaseUpload } from "@/hooks/useSupabaseUpload"
 import { toast } from "sonner"
 
 interface UploadFile {
@@ -30,91 +30,17 @@ interface DocumentUploadProps {
 export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: DocumentUploadProps) {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
 
-  const { startUpload, isUploading } = useUploadThing("pdfUploader", {
-    headers: async () => {
-      const { supabase } = await import("@/lib/supabase")
-      const { data: { session } } = await supabase.auth.getSession()
-      return session?.access_token
-        ? { Authorization: `Bearer ${session.access_token}` }
-        : {}
-    },
-    onClientUploadComplete: (res) => {
-      console.log("Upload complete:", res)
-      
-      res?.forEach((uploadedFile) => {
-        // Find the corresponding upload file
-        const uploadFileEntry = uploadFiles.find(f => 
-          f.file.name === uploadedFile.name && f.status === "uploading"
-        )
-        
-        if (uploadFileEntry) {
-          // Update status to processing
-          setUploadFiles(prev => prev.map(f => 
-            f.id === uploadFileEntry.id 
-              ? { ...f, status: "processing", progress: 100 } 
-              : f
-          ))
-
-          // Check server response for document data
-          const serverData = uploadedFile.serverData as any
-          if (serverData?.error) {
-            // Server processing error
-            setUploadFiles(prev => prev.map(f => 
-              f.id === uploadFileEntry.id 
-                ? { ...f, status: "error", error: serverData.error } 
-                : f
-            ))
-            toast.error(`Failed to process ${uploadedFile.name}: ${serverData.error}`)
-          } else if (serverData?.document) {
-            // Success
-            setUploadFiles(prev => prev.map(f => 
-              f.id === uploadFileEntry.id 
-                ? { ...f, status: "completed" } 
-                : f
-            ))
-            
-            if (onUploadComplete) {
-              onUploadComplete(serverData.document)
+  const { uploadFile, progress: globalProgress, isUploading, error: uploadError, reset } = useSupabaseUpload({
+    onProgress: (fileName: string, progress: number) => {
+      // Update progress for the specific file
+      setUploadFiles(prev => prev.map(f => 
+        f.file.name === fileName && (f.status === "uploading" || f.status === "processing")
+          ? { 
+              ...f, 
+              progress,
+              // Switch to processing when upload reaches 95%
+              status: progress >= 95 && progress < 100 ? "processing" : f.status
             }
-            
-            toast.success(`${uploadedFile.name} uploaded successfully`)
-          } else {
-            // Unknown response
-            setUploadFiles(prev => prev.map(f => 
-              f.id === uploadFileEntry.id 
-                ? { ...f, status: "completed" } 
-                : f
-            ))
-          }
-
-          // Refresh document list
-          if (onDocumentListRefresh) {
-            onDocumentListRefresh()
-          }
-
-          // Remove from list after 10 seconds
-          setTimeout(() => {
-            setUploadFiles(prev => prev.filter(f => f.id !== uploadFileEntry.id))
-          }, 10000)
-        }
-      })
-    },
-    onUploadProgress: (progress) => {
-      // Update progress for all uploading files
-      setUploadFiles(prev => prev.map(f => 
-        f.status === "uploading" 
-          ? { ...f, progress: Math.min(progress, 95) } // Cap at 95% until processing
-          : f
-      ))
-    },
-    onUploadError: (error) => {
-      console.error("Upload error:", error)
-      toast.error(`Upload failed: ${error.message}`)
-      
-      // Mark all uploading files as error
-      setUploadFiles(prev => prev.map(f => 
-        f.status === "uploading" 
-          ? { ...f, status: "error", error: error.message } 
           : f
       ))
     }
@@ -122,15 +48,6 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
 
   const uploadWithAuth = useCallback(async (files: File[]) => {
     try {
-      // Get auth token
-      const { supabase } = await import('@/lib/supabase')
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session?.access_token) {
-        toast.error("Not authenticated")
-        return
-      }
-
       // Create upload entries
       const newFiles = files.map((file, index) => ({
         id: `upload-${Date.now()}-${index}`,
@@ -141,13 +58,58 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
 
       setUploadFiles(prev => [...prev, ...newFiles])
 
-      // Start upload
-      await startUpload(files)
+      // Process each file sequentially
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const uploadFileEntry = newFiles[i]
+        
+        try {
+          // Start upload for this file
+          console.log("Starting upload for:", file.name)
+          
+          const result = await uploadFile(file)
+          
+          // Update status to completed
+          setUploadFiles(prev => prev.map(f => 
+            f.id === uploadFileEntry.id 
+              ? { ...f, status: "completed", progress: 100 } 
+              : f
+          ))
+          
+          if (onUploadComplete && result.document) {
+            onUploadComplete(result.document)
+          }
+          
+          toast.success(`${file.name} uploaded successfully`)
+          
+          // Refresh document list
+          if (onDocumentListRefresh) {
+            onDocumentListRefresh()
+          }
+          
+          // Remove from list after 10 seconds
+          setTimeout(() => {
+            setUploadFiles(prev => prev.filter(f => f.id !== uploadFileEntry.id))
+          }, 10000)
+          
+        } catch (error) {
+          console.error(`Upload failed for ${file.name}:`, error)
+          
+          // Update status to error
+          setUploadFiles(prev => prev.map(f => 
+            f.id === uploadFileEntry.id 
+              ? { ...f, status: "error", error: error instanceof Error ? error.message : "Upload failed" } 
+              : f
+          ))
+          
+          toast.error(`Failed to upload ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}`)
+        }
+      }
     } catch (error) {
       console.error("Error starting upload:", error)
       toast.error("Failed to start upload")
     }
-  }, [startUpload])
+  }, [uploadFile, onUploadComplete, onDocumentListRefresh])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     uploadWithAuth(acceptedFiles)
@@ -162,7 +124,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
     accept: {
       'application/pdf': ['.pdf']
     },
-    maxSize: 16 * 1024 * 1024, // 16MB (UploadThing limit)
+    maxSize: 16 * 1024 * 1024, // 16MB (Supabase Storage limit)
     multiple: true,
     disabled: isUploading
   })
