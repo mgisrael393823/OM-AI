@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "OM Analysis Response Schema",
+  "description": "Structured schema for Offering Memorandum analysis responses",
+  "required": [
+    "DealSnapshot",
+    "FinancialSummary", 
+    "UnitMix",
+    "OperatingMetrics",
+    "DevelopmentInfo",
+    "LocationHighlights",
+    "RecommendedActions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "DealSnapshot": {
+      "type": "object",
+      "required": [
+        "PropertyName",
+        "Address",
+        "PropertyType", 
+        "TotalUnits",
+        "TotalSqFt",
+        "YearBuilt",
+        "AskingPrice",
+        "PricePerUnit",
+        "PricePerSqFt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "PropertyName": { "type": "string" },
+        "Address": { "type": "string" },
+        "PropertyType": { "type": "string" },
+        "TotalUnits": { "type": "string" },
+        "TotalSqFt": { "type": "string" },
+        "YearBuilt": { "type": "string" },
+        "AskingPrice": { "type": "string" },
+        "PricePerUnit": { "type": "string" },
+        "PricePerSqFt": { "type": "string" }
+      }
+    },
+    "FinancialSummary": {
+      "type": "object", 
+      "required": [
+        "GrossScheduledIncome",
+        "EffectiveGrossIncome",
+        "NetOperatingIncome",
+        "CapRate",
+        "GrossRentMultiplier",
+        "OperatingExpenseRatio",
+        "DebtServiceCoverage"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "GrossScheduledIncome": { "type": "string" },
+        "EffectiveGrossIncome": { "type": "string" },
+        "NetOperatingIncome": { "type": "string" },
+        "CapRate": { "type": "string" },
+        "GrossRentMultiplier": { "type": "string" },
+        "OperatingExpenseRatio": { "type": "string" },
+        "DebtServiceCoverage": { "type": "string" }
+      }
+    },
+    "UnitMix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "UnitType",
+          "Count",
+          "AvgSqFt", 
+          "CurrentRent",
+          "MarketRent"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "UnitType": { "type": "string" },
+          "Count": { "type": "string" },
+          "AvgSqFt": { "type": "string" },
+          "CurrentRent": { "type": "string" },
+          "MarketRent": { "type": "string" }
+        }
+      }
+    },
+    "OperatingMetrics": {
+      "type": "object",
+      "required": ["Current", "ProForma"],
+      "additionalProperties": false,
+      "properties": {
+        "Current": {
+          "type": "object",
+          "required": ["GPR", "OtherIncome", "VacancyLoss", "EGI", "OpEx", "NOI"],
+          "additionalProperties": false,
+          "properties": {
+            "GPR": { "type": "string" },
+            "OtherIncome": { "type": "string" },
+            "VacancyLoss": { "type": "string" },
+            "EGI": { "type": "string" },
+            "OpEx": { "type": "string" },
+            "NOI": { "type": "string" }
+          }
+        },
+        "ProForma": {
+          "type": "object", 
+          "required": ["GPR", "OtherIncome", "VacancyLoss", "EGI", "OpEx", "NOI"],
+          "additionalProperties": false,
+          "properties": {
+            "GPR": { "type": "string" },
+            "OtherIncome": { "type": "string" },
+            "VacancyLoss": { "type": "string" },
+            "EGI": { "type": "string" },
+            "OpEx": { "type": "string" },
+            "NOI": { "type": "string" }
+          }
+        }
+      }
+    },
+    "DevelopmentInfo": {
+      "type": "object",
+      "required": [
+        "MaxFAR",
+        "ZoningAllowance", 
+        "ApprovedUnitCount",
+        "DevelopmentScenarios",
+        "LandCost",
+        "ParkingRatioOrGarage"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "MaxFAR": { "type": "string" },
+        "ZoningAllowance": { "type": "string" },
+        "ApprovedUnitCount": { "type": "string" },
+        "DevelopmentScenarios": { "type": "string" },
+        "LandCost": { "type": "string" },
+        "ParkingRatioOrGarage": { "type": "string" }
+      }
+    },
+    "LocationHighlights": {
+      "type": "object",
+      "required": [
+        "Submarket",
+        "TransitAccess",
+        "WalkScoreOrFeatures",
+        "NearbyAnchors",
+        "Demographics"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "Submarket": { "type": "string" },
+        "TransitAccess": { "type": "string" },
+        "WalkScoreOrFeatures": { "type": "string" },
+        "NearbyAnchors": { "type": "string" },
+        "Demographics": { "type": "string" }
+      }
+    },
+    "RecommendedActions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

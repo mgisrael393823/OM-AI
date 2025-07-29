@@ -1,9 +1,16 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { withAuth, withRateLimit, apiError, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { withAuth, withRateLimit, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { ERROR_CODES, createApiError } from '@/lib/constants/errors'
 import { openai, isOpenAIConfigured } from '@/lib/openai-client'
 import { checkEnvironment, getConfig } from '@/lib/config'
 import { logError } from '@/lib/error-logger'
+import { getOmPrompt, CURRENT_OM_PROMPT_VERSION } from '@/lib/prompts/om-analyst'
+import { getConversationalPrompt } from '@/lib/prompts/conversational'
+import { getOmNaturalPrompt } from '@/lib/prompts/om-analyst-natural'
+import { detectIntent, suggestResponseFormat, ChatIntent } from '@/lib/utils/intent-detection'
+import { validateAndFilterOmResponse, createEmptyOMResponse } from '@/lib/validation/om-response'
+import omSummarySchema from '@/lib/validation/om-schema.json'
 import type { Database } from '@/types/database'
 
 // Unified request type supporting both simple and complex formats
@@ -49,7 +56,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   // Request body logging removed for production
   
   if (req.method !== 'POST') {
-    return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 
   // Validate environment at runtime (non-blocking)
@@ -60,7 +67,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
   // Check if OpenAI is properly configured
   if (!isOpenAIConfigured()) {
-    return apiError(res, 503, "Chat service unavailable", "OPENAI_NOT_CONFIGURED",
+    return createApiError(res, ERROR_CODES.OPENAI_NOT_CONFIGURED,
       "OpenAI API key is not configured. Please contact support.")
   }
 
@@ -70,10 +77,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
   // Validate request format
   if (isSimple && !normalizedRequest.message) {
-    return apiError(res, 400, 'Message is required for simple format', 'MISSING_MESSAGE')
+    return createApiError(res, ERROR_CODES.MISSING_MESSAGE)
   }
   if (!isSimple && (!normalizedRequest.messages || !Array.isArray(normalizedRequest.messages))) {
-    return apiError(res, 400, 'Messages array is required for complex format', 'INVALID_MESSAGES')
+    return createApiError(res, ERROR_CODES.INVALID_MESSAGES)
   }
 
   // Log deprecated endpoint usage
@@ -98,7 +105,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       // Rate limit: 20 requests per user, refill 2 tokens per minute
     })
   } catch (error) {
-    return apiError(res, 429, "Rate limit exceeded. Please try again later.", "RATE_LIMIT_EXCEEDED")
+    return createApiError(res, ERROR_CODES.RATE_LIMIT_EXCEEDED)
   }
 
   try {
@@ -117,7 +124,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         .single()
 
       if (sessionError) {
-        return apiError(res, 500, 'Failed to create chat session', 'SESSION_ERROR')
+        return createApiError(res, ERROR_CODES.SESSION_ERROR, sessionError.message)
       }
 
       sessionId = newSession.id
@@ -131,7 +138,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         .single()
 
       if (sessionVerifyError) {
-        return apiError(res, 404, 'Chat session not found', 'SESSION_NOT_FOUND')
+        return createApiError(res, ERROR_CODES.SESSION_NOT_FOUND)
       }
     }
 
@@ -209,34 +216,33 @@ Please reference this document context in your response when relevant.`
       messages = normalizedRequest.messages!
     }
 
+    // Detect user intent to determine appropriate response format
+    const userMessage = isSimple ? normalizedRequest.message! : 
+      messages[messages.length - 1]?.content || "";
+    
+    const hasDocContext = !!contextualInformation || documentIds.length > 0;
+    const intentAnalysis = detectIntent(userMessage, hasDocContext, messages);
+    const responseFormat = suggestResponseFormat(intentAnalysis);
+    
+    // Select appropriate system prompt based on intent
+    let systemPrompt: string;
+    let useJsonSchema = false;
+    
+    if (intentAnalysis.intent === ChatIntent.JSON_REQUEST) {
+      // User explicitly wants JSON
+      systemPrompt = getOmPrompt(CURRENT_OM_PROMPT_VERSION);
+      useJsonSchema = true;
+    } else if (intentAnalysis.intent === ChatIntent.DOCUMENT_ANALYSIS && hasDocContext) {
+      // Document analysis with natural language output
+      systemPrompt = getOmNaturalPrompt(intentAnalysis.analysisType || 'full');
+    } else {
+      // General conversation
+      systemPrompt = getConversationalPrompt(hasDocContext);
+    }
+    
     const systemMessage = {
       role: "system" as const,
-      content: `You are OM Intel, an advanced AI assistant specializing in commercial real estate analysis and document review. You are professional, insightful, and highly knowledgeable about:
-
-- Commercial real estate transactions and valuations
-- Property investment analysis and due diligence
-- Market trends and comparative analysis
-- Financial modeling and cash flow projections
-- Lease agreements and property management
-- Zoning, development, and regulatory matters
-- Risk assessment and mitigation strategies
-
-Your communication style is:
-- Professional yet approachable
-- Clear and concise
-- Data-driven with actionable insights
-- Focused on helping users make informed decisions
-
-When analyzing documents or answering questions:
-- Provide specific, detailed analysis
-- Highlight key risks and opportunities
-- Offer practical recommendations
-- Ask clarifying questions when needed
-- Reference relevant market standards and best practices
-- When document context is provided, reference specific details from the documents
-- Cite page numbers and document names when referencing uploaded content
-
-Always maintain confidentiality and provide accurate, helpful information to support commercial real estate professionals in their decision-making process.${contextualInformation}`
+      content: contextualInformation ? `${systemPrompt}\n\nDOCUMENT CONTEXT:\n${contextualInformation}` : systemPrompt
     }
 
     // Always use SSE format for backward compatibility (since frontend expects it)
@@ -263,14 +269,34 @@ Always maintain confidentiality and provide accurate, helpful information to sup
       
       res.writeHead(200, headers)
 
-      // Create streaming response
-      const response = await openai.chat.completions.create({
-        model: normalizedRequest.options?.model || "gpt-4o",
-        messages: [systemMessage, ...messages],
-        temperature: normalizedRequest.options?.temperature || 0.7,
-        max_tokens: normalizedRequest.options?.maxTokens || 2000,
-        stream: true,
-      })
+      // Create streaming response with optional structured outputs
+      let response;
+      
+      if (useJsonSchema) {
+        response = await openai.chat.completions.create({
+          model: normalizedRequest.options?.model || "gpt-4o",
+          messages: [systemMessage, ...messages],
+          temperature: normalizedRequest.options?.temperature || 0.7,
+          max_tokens: normalizedRequest.options?.maxTokens || 2000,
+          stream: true,
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'om_analysis',
+              schema: omSummarySchema,
+              strict: true
+            }
+          }
+        });
+      } else {
+        response = await openai.chat.completions.create({
+          model: normalizedRequest.options?.model || "gpt-4o",
+          messages: [systemMessage, ...messages],
+          temperature: normalizedRequest.options?.temperature || 0.7,
+          max_tokens: normalizedRequest.options?.maxTokens || 2000,
+          stream: true
+        });
+      }
 
       let assistantResponse = ""
       let buffer = ''
@@ -312,12 +338,29 @@ Always maintain confidentiality and provide accurate, helpful information to sup
         res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
       }
 
+      // Validate structured response only if JSON was requested
+      let validatedResponse = assistantResponse;
+      if (useJsonSchema && assistantResponse) {
+        try {
+          const parsedResponse = JSON.parse(assistantResponse);
+          const validation = validateAndFilterOmResponse(parsedResponse);
+          
+          if (!validation.success) {
+            console.warn('OM Response validation failed (streaming):', validation.errors);
+            // For streaming, we already sent the response, so just log the issue
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse streaming JSON response:', parseError);
+        }
+      }
+
       // Save assistant response if we have a session
-      if (sessionId && assistantResponse) {
+      if (sessionId && validatedResponse) {
         await supabase.from('messages').insert({
           chat_session_id: sessionId,
           role: 'assistant',
-          content: assistantResponse
+          content: validatedResponse,
+          prompt_version: CURRENT_OM_PROMPT_VERSION
         })
 
         await supabase.from('chat_sessions')
@@ -327,23 +370,72 @@ Always maintain confidentiality and provide accurate, helpful information to sup
 
       res.end()
     } else {
-      // Non-streaming response
-      const response = await openai.chat.completions.create({
-        model: normalizedRequest.options?.model || "gpt-4o",
-        messages: [systemMessage, ...messages],
-        temperature: normalizedRequest.options?.temperature || 0.7,
-        max_tokens: normalizedRequest.options?.maxTokens || 2000,
-        stream: false,
-      })
+      // Non-streaming response with optional structured outputs
+      let response;
+      
+      if (useJsonSchema) {
+        response = await openai.chat.completions.create({
+          model: normalizedRequest.options?.model || "gpt-4o",
+          messages: [systemMessage, ...messages],
+          temperature: normalizedRequest.options?.temperature || 0.7,
+          max_tokens: normalizedRequest.options?.maxTokens || 2000,
+          stream: false,
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'om_analysis',
+              schema: omSummarySchema,
+              strict: true
+            }
+          }
+        });
+      } else {
+        response = await openai.chat.completions.create({
+          model: normalizedRequest.options?.model || "gpt-4o",
+          messages: [systemMessage, ...messages],
+          temperature: normalizedRequest.options?.temperature || 0.7,
+          max_tokens: normalizedRequest.options?.maxTokens || 2000,
+          stream: false
+        });
+      }
 
       const assistantContent = response.choices[0]?.message?.content || ""
+
+      // Validate and filter structured response only if JSON was requested
+      let validatedContent = assistantContent;
+      let validationWarnings: string[] = [];
+      
+      if (useJsonSchema && assistantContent) {
+        try {
+          const parsedResponse = JSON.parse(assistantContent);
+          const validation = validateAndFilterOmResponse(parsedResponse);
+          
+          if (validation.success && validation.data) {
+            validatedContent = JSON.stringify(validation.data);
+          } else {
+            console.warn('OM Response validation failed (non-streaming):', validation.errors);
+            validationWarnings = validation.errors || [];
+            // Fallback to empty response if validation fails
+            const emptyResponse = createEmptyOMResponse();
+            validatedContent = JSON.stringify(emptyResponse);
+          }
+        } catch (parseError) {
+          console.error('Failed to parse non-streaming JSON response:', parseError);
+          // Fallback to empty response
+          const emptyResponse = createEmptyOMResponse();
+          validatedContent = JSON.stringify(emptyResponse);
+          validationWarnings = ['Failed to parse JSON response'];
+        }
+      }
 
       // Save messages if we have a session
       if (sessionId) {
         await supabase.from('messages').insert({
           chat_session_id: sessionId,
           role: 'assistant',
-          content: assistantContent
+          content: validatedContent,
+          prompt_version: CURRENT_OM_PROMPT_VERSION,
+          token_usage: response.usage ? JSON.stringify(response.usage) : null
         })
 
         await supabase.from('chat_sessions')
@@ -353,10 +445,11 @@ Always maintain confidentiality and provide accurate, helpful information to sup
 
       res.status(200).json({
         id: response.id,
-        content: assistantContent,
+        content: validatedContent,
         model: response.model,
         usage: response.usage,
-        sessionId
+        sessionId,
+        ...(validationWarnings.length > 0 && { validationWarnings })
       })
     }
 
@@ -368,7 +461,7 @@ Always maintain confidentiality and provide accurate, helpful information to sup
     })
     
     if (!res.headersSent) {
-      return apiError(res, 500, "Failed to get response from AI", "OPENAI_ERROR",
+      return createApiError(res, ERROR_CODES.OPENAI_ERROR,
         error instanceof Error ? error.message : "Unknown error")
     } else {
       if (deprecatedEndpoint === 'chat-enhanced' || deprecatedEndpoint === 'chat') {
