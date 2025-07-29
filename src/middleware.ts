@@ -26,6 +26,9 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/_next/static/webpack/:path*', '/api/uploadthing'],
+  matcher: [
+    '/_next/static/webpack/:path*',
+    '/api/:path*'
+  ],
 }
 
