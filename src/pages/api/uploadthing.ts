@@ -1,5 +1,5 @@
-import { createNextPageApiHandler } from "uploadthing/next-legacy"
-import { ourFileRouter } from "@/lib/uploadthing-simple"
+import { createRouteHandler } from "uploadthing/next"
+import { ourFileRouter } from "@/lib/uploadthing"
 
 /**
  * Disable Next.js body parsing so UploadThing can handle the request stream.
@@ -11,9 +11,12 @@ export const config = {
   },
 }
 
-// In v6, the handler should be used directly
-const handler = createNextPageApiHandler({
+// Create the UploadThing handler for v7
+const handler = createRouteHandler({
   router: ourFileRouter,
+  config: {
+    token: process.env.UPLOADTHING_TOKEN,
+  },
 })
 
 export default handler

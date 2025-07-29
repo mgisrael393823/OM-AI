@@ -1,4 +1,4 @@
-import { createUploadthing, type FileRouter } from "uploadthing/next-legacy"
+import { createUploadthing, type FileRouter } from "uploadthing/next"
 import { createClient } from '@supabase/supabase-js'
 import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
@@ -10,7 +10,7 @@ export const ourFileRouter = {
   // Define a file route for PDF uploads
   pdfUploader: f({ pdf: { maxFileSize: "16MB" } })
     // Set permissions and file types for this FileRoute
-    .middleware(async (req) => {
+    .middleware(async ({ req }) => {
       console.log("🚀 UploadThing middleware: CALLED")
       try {
         console.log("UploadThing middleware: Starting authentication check")
@@ -22,8 +22,8 @@ export const ourFileRouter = {
         }
         
         // Get auth token from request headers
-        // In v6, req is the NextApiRequest object
-        const authHeader = req.headers.authorization || req.headers.Authorization
+        // In v7, headers are in a different format
+        const authHeader = req.headers.get("authorization") || req.headers.get("Authorization")
         console.log("UploadThing middleware: Authorization header present:", !!authHeader)
         
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -246,9 +246,9 @@ export const ourFileRouter = {
 
         console.log("onUploadComplete: Successfully processed document:", documentData.id)
         
-        // v6 expects void or a simple object - not our custom format
-        // The document is already saved, so we just need to indicate success
-        return { documentId: documentData.id }
+        // v7 expects void return from onUploadComplete
+        // The document is already saved successfully
+        return
       } catch (error) {
         // Log error details
         console.error("UploadThing onUploadComplete error:", {
@@ -259,7 +259,7 @@ export const ourFileRouter = {
           fileName: file?.name
         })
         
-        // In v6, throwing an error will properly handle the failure
+        // In v7, throwing an error will properly handle the failure
         throw error
       } finally {
         const executionTime = Date.now() - startTime
