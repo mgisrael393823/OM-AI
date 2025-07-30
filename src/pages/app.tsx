@@ -52,6 +52,14 @@ export default function AppPage() {
   const [message, setMessage] = useState("")
   const [showUpload, setShowUpload] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
+  
+  // Debug logging for selectedDocumentId changes
+  useEffect(() => {
+    console.log('📄 SELECTED DOCUMENT ID CHANGED:', {
+      selectedDocumentId,
+      hasValue: !!selectedDocumentId
+    })
+  }, [selectedDocumentId])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
@@ -481,6 +489,10 @@ export default function AppPage() {
                 </div>
                 <DocumentUpload 
                   onUploadComplete={(document) => {
+                    console.log('📁 DOCUMENT UPLOAD COMPLETE:', {
+                      documentId: document.id,
+                      filename: document.original_filename
+                    })
                     setShowUpload(false)
                     // Set the uploaded document as selected
                     setSelectedDocumentId(document.id)

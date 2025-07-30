@@ -98,7 +98,13 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
       const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
       const fileName = `${userId}/${timestamp}-${sanitizedName}`
 
-      console.log('Supabase Upload: Starting upload for:', fileName)
+      console.log('Supabase Upload: Starting upload for:', fileName, {
+        fileSize: file.size,
+        fileType: file.type,
+        fileName: file.name,
+        userId,
+        sessionValid: !!session.access_token
+      })
 
       // Create a promise to track upload progress
       const uploadPromise = new Promise<{ data: any; error: any }>((resolve, reject) => {
@@ -117,23 +123,42 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
         })
 
         xhr.addEventListener('load', () => {
+          console.log('Supabase Upload: XHR load event', {
+            status: xhr.status,
+            statusText: xhr.statusText,
+            responseLength: xhr.responseText?.length || 0
+          })
+          
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
               const response = JSON.parse(xhr.responseText)
+              console.log('Supabase Upload: Upload successful', response)
               resolve({ data: response, error: null })
             } catch (e) {
+              console.warn('Supabase Upload: Response parsing failed, using fallback', e)
               resolve({ data: { path: fileName }, error: null }) // Fallback for successful upload
             }
           } else {
-            reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`))
+            const errorMsg = `Upload failed: ${xhr.status} ${xhr.statusText}`
+            console.error('Supabase Upload: Upload failed', {
+              status: xhr.status,
+              statusText: xhr.statusText,
+              responseText: xhr.responseText
+            })
+            reject(new Error(errorMsg))
           }
         })
 
-        xhr.addEventListener('error', () => {
+        xhr.addEventListener('error', (event) => {
+          console.error('Supabase Upload: Network error during upload', event)
           reject(new Error('Network error during upload'))
         })
 
         xhr.addEventListener('timeout', () => {
+          console.error('Supabase Upload: Upload timeout', {
+            timeout: xhr.timeout,
+            fileName
+          })
           reject(new Error('Upload timeout'))
         })
 
@@ -160,31 +185,85 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
       console.log('Supabase Upload: File uploaded successfully:', fileName)
       setProgress(95) // Upload complete, now processing
 
-      console.log('Supabase Upload: Starting document processing')
-      
-      // Process the document via API
-      const processingResponse = await fetch('/api/process-document', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          fileName,
-          originalFileName: file.name,
-          fileSize: file.size,
-          userId,
-        }),
+      console.log('Supabase Upload: Starting document processing', {
+        fileName,
+        originalFileName: file.name,
+        fileSize: file.size,
+        userId
       })
+      
+      // Process the document via API with retry logic
+      let processingResult
+      let retryCount = 0
+      const maxRetries = 2
+      
+      while (retryCount <= maxRetries) {
+        try {
+          const processingResponse = await fetch('/api/process-document', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              fileName,
+              originalFileName: file.name,
+              fileSize: file.size,
+              userId,
+            }),
+          })
 
-      if (!processingResponse.ok) {
-        throw new Error(`Document processing failed: ${processingResponse.statusText}`)
-      }
+          console.log('Supabase Upload: Processing response received', {
+            status: processingResponse.status,
+            statusText: processingResponse.statusText,
+            ok: processingResponse.ok,
+            retryCount
+          })
 
-      const processingResult = await processingResponse.json()
+          if (!processingResponse.ok) {
+            const errorText = await processingResponse.text()
+            console.error('Supabase Upload: Processing response not ok', {
+              status: processingResponse.status,
+              errorText,
+              retryCount
+            })
+            throw new Error(`Document processing failed: ${processingResponse.status} ${processingResponse.statusText} - ${errorText}`)
+          }
 
-      if (!processingResult.success) {
-        throw new Error(processingResult.error || 'Document processing failed')
+          processingResult = await processingResponse.json()
+          console.log('Supabase Upload: Processing result received', {
+            success: processingResult?.success,
+            hasDocument: !!processingResult?.document,
+            hasError: !!processingResult?.error
+          })
+
+          if (!processingResult.success) {
+            throw new Error(processingResult.error || 'Document processing failed')
+          }
+          
+          // Success - break out of retry loop
+          break
+          
+        } catch (error) {
+          retryCount++
+          const isLastRetry = retryCount > maxRetries
+          
+          console.error(`Supabase Upload: Processing attempt ${retryCount} failed`, {
+            error: error instanceof Error ? error.message : error,
+            isLastRetry,
+            fileName
+          })
+          
+          if (isLastRetry) {
+            // Final attempt failed, re-throw the error
+            throw error
+          }
+          
+          // Wait before retry (exponential backoff)
+          const waitTime = Math.pow(2, retryCount) * 1000 // 2s, 4s
+          console.log(`Supabase Upload: Retrying processing in ${waitTime}ms`)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+        }
       }
 
       setProgress(100)
