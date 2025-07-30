@@ -30,7 +30,6 @@ import {
   ExternalLink,
   Eye
 } from "lucide-react"
-import { useDrag } from '@use-gesture/react'
 import { useChatPersistent } from "@/hooks/useChatPersistent"
 import { useSidebar } from "@/hooks/useSidebar"
 import { DocumentUpload } from "@/components/app/DocumentUpload"
@@ -70,20 +69,11 @@ export default function AppPage() {
     })
   }, [loading, user])
   
-  // Responsive sidebar state management
+  // Simple sidebar state management
   const {
-    sidebarState,
-    sidebarOpen,
-    deviceType,
-    setSidebarState,
-    setSidebarOpen,
-    toggleSidebar,
-    collapseSidebar,
-    expandSidebar,
-    isMobile,
-    isTablet,
-    isDesktop,
-    sidebarWidth
+    isOpen: sidebarOpen,
+    setIsOpen: setSidebarOpen,
+    toggle: toggleSidebar
   } = useSidebar()
   
   const [message, setMessage] = useState("")
@@ -182,45 +172,9 @@ export default function AppPage() {
     }
   }, [messages])
 
-  // Swipe gesture handling for mobile
-  const bind = useDrag(
-    ({ down, movement: [mx], direction: [dx], distance, cancel, last }) => {
-      if (!isMobile || !sidebarOpen) return
 
-      if (dx > 0 || (Array.isArray(distance) ? distance[0] : distance) < 50) {
-        if (last) cancel?.()
-        return
-      }
-
-      if (last && mx < -100) {
-        setSidebarOpen(false)
-      }
-    },
-    {
-      axis: 'x',
-      threshold: 10,
-      filterTaps: true,
-      preventScroll: true
-    }
-  )
-
-  // Focus management for accessibility
+  // Handle escape key to close sidebar on mobile
   useEffect(() => {
-    if (!isMobile && !isTablet) return
-    if (sidebarOpen && sidebarRef.current) {
-      const firstFocusable = sidebarRef.current.querySelector(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      ) as HTMLElement
-      if (firstFocusable) {
-        firstFocusable.focus()
-      }
-    }
-  }, [sidebarOpen, isMobile, isTablet])
-
-  // Handle escape key to close sidebar on mobile & tablet
-  useEffect(() => {
-    if (!isMobile && !isTablet) return
-
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && sidebarOpen) {
         setSidebarOpen(false)
@@ -229,7 +183,7 @@ export default function AppPage() {
 
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [sidebarOpen, isMobile, isTablet, setSidebarOpen])
+  }, [sidebarOpen, setSidebarOpen])
 
   // Optimized status icon function to prevent unnecessary re-renders
   const getStatusIcon = useCallback((status: Document['status']) => {
@@ -296,134 +250,56 @@ export default function AppPage() {
 
       {/* Fully Responsive Layout Container */}
       <div 
-        className={`
-          h-screen max-h-screen bg-background text-foreground overflow-hidden flex
-          ${isDesktop ? 'transition-all duration-300' : ''}
-        `}
+        className="h-screen max-h-screen bg-background text-foreground overflow-hidden flex transition-all duration-300"
         style={{ 
           height: '100dvh', // Dynamic viewport height for mobile browsers
           maxHeight: '100dvh'
         }}
       >
         {/* Responsive Sidebar Container */}
-        <div className={`
-          ${isMobile 
-            ? `fixed inset-y-0 left-0 z-50 w-full max-w-xs sm:max-w-sm transform transition-transform duration-300 ease-in-out ${
-                sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-              }`
-            : isTablet
-            ? `fixed inset-y-0 left-0 z-50 w-[260px] transform transition-transform duration-300 ease-in-out ${
-                sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-              }`
-            : `relative flex-shrink-0 transition-all duration-300 ease-in-out ${
-                sidebarState === 'collapsed' ? 'w-16' : 'w-[260px]'
-              }`
-          }
-          bg-muted/30 border-r border-border
-          flex flex-col overflow-hidden
-          h-full
-        `}
-        ref={sidebarRef}
-        {...(isMobile ? bind() : {})}
+        <div 
+          className={`
+            fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out
+            md:relative md:z-auto md:translate-x-0 md:transition-none
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+            bg-muted/30 border-r border-border
+            flex flex-col overflow-hidden h-full
+          `}
+          ref={sidebarRef}
         >
           {/* Sidebar Content */}
-          <div className={`flex flex-col h-full ${
-            sidebarState === 'collapsed' && !isMobile && !isTablet 
-              ? 'px-2 py-4 items-center' 
-              : 'px-3 py-4'
-          }`}>
+          <div className="flex flex-col h-full px-3 py-4">
           {/* Sidebar Header */}
-          <div className={`flex-shrink-0 pb-4`}>
-            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
-              /* Collapsed: Icon with expand button */
-              <div className="flex flex-col items-center gap-2">
+          <div className="flex-shrink-0 pb-4">
+            <div className="flex items-center justify-between">
+              {/* Brand Section */}
+              <div className="flex items-center gap-2">
                 <Building2 className="h-6 w-6 text-blue-600" />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSidebarState('normal')}
-                  title="Expand sidebar"
-                  className="h-6 w-6 p-0"
-                >
-                  <ChevronRight className="h-3 w-3" />
-                </Button>
+                <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
               </div>
-            ) : (
-              /* Expanded: Full header with controls */
-              <div className="grid grid-cols-[1fr_auto] items-center">
-                {/* Brand Section */}
-                <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
-                  <Building2 className="h-6 w-6 text-blue-600" />
-                  <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
-                </div>
-                
-                {/* Controls Section */}
-                <div className="grid gap-1 grid-cols-2">
-                  {/* Desktop sidebar controls */}
-                  {isDesktop && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSidebarState(sidebarState === 'expanded' ? 'normal' : 'expanded')}
-                        title={sidebarState === 'expanded' ? 'Collapse to normal' : 'Expand sidebar'}
-                        className="h-7 w-7 p-0"
-                      >
-                        {sidebarState === 'expanded' ? (
-                          <PanelLeftClose className="h-4 w-4" />
-                        ) : (
-                          <PanelLeftOpen className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSidebarState('collapsed')}
-                        title="Collapse sidebar"
-                        className="h-7 w-7 p-0"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                    </>
-                  )}
-                  
-                  {/* Mobile & Tablet close button */}
-                  {(isMobile || isTablet) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSidebarOpen(false)}
-                      className="h-7 w-7 p-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
+              
+              {/* Close button for mobile */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSidebarOpen(false)}
+                className="h-7 w-7 p-0 md:hidden"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
-          {/* New Chat Button - Fixed */}
+          {/* New Chat Button */}
           <div className="flex-shrink-0 pt-4">
-            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
-              <Button 
-                className="w-full justify-center p-2 hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
-                variant="ghost"
-                onClick={handleNewChat}
-                title="New Chat"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button 
-                className="w-full justify-start hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
-                variant="ghost"
-                onClick={handleNewChat}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                New Chat
-              </Button>
-            )}
+            <Button 
+              className="w-full justify-start hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
+              variant="ghost"
+              onClick={handleNewChat}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Chat
+            </Button>
           </div>
 
           {/* Single Scrollable Content Area - Chat History takes priority */}
@@ -435,46 +311,12 @@ export default function AppPage() {
               onSelectSession={loadChatSession}
               onDeleteSession={deleteChatSession}
               onRenameSession={renameChatSession}
-              isCollapsed={sidebarState === 'collapsed' && !isMobile && !isTablet}
+              isCollapsed={false}
             />
           </div>
 
-          {/* Documents Section - Collapsed State (Desktop Only) */}
-          {sidebarState === 'collapsed' && !isMobile && !isTablet && documents.length > 0 && (
-            <div className="flex-shrink-0 border-t border-border pt-2">
-              <div className="flex flex-col items-center gap-1">
-                {documents.slice(0, 3).map((doc) => (
-                  <Button
-                    key={doc.id}
-                    variant="ghost"
-                    size="sm"
-                    className={`h-8 w-8 p-0 ${
-                      selectedDocumentId === doc.id
-                        ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-600'
-                        : 'text-gray-400 hover:text-gray-600'
-                    }`}
-                    onClick={() => {
-                      if (doc.status === 'completed') {
-                        setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
-                      }
-                    }}
-                    title={doc.name}
-                  >
-                    <FileText className="h-4 w-4" />
-                  </Button>
-                ))}
-                {documents.length > 3 && (
-                  <Badge variant="secondary" className="text-xs px-1 py-0 h-4">
-                    +{documents.length - 3}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Documents Section - Collapsible Accordion */}
-          {(sidebarState !== 'collapsed' || isMobile || isTablet) && (
-            <div className="flex-shrink-0 border-t border-border pt-4">
+          <div className="flex-shrink-0 border-t border-border pt-4">
               <Accordion
                 type="single"
                 collapsible
@@ -614,71 +456,42 @@ export default function AppPage() {
                 </AccordionItem>
               </Accordion>
             </div>
-          )}
 
           {/* User Profile */}
           <div className="flex-shrink-0 pt-4 border-t border-border">
-            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
-              /* Collapsed view - Centered Grid */
-              <div className="grid grid-cols-1 justify-items-center gap-2">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
-                    {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
-                  </AvatarFallback>
-                </Avatar>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => router.push('/settings')}
-                  title="Settings"
-                  className="h-8 w-8 p-0"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
+                  {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
+                </AvatarFallback>
+              </Avatar>
+              <div className="grid grid-rows-2 gap-0 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {userDisplayData.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {userDisplayData.plan}
+                </p>
               </div>
-            ) : (
-              /* Normal/expanded view - Three Column Grid */
-              <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
-                    {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="grid grid-rows-2 gap-0 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {userDisplayData.name}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {userDisplayData.plan}
-                  </p>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => router.push('/settings')}
-                  title="Settings"
-                  className="h-8 w-8 p-0"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => router.push('/settings')}
+                title="Settings"
+                className="h-8 w-8 p-0"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           </div>
         </div>
 
-        {/* Mobile & Tablet Overlay Backdrop */}
-        {(isMobile || isTablet) && sidebarOpen && (
+        {/* Mobile Overlay Backdrop */}
+        {sidebarOpen && (
           <div 
-            className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300"
+            className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 md:hidden"
             onClick={() => setSidebarOpen(false)}
-            onTouchStart={(e) => {
-              // Prevent scroll on body when overlay is touched
-              document.body.style.overflow = 'hidden'
-            }}
-            onTouchEnd={() => {
-              document.body.style.overflow = ''
-            }}
             aria-label="Close sidebar"
           />
         )}
@@ -688,17 +501,15 @@ export default function AppPage() {
           {/* HEADER - Only above chat area */}
           <header className="flex items-center justify-between px-4 py-2 border-b bg-white dark:bg-gray-900">
             <div className="flex items-center space-x-2">
-              {(isMobile || isTablet) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSidebarOpen(true)}
-                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-                  aria-label="Open menu"
-                >
-                  <Menu className="h-5 w-5" />
-                </Button>
-              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSidebarOpen(true)}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded md:hidden"
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
             </div>
             <div className="flex items-center space-x-3">
               <Button
@@ -782,11 +593,11 @@ export default function AppPage() {
               threshold={200}
               position="bottom-right"
               offset={{ 
-                x: isMobile ? 16 : 24, 
-                y: isMobile ? 80 : 100 
+                x: 20, 
+                y: 90 
               }}
               showUnreadCount={false}
-              size={isMobile ? "sm" : "md"}
+              size="md"
               variant="default"
               className="shadow-lg"
             />
@@ -811,10 +622,7 @@ export default function AppPage() {
                           handleSendMessage()
                         }
                       }}
-                      placeholder={isMobile 
-                        ? "Ask anything..." 
-                        : "Try: Summarize the key deal points from the uploaded OM"
-                      }
+                      placeholder="Try: Summarize the key deal points from the uploaded OM"
                       className="
                         w-full resize-none rounded-2xl border border-border bg-background shadow-sm 
                         focus:ring-2 focus:ring-primary focus:border-transparent transition-all
@@ -831,31 +639,29 @@ export default function AppPage() {
                     
                     {/* Input Actions - Absolute Grid */}
                     <div className="absolute right-2 bottom-2">
-                      <div className={`grid ${!isMobile ? 'grid-cols-3' : 'grid-cols-2'} gap-1`}>
+                      <div className="grid grid-cols-3 gap-1">
                         <Button 
                           variant="ghost" 
                           size="sm"
                           onClick={() => setShowUpload(true)}
                           title="Upload document"
-                          className="h-8 w-8 p-0 hover:bg-muted touch-manipulation"
+                          className="h-8 w-8 p-0 hover:bg-muted"
                         >
                           <Paperclip className="h-4 w-4" />
                         </Button>
-                        {!isMobile && (
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            title="Voice input"
-                            className="h-8 w-8 p-0 hover:bg-muted"
-                          >
-                            <Mic className="h-4 w-4" />
-                          </Button>
-                        )}
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          title="Voice input"
+                          className="h-8 w-8 p-0 hover:bg-muted"
+                        >
+                          <Mic className="h-4 w-4" />
+                        </Button>
                         <Button 
                           size="sm"
                           onClick={handleSendMessage}
                           disabled={!message.trim() || isLoading}
-                          className="h-8 w-8 p-0 rounded-lg touch-manipulation"
+                          className="h-8 w-8 p-0 rounded-lg"
                           title="Send message"
                         >
                           {isLoading ? (
@@ -869,26 +675,20 @@ export default function AppPage() {
                   </div>
                   
                   {/* Footer Row */}
-                  <div className={`grid text-xs text-muted-foreground ${isMobile ? 'grid-cols-1 justify-items-center gap-2' : 'grid-cols-[1fr_auto] items-center'}`}>
-                    {!isMobile && (
-                      <div>
-                        <span>Press Enter to send, Shift + Enter for new line</span>
-                      </div>
-                    )}
-                    <div className={`grid gap-2 ${isMobile ? 'grid-cols-1 justify-items-center' : 'grid-cols-[repeat(auto-fit,_minmax(100px,_auto))]'}`}>
+                  <div className="grid text-xs text-muted-foreground grid-cols-[1fr_auto] items-center">
+                    <div className="hidden sm:block">
+                      <span>Press Enter to send, Shift + Enter for new line</span>
+                    </div>
+                    <div className="grid gap-2 grid-cols-[repeat(auto-fit,_minmax(100px,_auto))]">
                       {selectedDocumentId && (
                         <div className="grid grid-cols-[auto_1fr] items-center gap-1 p-2 bg-primary/10 rounded-md">
                           <FileText className="h-3 w-3 text-primary" />
-                          <span className="text-primary text-xs">
-                            {isMobile ? 'Doc' : 'Doc attached'}
-                          </span>
+                          <span className="text-primary text-xs">Doc attached</span>
                         </div>
                       )}
-                      {!isMobile && (
-                        <Button variant="ghost" size="sm" className="h-auto p-2 text-xs hover:bg-muted opacity-70">
-                          <span>AI can make mistakes. Verify important information.</span>
-                        </Button>
-                      )}
+                      <Button variant="ghost" size="sm" className="h-auto p-2 text-xs hover:bg-muted opacity-70 hidden sm:block">
+                        <span>AI can make mistakes. Verify important information.</span>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -898,17 +698,6 @@ export default function AppPage() {
         </div>
       </div>
 
-        {/* Floating Action Button - Mobile Only */}
-        {isMobile && !sidebarOpen && (
-          <Button
-            className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-30 bg-blue-600 hover:bg-blue-700 text-white"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open conversations"
-            title="Open conversations"
-          >
-            <MessageSquare className="h-6 w-6" />
-          </Button>
-        )}
 
         {/* Upload Modal */}
         {showUpload && (
