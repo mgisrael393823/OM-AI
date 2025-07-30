@@ -39,8 +39,11 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
       return apiError(res, 400, 'No file uploaded', 'NO_FILE')
     }
 
+    // Extract the custom fileName from form data if provided
+    const customFileName = Array.isArray(fields.fileName) ? fields.fileName[0] : fields.fileName
+    
     // Generate secure filename with fixed .pdf extension to prevent path traversal
-    const fileName = `${req.user.id}/${uuidv4()}.pdf`
+    const fileName = customFileName || `${req.user.id}/${uuidv4()}.pdf`
 
     // Validate file type
     if (uploadedFile.mimetype !== 'application/pdf') {
@@ -71,7 +74,12 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
       return apiError(res, 500, `Storage upload failed: ${uploadError.message}`, 'STORAGE_ERROR')
     }
 
-    console.log('Supabase Upload API: File uploaded successfully:', fileName)
+    console.log('Supabase Upload API: File uploaded successfully:', fileName, {
+      originalName: uploadedFile.originalFilename,
+      size: uploadedFile.size,
+      type: uploadedFile.mimetype,
+      userId: req.user.id
+    })
 
     // Return success response
     res.status(200).json({

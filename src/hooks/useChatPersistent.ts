@@ -24,6 +24,12 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  
+  // Store the selectedDocumentId in a ref to use in callbacks
+  const selectedDocumentIdRef = useRef(selectedDocumentId)
+  useEffect(() => {
+    selectedDocumentIdRef.current = selectedDocumentId
+  }, [selectedDocumentId])
 
   // Get auth token for API calls
   const getAuthToken = useCallback(() => {
@@ -102,13 +108,19 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       const payload = {
         message: content.trim(),
         sessionId: currentSessionId,
-        documentId: documentId || selectedDocumentId,
+        documentId: documentId || selectedDocumentIdRef.current,
         options: {
           stream: true
         }
       }
       
-      console.log('📤 CLIENT PAYLOAD:', payload)
+      // Log payload for debugging if needed
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📤 Sending message:', {
+          hasDocumentId: !!(documentId || selectedDocumentIdRef.current),
+          sessionId: currentSessionId
+        })
+      }
       
       const response = await fetch(`${window.location.origin}/api/chat`, {
         method: "POST",
@@ -246,7 +258,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     } finally {
       setIsLoading(false)
     }
-  }, [currentSessionId, isLoading, user, session, getAuthToken, loadChatSessions, selectedDocumentId])
+  }, [currentSessionId, isLoading, user, session, getAuthToken, loadChatSessions])
 
   // Create new chat session
   const createNewChat = useCallback(async () => {

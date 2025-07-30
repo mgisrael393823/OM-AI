@@ -33,14 +33,6 @@ export default function AppPage() {
   const router = useRouter()
   const { user, loading } = useAuth()
   
-  // Debug logging for auth state
-  useEffect(() => {
-    console.log('📱 App Page - Auth State:', { 
-      loading, 
-      hasUser: !!user, 
-      userEmail: user?.email 
-    })
-  }, [loading, user])
   
   // Simple sidebar state management
   const {
@@ -52,6 +44,7 @@ export default function AppPage() {
   const [message, setMessage] = useState("")
   const [showUpload, setShowUpload] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
+  
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
@@ -71,12 +64,8 @@ export default function AppPage() {
 
   // Redirect to login if not authenticated
   useEffect(() => {
-    console.log('🔄 Checking auth redirect:', { loading, hasUser: !!user })
     if (!loading && !user) {
-      console.log('❌ No user, redirecting to login')
       router.push('/auth/login')
-    } else if (!loading && user) {
-      console.log('✅ User authenticated, staying on app page')
     }
   }, [user, loading, router])
 
@@ -112,7 +101,6 @@ export default function AppPage() {
 
   // Show loading until authenticated
   if (loading || !user) {
-    console.log('⏳ Showing loading screen:', { loading, hasUser: !!user })
     return (
       <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">

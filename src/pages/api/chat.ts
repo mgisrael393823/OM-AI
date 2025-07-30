@@ -163,8 +163,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         const userQuery = isSimple ? normalizedRequest.message : 
           normalizedRequest.messages?.[normalizedRequest.messages.length - 1]?.content || ""
         
-        // Get document chunks
-        const { data: relevantChunks, error: searchError } = await supabase
+        // Get document chunks - try without text search first to ensure we get content
+        const { data: allChunks, error: allChunksError } = await supabase
           .from('document_chunks')
           .select(`
             content,
@@ -174,10 +174,39 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           `)
           .eq('user_id', req.user.id)
           .in('document_id', documentIds)
-          .textSearch('content', userQuery)
-          .limit(5)
+          .limit(10)
+        
+        if (allChunksError) {
+          console.error('Error retrieving document chunks:', allChunksError)
+        }
+        
+        // Now try with text search if we have chunks and a query
+        let relevantChunks = allChunks
+        if (allChunks && allChunks.length > 0 && userQuery) {
+          const { data: searchChunks, error: searchError } = await supabase
+            .from('document_chunks')
+            .select(`
+              content,
+              page_number,
+              chunk_type,
+              documents!inner(original_filename)
+            `)
+            .eq('user_id', req.user.id)
+            .in('document_id', documentIds)
+            .textSearch('content', userQuery)
+            .limit(5)
+          
+          if (searchError) {
+            console.error('Error in document text search:', searchError)
+          }
+          
+          // Use search results if available, otherwise fall back to all chunks
+          if (searchChunks && searchChunks.length > 0) {
+            relevantChunks = searchChunks
+          }
+        }
 
-        if (!searchError && relevantChunks && relevantChunks.length > 0) {
+        if (relevantChunks && relevantChunks.length > 0) {
           contextualInformation = `
 
 DOCUMENT CONTEXT:
@@ -329,7 +358,6 @@ Please reference this document context in your response when relevant.`
       }
 
       for await (const chunk of response) {
-        console.log('🔄 CHUNK:', chunk.choices[0]?.delta || chunk)
         const content = chunk.choices[0]?.delta?.content || ""
         if (content) {
           buffer += content
