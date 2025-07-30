@@ -9,9 +9,9 @@ import { cn } from '@/lib/utils'
 // Semantic typography combinations
 export const typography = {
   // Page and section headers
-  pageTitle: cn(fontClasses.heading, 'text-2xl lg:text-3xl'),
-  sectionHeader: cn(fontClasses.heading, 'text-lg'),
-  subsectionHeader: cn(fontClasses.heading, 'text-base'),
+  pageTitle: cn(fontClasses.heading, 'text-4xl sm:text-5xl font-semibold'), // 36-48px
+  sectionHeader: cn(fontClasses.heading, 'text-2xl sm:text-3xl font-semibold'), // 24-28px
+  subsectionHeader: cn(fontClasses.heading, 'text-lg font-semibold'), // 18px
   
   // Navigation and UI elements
   navLink: cn(fontClasses.nav, 'text-sm'),
@@ -20,13 +20,13 @@ export const typography = {
   
   // Labels and descriptions
   label: cn(fontClasses.label, 'text-sm'),
-  caption: cn(fontClasses.label, 'text-xs'),
+  caption: cn(fontClasses.label, 'text-xs font-bold uppercase'), // 12px for badges
   helper: cn(fontClasses.label, 'text-xs text-muted-foreground'),
   
   // Body content
-  body: cn(fontClasses.body, 'text-sm leading-relaxed'),
-  bodyLarge: cn(fontClasses.body, 'text-base leading-relaxed'),
-  bodySmall: cn(fontClasses.body, 'text-xs leading-normal'),
+  body: cn(fontClasses.body, 'text-base leading-relaxed'), // 16-18px
+  bodyLarge: cn(fontClasses.body, 'text-lg sm:text-xl leading-relaxed'), // 18-20px
+  bodySmall: cn(fontClasses.body, 'text-sm leading-normal'), // 12-14px
   
   // Chat-specific typography
   chatMessage: cn(fontClasses.body, 'text-sm leading-relaxed'),
@@ -40,8 +40,8 @@ export const typography = {
   codeBlock: cn(fontClasses.mono, 'text-sm leading-relaxed'),
   
   // Emphasis states
-  emphasis: cn(fontClasses.bodyEmphasis, 'text-sm'),
-  strong: cn(fontClasses.bodyEmphasis, 'text-sm'),
+  emphasis: cn(fontClasses.bodyEmphasis, 'text-lg font-bold'), // 18px for stat numbers
+  strong: cn(fontClasses.bodyEmphasis, 'text-base font-medium'),
   
   // Status and feedback
   success: cn(fontClasses.label, 'text-sm text-status-success'),
@@ -83,16 +83,16 @@ export const componentTypography = {
   
   // Card and content components
   card: {
-    title: cn(fontClasses.heading, 'text-lg font-semibold'),
+    title: cn(fontClasses.heading, 'text-lg font-semibold'), // 18px for card titles
     subtitle: cn(fontClasses.nav, 'text-sm text-muted-foreground'),
-    content: cn(fontClasses.body, 'text-sm'),
+    content: cn(fontClasses.body, 'text-base'), // 14-16px for card descriptions
     footer: cn(fontClasses.label, 'text-xs text-muted-foreground'),
   },
   
   // Button variants
   button: {
-    primary: cn(fontClasses.nav, 'text-sm font-medium'),
-    secondary: cn(fontClasses.nav, 'text-sm'),
+    primary: cn(fontClasses.nav, 'text-base font-medium'), // 14-16px for CTAs
+    secondary: cn(fontClasses.nav, 'text-base'),
     ghost: cn(fontClasses.nav, 'text-sm'),
     link: cn(fontClasses.nav, 'text-sm underline-offset-4 hover:underline'),
   },
