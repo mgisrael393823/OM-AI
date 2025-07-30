@@ -91,7 +91,7 @@ export class EnhancedPDFParser {
       // Try primary parser (PDF.js) first
       const primaryResult = await this.parsePrimary(buffer, config);
       
-      if (primaryResult.success) {
+      if (primaryResult.success && primaryResult.result) {
         const metrics = this.createMetrics(startTime, startMemory, 'pdfjs', true, primaryResult);
         return { ...primaryResult.result, metrics };
       }
@@ -135,7 +135,7 @@ export class EnhancedPDFParser {
       // Create PDF document from buffer
       const pdfDocument = await pdfjsLib.getDocument({
         data: buffer,
-        standardFontDataUrl: null, // Disable font loading for server
+        standardFontDataUrl: undefined, // Disable font loading for server
         isEvalSupported: false
       }).promise;
 

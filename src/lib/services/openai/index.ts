@@ -152,7 +152,7 @@ export class OpenAIService {
       return { ...cached, metadata: { ...cached.metadata, cacheHit: true } };
     }
 
-    let lastError: Error;
+      let lastError: Error | null = null;
     let retryCount = 0;
     let modelFallback = false;
     let currentModel = request.model || 'gpt-4o';
@@ -214,11 +214,12 @@ export class OpenAIService {
     }
     
     // Record failed request metrics
-    if (this.config.enableMonitoring) {
+    if (this.config.enableMonitoring && lastError) {
       this.recordFailedMetrics(requestId, request, lastError, retryCount, startTime);
     }
-    
-    throw new Error(`OpenAI service failed after ${retryCount} attempts: ${lastError.message}`);
+
+    const message = lastError ? lastError.message : 'Unknown error';
+    throw new Error(`OpenAI service failed after ${retryCount} attempts: ${message}`);
   }
 
   /**
@@ -436,8 +437,10 @@ export class OpenAIService {
     
     if (this.cache.size >= MAX_CACHE_SIZE) {
       // Remove oldest entry
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
+      const firstKey = this.cache.keys().next().value as string | undefined;
+      if (firstKey) {
+        this.cache.delete(firstKey);
+      }
     }
     
     this.cache.set(key, {
