@@ -318,7 +318,9 @@ Please reference this document context in your response when relevant.`
       }
 
       for await (const chunk of response) {
-        console.log('🔄 CHUNK:', chunk.choices[0]?.delta || chunk)
+        if (process.env.DEBUG_CHUNK_LOGS === 'true') {
+          console.log('🔄 CHUNK:', chunk.choices[0]?.delta || chunk)
+        }
         const content = chunk.choices[0]?.delta?.content || ""
         if (content) {
           buffer += content
