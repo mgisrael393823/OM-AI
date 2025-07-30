@@ -160,10 +160,7 @@ async function healthCheckHandler(req: AuthenticatedRequest, res: NextApiRespons
 
     const routeDetails = routeResults.map((result, index) => {
       if (result.status === 'fulfilled') {
-        return {
-          route: apiRoutes[index],
-          ...result.value
-        }
+        return result.value
       }
       return {
         route: apiRoutes[index],

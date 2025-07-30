@@ -70,7 +70,7 @@ export async function withRetry<T>(
   const finalConfig: RetryConfig = { ...DEFAULT_RETRY_CONFIG, ...config };
   const startTime = Date.now();
   
-  let lastError: Error;
+  let lastError: Error | null = null;
   let attempts = 0;
 
   // Overall timeout
@@ -131,12 +131,12 @@ export async function withRetry<T>(
     const totalTime = Date.now() - startTime;
     console.error(`${operationName} failed after ${attempts} attempt(s) in ${totalTime}ms`);
     
-    return {
-      success: false,
-      error: lastError,
-      attempts,
-      totalTimeMs: totalTime
-    };
+  return {
+    success: false,
+    error: lastError ?? undefined,
+    attempts,
+    totalTimeMs: totalTime
+  };
     
   } catch (error) {
     // Catch timeout or other unexpected errors
