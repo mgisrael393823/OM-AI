@@ -1,6 +1,6 @@
 import React from 'react'
 import { MessageBubble } from './MessageBubble'
-import { format, isToday, isYesterday, differenceInMinutes } from 'date-fns'
+import { format, isToday, isYesterday } from 'date-fns'
 
 export interface Message {
   id: string
@@ -13,69 +13,44 @@ interface MessageGroupProps {
   messages: Message[]
   isLoading?: boolean
   onCopy?: (content: string) => void
+  userInitials?: string
 }
 
-function formatMessageTime(timestamp: string | Date): string {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp
-  
-  if (isToday(date)) {
-    return format(date, 'h:mm a')
-  } else if (isYesterday(date)) {
-    return `Yesterday ${format(date, 'h:mm a')}`
-  } else {
-    return format(date, 'MMM d, h:mm a')
-  }
-}
-
-function shouldShowTimestamp(currentMessage: Message, previousMessage?: Message): boolean {
+function shouldShowDateSeparator(currentMessage: Message, previousMessage?: Message): boolean {
   if (!previousMessage) return true
   
-  // Show timestamp if role changes
-  if (currentMessage.role !== previousMessage.role) return true
-  
-  // Show timestamp if more than 5 minutes apart
   const currentDate = typeof currentMessage.timestamp === 'string' ? new Date(currentMessage.timestamp) : currentMessage.timestamp
   const prevDate = typeof previousMessage.timestamp === 'string' ? new Date(previousMessage.timestamp) : previousMessage.timestamp
-  const timeDiff = differenceInMinutes(currentDate, prevDate)
   
-  return timeDiff > 5
+  // Show separator if different day
+  return format(currentDate, 'yyyy-MM-dd') !== format(prevDate, 'yyyy-MM-dd')
 }
 
-function shouldGroupMessages(currentMessage: Message, previousMessage?: Message): boolean {
-  if (!previousMessage) return false
-  
-  // Group if same role and within 1 minute
-  if (currentMessage.role !== previousMessage.role) return false
-  
-  const currentDate = typeof currentMessage.timestamp === 'string' ? new Date(currentMessage.timestamp) : currentMessage.timestamp
-  const prevDate = typeof previousMessage.timestamp === 'string' ? new Date(previousMessage.timestamp) : previousMessage.timestamp
-  const timeDiff = differenceInMinutes(currentDate, prevDate)
-  
-  return timeDiff <= 1
-}
-
-export function MessageGroup({ messages, isLoading = false, onCopy }: MessageGroupProps) {
+export function MessageGroup({ messages, isLoading = false, onCopy, userInitials = "U" }: MessageGroupProps) {
   if (!messages.length) return null
 
   return (
-    <div className="grid grid-cols-1 gap-3">
+    <div className="grid grid-cols-1">
       {messages.map((message, index) => {
         const previousMessage = messages[index - 1]
-        const isGrouped = shouldGroupMessages(message, previousMessage)
+        const showDateSeparator = shouldShowDateSeparator(message, previousMessage)
         const isLastMessage = index === messages.length - 1
         const showLoading = isLoading && isLastMessage && message.role === 'assistant'
 
         return (
           <div key={message.id} className="message-container">
+            {/* Date Separator */}
+            {showDateSeparator && (
+              <DateSeparator date={typeof message.timestamp === 'string' ? message.timestamp : message.timestamp.toISOString()} />
+            )}
+            
             {/* Message */}
-            <div className="message-wrapper grid grid-cols-1">
+            <div className="message-wrapper py-2">
               <MessageBubble
                 role={message.role}
                 content={message.content}
-                timestamp={message.timestamp}
                 isLoading={showLoading}
-                isGrouped={isGrouped}
-                onCopy={() => onCopy?.(message.content)}
+                userInitials={userInitials}
               />
             </div>
           </div>
@@ -85,14 +60,12 @@ export function MessageGroup({ messages, isLoading = false, onCopy }: MessageGro
   )
 }
 
-// Enhanced MessageBubble props for grouping
+// Enhanced MessageBubble props
 export interface EnhancedMessageBubbleProps {
   role: 'user' | 'assistant'
   content: string
-  timestamp: string
   isLoading?: boolean
-  isGrouped?: boolean
-  onCopy?: () => void
+  userInitials?: string
 }
 
 // Date separator component
@@ -109,19 +82,15 @@ export function DateSeparator({ date }: { date: string }) {
   }
 
   return (
-    <div className="grid grid-cols-1 justify-items-center my-8">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 w-full max-w-lg">
-        <div className="h-px bg-border" />
-        <div className="text-sm font-medium text-muted-foreground bg-background px-4 py-2 rounded-full border">
-          {displayText}
-        </div>
-        <div className="h-px bg-border" />
+    <div className="grid grid-cols-1 justify-items-center my-6">
+      <div className="text-xs font-medium text-muted-foreground bg-background px-3 py-1 rounded-full">
+        {displayText}
       </div>
     </div>
   )
 }
 
-// Utility function to group messages by date
+// Utility function to group messages by date (kept for potential future use)
 export function groupMessagesByDate(messages: Message[]): Array<{
   date: string
   messages: Message[]
