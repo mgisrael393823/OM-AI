@@ -26,6 +26,8 @@ jest.mock('@supabase/supabase-js', () => ({
       eq: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),
       textSearch: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
       single: jest.fn(() => Promise.resolve({ data: null, error: null })),
       then: jest.fn(() => Promise.resolve({ data: [], error: null }))
     }))

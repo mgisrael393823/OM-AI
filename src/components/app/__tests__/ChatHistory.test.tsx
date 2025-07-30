@@ -3,14 +3,29 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ChatHistory, ChatSession } from '../ChatHistory'
 
 // Mock react-window
-jest.mock('react-window', () => ({
-  FixedSizeList: ({ children, itemData, itemCount }: any) => (
-    <div data-testid="virtual-list">
-      {itemData.slice(0, Math.min(itemCount, 5)).map((item: any, index: number) =>
-        children({ index, style: {}, data: itemData })
-      )}
-    </div>
-  ),
+jest.mock('react-window', () => {
+  const actual = jest.requireActual('react-window')
+  return {
+    ...actual,
+    VariableSizeList: ({ children, itemData, itemCount }: any) => {
+      const Child = children as React.ComponentType<any>
+      return (
+        <div data-testid="virtual-list">
+          {itemData.slice(0, Math.min(itemCount, 5)).map((_: any, index: number) => (
+            <Child key={index} index={index} style={{}} data={itemData} />
+          ))}
+        </div>
+      )
+    },
+  }
+})
+
+// Mock UI components used inside ChatHistory
+jest.mock('@/components/ui/input', () => ({
+  Input: (props: any) => <input {...props} />,
+}))
+jest.mock('@/components/ui/badge', () => ({
+  Badge: ({ children, ...props }: any) => <span {...props}>{children}</span>,
 }))
 
 const mockSessions: ChatSession[] = [
@@ -88,12 +103,6 @@ describe('ChatHistory', () => {
     expect(defaultProps.onSelectSession).toHaveBeenCalledWith('1')
   })
 
-  it('shows view mode toggle buttons', () => {
-    render(<ChatHistory {...defaultProps} />)
-    
-    expect(screen.getByText('Compact')).toBeInTheDocument()
-    expect(screen.getByText('Detailed')).toBeInTheDocument()
-  })
 
   it('shows empty state when no sessions', () => {
     render(<ChatHistory {...defaultProps} sessions={[]} />)

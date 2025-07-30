@@ -519,3 +519,5 @@ export function ChatHistory({
     </div>
   )
 }
+
+export default ChatHistory
