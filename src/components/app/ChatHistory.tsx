@@ -56,8 +56,8 @@ interface ListItemData {
 }
 
 // Constants
-const ITEM_HEIGHT = 56 // Compact item height (includes p-1 wrapper)
-const EXPANDED_ITEM_HEIGHT = 72 // Expanded item height (includes p-1 wrapper)
+const ITEM_HEIGHT = 56 // Compact item height with proper padding
+const EXPANDED_ITEM_HEIGHT = 72 // Expanded item height with proper padding
 const LOAD_MORE_HEIGHT = 48 // Load more height (includes p-1 wrapper)
 const INITIAL_LOAD_COUNT = 20
 const LOAD_MORE_COUNT = 20
@@ -183,7 +183,7 @@ const ChatSessionItem = React.memo<{
   const title = session.title || 'Untitled Chat'
 
   return (
-    <div className="grid grid-cols-1 p-1">
+    <div className="grid grid-cols-1 py-2 px-4 sm:px-3">
       <div className={`
         group relative rounded-md transition-colors duration-200
         ${isSelected 
@@ -193,7 +193,7 @@ const ChatSessionItem = React.memo<{
       `}>
         {editingSessionId === session.id ? (
           // Edit Mode
-          <div className="grid grid-cols-1 p-2">
+          <div className="grid grid-cols-1">
             <Input
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
@@ -223,7 +223,7 @@ const ChatSessionItem = React.memo<{
             aria-current={isSelected ? 'true' : 'false'}
             aria-label={`${title}, ${relativeTime}`}
           >
-            <div className="grid grid-cols-[1fr_auto] gap-2 p-2">
+            <div className="grid grid-cols-[1fr_auto] gap-2">
               {/* Content Column */}
               <div className="grid grid-rows-auto gap-1 min-w-0">
                 {/* Title Row */}
@@ -231,17 +231,14 @@ const ChatSessionItem = React.memo<{
                   {title}
                 </p>
                 
-                {/* Metadata Row */}
-                <div className="flex items-center gap-2">
-                  <time className="text-xs text-muted-foreground">
-                    {relativeTime}
-                  </time>
-                  {session.document_id && (
+                {/* Document Badge */}
+                {session.document_id && (
+                  <div className="flex items-center mt-1">
                     <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4">
                       Doc
                     </Badge>
-                  )}
-                </div>
+                  </div>
+                )}
                 
                 {/* Expanded Details Row */}
                 {isExpanded && (
