@@ -207,6 +207,31 @@
   background: transparent;
 }
 
+/* Custom scrollbar for textarea with rounded corners */
+.textarea-custom-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.textarea-custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 12px; /* Respect rounded corners */
+  border-radius: 12px;
+}
+
+.textarea-custom-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 12px;
+  transition: background-color 0.2s ease;
+}
+
+.textarea-custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--border) / 0.8);
+}
+
+.textarea-custom-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Virtual scroll list enhancements */
 .virtual-scroll-list {
   position: relative;

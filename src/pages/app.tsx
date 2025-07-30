@@ -2,12 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from "react"
 import Head from "next/head"
 import { useRouter } from "next/router"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { 
   Building2, 
-  MessageSquare, 
   Settings, 
   Menu,
   X,
@@ -16,21 +13,10 @@ import {
   FileText,
   Bot,
   User,
-  Mic,
-  Paperclip,
   Loader2,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
-  PanelLeftClose,
-  PanelLeftOpen,
-  ChevronDown,
-  ExternalLink,
-  Eye
+  Paperclip,
+  ArrowUp
 } from "lucide-react"
-import { useDrag } from '@use-gesture/react'
 import { useChatPersistent } from "@/hooks/useChatPersistent"
 import { useSidebar } from "@/hooks/useSidebar"
 import { DocumentUpload } from "@/components/app/DocumentUpload"
@@ -41,21 +27,7 @@ import { MessageGroup } from "@/components/app/MessageGroup"
 import { ScrollToBottom } from "@/components/ui/scroll-to-bottom"
 import { useAuth } from "@/contexts/AuthContext"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
-import { Badge } from "@/components/ui/badge"
 
-interface Document {
-  id: string
-  name: string
-  uploadedAt: string
-  status: "uploading" | "processing" | "completed" | "error"
-  size: number
-}
 
 export default function AppPage() {
   const router = useRouter()
@@ -70,29 +42,16 @@ export default function AppPage() {
     })
   }, [loading, user])
   
-  // Responsive sidebar state management
+  // Simple sidebar state management
   const {
-    sidebarState,
-    sidebarOpen,
-    deviceType,
-    setSidebarState,
-    setSidebarOpen,
-    toggleSidebar,
-    collapseSidebar,
-    expandSidebar,
-    isMobile,
-    isTablet,
-    isDesktop,
-    sidebarWidth
+    isOpen: sidebarOpen,
+    setIsOpen: setSidebarOpen,
+    toggle: toggleSidebar
   } = useSidebar()
   
   const [message, setMessage] = useState("")
   const [showUpload, setShowUpload] = useState(false)
-  const [documents, setDocuments] = useState<Document[]>([])
-  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
-  const [showAllDocuments, setShowAllDocuments] = useState(false)
-  const [documentsAccordionValue, setDocumentsAccordionValue] = useState<string>('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
@@ -121,51 +80,6 @@ export default function AppPage() {
     }
   }, [user, loading, router])
 
-  // Fetch user documents
-  const fetchDocuments = React.useCallback(async (): Promise<void> => {
-    if (!user) return
-    
-    setIsLoadingDocuments(true)
-    try {
-      const { supabase } = await import('@/lib/supabase')
-      const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session?.access_token) {
-        throw new Error('No session token available - please log in again')
-      }
-
-      const response = await fetch(`${window.location.origin}/api/documents`, {
-        credentials: 'include',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        }
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.text()
-        throw new Error(`Failed to fetch documents: ${response.status} ${response.statusText}. ${errorData}`)
-      }
-      
-      const data = await response.json()
-      setDocuments(data.documents || [])
-    } catch (error) {
-      console.error('Error fetching documents:', error)
-      // Re-throw to let ErrorBoundary catch critical errors
-      if (error instanceof Error && error.message.includes('No session token')) {
-        throw error
-      }
-      // For other errors, just log them and continue
-    } finally {
-      setIsLoadingDocuments(false)
-    }
-  }, [user])
-
-  // Load documents when user is authenticated
-  useEffect(() => {
-    if (user) {
-      fetchDocuments()
-    }
-  }, [user])
 
   // Auto-scroll to bottom when new messages arrive, but only if user is already at bottom
   useEffect(() => {
@@ -182,45 +96,9 @@ export default function AppPage() {
     }
   }, [messages])
 
-  // Swipe gesture handling for mobile
-  const bind = useDrag(
-    ({ down, movement: [mx], direction: [dx], distance, cancel, last }) => {
-      if (!isMobile || !sidebarOpen) return
 
-      if (dx > 0 || (Array.isArray(distance) ? distance[0] : distance) < 50) {
-        if (last) cancel?.()
-        return
-      }
-
-      if (last && mx < -100) {
-        setSidebarOpen(false)
-      }
-    },
-    {
-      axis: 'x',
-      threshold: 10,
-      filterTaps: true,
-      preventScroll: true
-    }
-  )
-
-  // Focus management for accessibility
+  // Handle escape key to close sidebar on mobile
   useEffect(() => {
-    if (!isMobile && !isTablet) return
-    if (sidebarOpen && sidebarRef.current) {
-      const firstFocusable = sidebarRef.current.querySelector(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      ) as HTMLElement
-      if (firstFocusable) {
-        firstFocusable.focus()
-      }
-    }
-  }, [sidebarOpen, isMobile, isTablet])
-
-  // Handle escape key to close sidebar on mobile & tablet
-  useEffect(() => {
-    if (!isMobile && !isTablet) return
-
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && sidebarOpen) {
         setSidebarOpen(false)
@@ -229,21 +107,8 @@ export default function AppPage() {
 
     document.addEventListener('keydown', handleEscape)
     return () => document.removeEventListener('keydown', handleEscape)
-  }, [sidebarOpen, isMobile, isTablet, setSidebarOpen])
+  }, [sidebarOpen, setSidebarOpen])
 
-  // Optimized status icon function to prevent unnecessary re-renders
-  const getStatusIcon = useCallback((status: Document['status']) => {
-    switch (status) {
-      case "uploading":
-        return <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
-      case "processing":
-        return <Clock className="h-3 w-3 text-yellow-500" />
-      case "completed":
-        return <CheckCircle className="h-3 w-3 text-green-500" />
-      case "error":
-        return <AlertCircle className="h-3 w-3 text-red-500" />
-    }
-  }, [])
 
   // Show loading until authenticated
   if (loading || !user) {
@@ -296,134 +161,56 @@ export default function AppPage() {
 
       {/* Fully Responsive Layout Container */}
       <div 
-        className={`
-          h-screen max-h-screen bg-background text-foreground overflow-hidden flex
-          ${isDesktop ? 'transition-all duration-300' : ''}
-        `}
+        className="h-screen max-h-screen bg-background text-foreground overflow-hidden flex transition-all duration-300"
         style={{ 
           height: '100dvh', // Dynamic viewport height for mobile browsers
           maxHeight: '100dvh'
         }}
       >
         {/* Responsive Sidebar Container */}
-        <div className={`
-          ${isMobile 
-            ? `fixed inset-y-0 left-0 z-50 w-full max-w-xs sm:max-w-sm transform transition-transform duration-300 ease-in-out ${
-                sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-              }`
-            : isTablet
-            ? `fixed inset-y-0 left-0 z-50 w-[260px] transform transition-transform duration-300 ease-in-out ${
-                sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-              }`
-            : `relative flex-shrink-0 transition-all duration-300 ease-in-out ${
-                sidebarState === 'collapsed' ? 'w-16' : 'w-[260px]'
-              }`
-          }
-          bg-muted/30 border-r border-border
-          flex flex-col overflow-hidden
-          h-full
-        `}
-        ref={sidebarRef}
-        {...(isMobile ? bind() : {})}
+        <div 
+          className={`
+            fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out
+            md:relative md:z-auto md:translate-x-0 md:transition-none
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+            bg-muted/30 border-r border-border
+            flex flex-col overflow-hidden h-full
+          `}
+          ref={sidebarRef}
         >
           {/* Sidebar Content */}
-          <div className={`flex flex-col h-full ${
-            sidebarState === 'collapsed' && !isMobile && !isTablet 
-              ? 'px-2 py-4 items-center' 
-              : 'px-3 py-4'
-          }`}>
+          <div className="flex flex-col h-full px-3 py-4">
           {/* Sidebar Header */}
-          <div className={`flex-shrink-0 pb-4`}>
-            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
-              /* Collapsed: Icon with expand button */
-              <div className="flex flex-col items-center gap-2">
+          <div className="flex-shrink-0 pb-4">
+            <div className="flex items-center justify-between">
+              {/* Brand Section */}
+              <div className="flex items-center gap-2">
                 <Building2 className="h-6 w-6 text-blue-600" />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSidebarState('normal')}
-                  title="Expand sidebar"
-                  className="h-6 w-6 p-0"
-                >
-                  <ChevronRight className="h-3 w-3" />
-                </Button>
+                <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
               </div>
-            ) : (
-              /* Expanded: Full header with controls */
-              <div className="grid grid-cols-[1fr_auto] items-center">
-                {/* Brand Section */}
-                <div className="grid grid-cols-[auto_1fr] gap-2 items-center">
-                  <Building2 className="h-6 w-6 text-blue-600" />
-                  <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
-                </div>
-                
-                {/* Controls Section */}
-                <div className="grid gap-1 grid-cols-2">
-                  {/* Desktop sidebar controls */}
-                  {isDesktop && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSidebarState(sidebarState === 'expanded' ? 'normal' : 'expanded')}
-                        title={sidebarState === 'expanded' ? 'Collapse to normal' : 'Expand sidebar'}
-                        className="h-7 w-7 p-0"
-                      >
-                        {sidebarState === 'expanded' ? (
-                          <PanelLeftClose className="h-4 w-4" />
-                        ) : (
-                          <PanelLeftOpen className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSidebarState('collapsed')}
-                        title="Collapse sidebar"
-                        className="h-7 w-7 p-0"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                    </>
-                  )}
-                  
-                  {/* Mobile & Tablet close button */}
-                  {(isMobile || isTablet) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSidebarOpen(false)}
-                      className="h-7 w-7 p-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
+              
+              {/* Close button for mobile */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSidebarOpen(false)}
+                className="h-7 w-7 p-0 md:hidden"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
-          {/* New Chat Button - Fixed */}
+          {/* New Chat Button */}
           <div className="flex-shrink-0 pt-4">
-            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
-              <Button 
-                className="w-full justify-center p-2 hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
-                variant="ghost"
-                onClick={handleNewChat}
-                title="New Chat"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button 
-                className="w-full justify-start hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
-                variant="ghost"
-                onClick={handleNewChat}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                New Chat
-              </Button>
-            )}
+            <Button 
+              className="w-full justify-start hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
+              variant="ghost"
+              onClick={handleNewChat}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Chat
+            </Button>
           </div>
 
           {/* Single Scrollable Content Area - Chat History takes priority */}
@@ -435,315 +222,99 @@ export default function AppPage() {
               onSelectSession={loadChatSession}
               onDeleteSession={deleteChatSession}
               onRenameSession={renameChatSession}
-              isCollapsed={sidebarState === 'collapsed' && !isMobile && !isTablet}
+              isCollapsed={false}
             />
           </div>
 
-          {/* Documents Section - Collapsed State (Desktop Only) */}
-          {sidebarState === 'collapsed' && !isMobile && !isTablet && documents.length > 0 && (
-            <div className="flex-shrink-0 border-t border-border pt-2">
-              <div className="flex flex-col items-center gap-1">
-                {documents.slice(0, 3).map((doc) => (
-                  <Button
-                    key={doc.id}
-                    variant="ghost"
-                    size="sm"
-                    className={`h-8 w-8 p-0 ${
-                      selectedDocumentId === doc.id
-                        ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-600'
-                        : 'text-gray-400 hover:text-gray-600'
-                    }`}
-                    onClick={() => {
-                      if (doc.status === 'completed') {
-                        setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
-                      }
-                    }}
-                    title={doc.name}
-                  >
-                    <FileText className="h-4 w-4" />
-                  </Button>
-                ))}
-                {documents.length > 3 && (
-                  <Badge variant="secondary" className="text-xs px-1 py-0 h-4">
-                    +{documents.length - 3}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Documents Section - Collapsible Accordion */}
-          {(sidebarState !== 'collapsed' || isMobile || isTablet) && (
-            <div className="flex-shrink-0 border-t border-border pt-4">
-              <Accordion
-                type="single"
-                collapsible
-                value={documentsAccordionValue}
-                onValueChange={setDocumentsAccordionValue}
-                className="w-full"
-              >
-                <AccordionItem value="documents" className="border-0">
-                  <AccordionTrigger className="px-0 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:no-underline">
-                    <div className="flex items-center justify-between w-full">
-                      <span>Documents</span>
-                      <div className="flex items-center space-x-2">
-                        {documents.length > 0 && (
-                          <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4">
-                            {documents.length}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="px-0 pb-2">
-                    {isLoadingDocuments ? (
-                      <div className="py-4 text-center">
-                        <Loader2 className="h-4 w-4 animate-spin mx-auto text-blue-600 mb-2" />
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Loading documents...
-                        </p>
-                      </div>
-                    ) : documents.length > 0 ? (
-                      <div className="grid grid-cols-1 gap-0" role="list">
-                        {/* Document Items */}
-                        {documents.slice(0, showAllDocuments ? documents.length : 5).map((doc) => (
-                          <div
-                            key={doc.id}
-                            role="listitem"
-                            aria-selected={selectedDocumentId === doc.id}
-                            className={`group relative p-2 rounded-md cursor-pointer transition-all duration-200 ${
-                              selectedDocumentId === doc.id
-                                ? 'bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700'
-                                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                            } ${
-                              doc.status === 'completed' ? '' : 'opacity-60 cursor-not-allowed'
-                            }`}
-                            onClick={() => {
-                              if (doc.status === 'completed') {
-                                setSelectedDocumentId(selectedDocumentId === doc.id ? null : doc.id)
-                              }
-                            }}
-                          >
-                            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
-                              {/* Icon Column */}
-                              <FileText className={`h-3.5 w-3.5 ${
-                                selectedDocumentId === doc.id ? 'text-blue-600' : 'text-gray-400'
-                              }`} />
-                              
-                              {/* Content Column */}
-                              <div className="grid grid-rows-2 gap-0 min-w-0">
-                                <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
-                                  {doc.name}
-                                </p>
-                                <div className="grid grid-cols-[auto_auto_1fr] items-center gap-2">
-                                  {getStatusIcon(doc.status)}
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    {doc.size}MB
-                                  </p>
-                                  {selectedDocumentId === doc.id && (
-                                    <span className="text-xs text-blue-600 font-medium">Active</span>
-                                  )}
-                                </div>
-                              </div>
-                              
-                              {/* Actions Column */}
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    // TODO: Open document preview
-                                  }}
-                                  title="Preview document"
-                                >
-                                  <Eye className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                        
-                        {/* View All / Show Less Toggle */}
-                        {documents.length > 5 && (
-                          <div className="grid grid-cols-1 p-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                              onClick={() => setShowAllDocuments(!showAllDocuments)}
-                            >
-                              <div className="grid grid-cols-[auto_1fr] items-center gap-1">
-                                {showAllDocuments ? (
-                                  <>
-                                    <ChevronDown className="h-3 w-3 rotate-180" />
-                                    <span>Show Less</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <ExternalLink className="h-3 w-3" />
-                                    <span>View All ({documents.length})</span>
-                                  </>
-                                )}
-                              </div>
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 justify-items-center p-4 gap-2">
-                        <FileText className="h-5 w-5 text-gray-300 dark:text-gray-600" />
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          No documents yet
-                        </p>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 text-xs text-blue-600"
-                          onClick={() => setShowUpload(true)}
-                        >
-                          <div className="grid grid-cols-[auto_1fr] items-center gap-1">
-                            <Plus className="h-3 w-3" />
-                            <span>Upload Document</span>
-                          </div>
-                        </Button>
-                      </div>
-                    )}
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </div>
-          )}
 
           {/* User Profile */}
           <div className="flex-shrink-0 pt-4 border-t border-border">
-            {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
-              /* Collapsed view - Centered Grid */
-              <div className="grid grid-cols-1 justify-items-center gap-2">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
-                    {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
-                  </AvatarFallback>
-                </Avatar>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => router.push('/settings')}
-                  title="Settings"
-                  className="h-8 w-8 p-0"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
+                  {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
+                </AvatarFallback>
+              </Avatar>
+              <div className="grid grid-rows-2 gap-0 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  {userDisplayData.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {userDisplayData.plan}
+                </p>
               </div>
-            ) : (
-              /* Normal/expanded view - Three Column Grid */
-              <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
-                    {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="grid grid-rows-2 gap-0 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {userDisplayData.name}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {userDisplayData.plan}
-                  </p>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => router.push('/settings')}
-                  title="Settings"
-                  className="h-8 w-8 p-0"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => router.push('/settings')}
+                title="Settings"
+                className="h-8 w-8 p-0"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           </div>
         </div>
 
-        {/* Mobile & Tablet Overlay Backdrop */}
-        {(isMobile || isTablet) && sidebarOpen && (
+        {/* Mobile Overlay Backdrop */}
+        {sidebarOpen && (
           <div 
-            className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300"
+            className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 md:hidden"
             onClick={() => setSidebarOpen(false)}
-            onTouchStart={(e) => {
-              // Prevent scroll on body when overlay is touched
-              document.body.style.overflow = 'hidden'
-            }}
-            onTouchEnd={() => {
-              document.body.style.overflow = ''
-            }}
             aria-label="Close sidebar"
           />
         )}
 
         {/* Main Content - Grid column 2 */}
         <div className="flex flex-col h-full flex-1">
-          {/* HEADER - Only above chat area */}
-          <header className="flex items-center justify-between px-4 py-2 border-b bg-white dark:bg-gray-900">
-            <div className="flex items-center space-x-2">
-              {(isMobile || isTablet) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSidebarOpen(true)}
-                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-                  aria-label="Open menu"
-                >
-                  <Menu className="h-5 w-5" />
-                </Button>
-              )}
-            </div>
-            <div className="flex items-center space-x-3">
+          {/* HEADER - ChatGPT Style Minimal */}
+          <header className="flex items-center justify-between px-4 h-14 border-b bg-background">
+            <div className="flex items-center">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => router.push('/settings')}
-                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                onClick={() => setSidebarOpen(true)}
+                className="h-8 w-8 p-0 hover:bg-muted rounded md:hidden"
+                aria-label="Open menu"
               >
-                <Settings className="h-5 w-5" />
+                <Menu className="h-5 w-5" />
               </Button>
-              <Avatar className="h-8 w-8 cursor-pointer" onClick={() => router.push('/profile')}>
-                <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
-                  {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
-                </AvatarFallback>
-              </Avatar>
+            </div>
+            
+            {/* Current Chat Title - Center */}
+            <div className="flex-1 flex justify-center">
+              <h1 className="text-sm font-medium text-foreground truncate max-w-md">
+                {currentSessionId 
+                  ? chatSessions.find(s => s.id === currentSessionId)?.title || 'New Chat'
+                  : 'New Chat'
+                }
+              </h1>
+            </div>
+
+            {/* Documents Button - Minimal */}
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowUpload(true)}
+                className="h-8 w-8 p-0 hover:bg-muted rounded"
+                title="Documents"
+              >
+                <FileText className="h-4 w-4" />
+              </Button>
             </div>
           </header>
 
-          {/* Selected Document Header */}
-          {selectedDocumentId && (
-            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
-              <div className="flex items-center space-x-2 text-sm">
-                <FileText className="h-4 w-4 text-blue-600" />
-                <span className="text-blue-900 dark:text-blue-100 font-medium">
-                  Analyzing: {documents.find(d => d.id === selectedDocumentId)?.name || 'Selected Document'}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedDocumentId(null)}
-                  className="h-6 w-6 p-0 text-blue-600 hover:text-blue-800"
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          )}
 
           {/* Fully Responsive Chat Area */}
           <div className="flex-1 flex flex-col min-h-0">
             {/* Messages Container - Responsive with proper constraints */}
             <div 
               ref={scrollContainerRef}
-              className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-auto-hide p-4 pt-8 pb-32"
+              className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-auto-hide"
             >
+              <div className="max-w-3xl mx-auto p-4 sm:p-6 pt-8 pb-24 sm:pb-32">
               {messages.length === 0 ? (
                 // Responsive Welcome Screen
                 <div className="h-full flex items-center justify-center">
@@ -753,7 +324,7 @@ export default function AppPage() {
                       const input = document.querySelector('textarea')
                       input?.focus()
                     }}
-                    hasDocuments={documents.length > 0}
+                    hasDocuments={false}
                     onUploadDocument={() => setShowUpload(true)}
                   />
                 </div>
@@ -764,6 +335,7 @@ export default function AppPage() {
                     <MessageGroup
                       messages={messages}
                       isLoading={isLoading}
+                      userInitials={userDisplayData.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
                       onCopy={(content) => {
                         // Optional: Add analytics or toast notification
                         console.log('Message copied:', content.slice(0, 50) + '...')
@@ -774,6 +346,7 @@ export default function AppPage() {
                   </div>
                 </div>
               )}
+              </div>
             </div>
 
             {/* Responsive Floating Scroll to Bottom Button */}
@@ -782,115 +355,105 @@ export default function AppPage() {
               threshold={200}
               position="bottom-right"
               offset={{ 
-                x: isMobile ? 16 : 24, 
-                y: isMobile ? 80 : 100 
+                x: 20, 
+                y: 140 
               }}
               showUnreadCount={false}
-              size={isMobile ? "sm" : "md"}
+              size="md"
               variant="default"
               className="shadow-lg"
             />
 
-            {/* Input Area - Grid Layout */}
+            {/* Input Area - Seamless ChatGPT Style */}
             <div 
-              className="flex-shrink-0 bg-background/95 backdrop-blur-sm border-t border-border"
+              className="flex-shrink-0"
               style={{
                 paddingBottom: 'env(safe-area-inset-bottom, 0)' // Safe area for devices with home indicator
               }}
             >
-              <div className="grid grid-cols-1 justify-items-center p-4">
-                <div className="grid grid-cols-1 w-full max-w-3xl gap-2">
-                  {/* Input Row */}
-                  <div className="grid grid-cols-1 relative">
+              <div className="max-w-3xl mx-auto p-4 sm:p-6">
+                {/* Selected Document Indicator */}
+                {selectedDocumentId && (
+                  <div className="mb-4 flex items-center gap-2 px-4 py-2 bg-primary/20 backdrop-blur-sm rounded-lg w-fit">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <span className="text-primary text-sm font-medium">
+                      Document attached
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedDocumentId(null)}
+                      className="h-6 w-6 p-0 text-primary hover:text-primary/80"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Input Container */}
+                <div className="relative">
+                  {/* Scrollbar Clipping Wrapper */}
+                  <div className="rounded-3xl overflow-hidden">
                     <textarea
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
+                      onInput={(e) => {
+                        // Auto-resize textarea
+                        const target = e.target as HTMLTextAreaElement
+                        target.style.height = 'auto'
+                        const maxHeight = 24 * 8 // 8 rows max
+                        target.style.height = `${Math.min(target.scrollHeight, maxHeight)}px`
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault()
                           handleSendMessage()
                         }
                       }}
-                      placeholder={isMobile 
-                        ? "Ask anything..." 
-                        : "Try: Summarize the key deal points from the uploaded OM"
-                      }
+                      placeholder="Send a message..."
                       className="
-                        w-full resize-none rounded-2xl border border-border bg-background shadow-sm 
-                        focus:ring-2 focus:ring-primary focus:border-transparent transition-all
-                        min-h-[56px] max-h-[200px] p-4 pr-24 text-base
+                        w-full resize-none rounded-3xl border border-border bg-white dark:bg-gray-900 shadow-lg 
+                        focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all
+                        min-h-14 max-h-48 px-4 pt-4 pb-12 text-base leading-6
+                        placeholder:text-muted-foreground/70 textarea-custom-scroll
                       "
                       disabled={isLoading}
                       rows={1}
                       style={{
                         scrollbarWidth: 'thin',
                         scrollbarColor: 'hsl(var(--border)) transparent',
-                        fontSize: '16px' // Consistent font size to prevent zoom on iOS
+                        scrollbarGutter: 'stable',
+                        fontSize: '16px' // Prevent zoom on iOS
                       }}
                     />
-                    
-                    {/* Input Actions - Absolute Grid */}
-                    <div className="absolute right-2 bottom-2">
-                      <div className={`grid ${!isMobile ? 'grid-cols-3' : 'grid-cols-2'} gap-1`}>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => setShowUpload(true)}
-                          title="Upload document"
-                          className="h-8 w-8 p-0 hover:bg-muted touch-manipulation"
-                        >
-                          <Paperclip className="h-4 w-4" />
-                        </Button>
-                        {!isMobile && (
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            title="Voice input"
-                            className="h-8 w-8 p-0 hover:bg-muted"
-                          >
-                            <Mic className="h-4 w-4" />
-                          </Button>
-                        )}
-                        <Button 
-                          size="sm"
-                          onClick={handleSendMessage}
-                          disabled={!message.trim() || isLoading}
-                          className="h-8 w-8 p-0 rounded-lg touch-manipulation"
-                          title="Send message"
-                        >
-                          {isLoading ? (
-                            <Loader2 className="animate-spin h-4 w-4" />
-                          ) : (
-                            <Send className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
                   </div>
                   
-                  {/* Footer Row */}
-                  <div className={`grid text-xs text-muted-foreground ${isMobile ? 'grid-cols-1 justify-items-center gap-2' : 'grid-cols-[1fr_auto] items-center'}`}>
-                    {!isMobile && (
-                      <div>
-                        <span>Press Enter to send, Shift + Enter for new line</span>
-                      </div>
+                  {/* Attach Button - Bottom Left */}
+                  <Button 
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowUpload(true)}
+                    className="absolute left-3 bottom-3 h-auto px-2 py-1 bg-transparent text-gray-500 hover:text-gray-700 hover:bg-transparent"
+                    title="Attach file"
+                  >
+                    <Paperclip className="h-4 w-4 mr-1" />
+                    <span className="text-sm">Attach</span>
+                  </Button>
+
+                  {/* Send Button - Bottom Right */}
+                  <Button 
+                    size="sm"
+                    onClick={handleSendMessage}
+                    disabled={!message.trim() || isLoading}
+                    className="absolute right-3 bottom-3 w-8 h-8 rounded-full bg-black text-white hover:bg-gray-800 disabled:bg-gray-300 disabled:text-gray-500"
+                    title="Send message"
+                  >
+                    {isLoading ? (
+                      <Loader2 className="animate-spin h-4 w-4" />
+                    ) : (
+                      <ArrowUp className="h-4 w-4" />
                     )}
-                    <div className={`grid gap-2 ${isMobile ? 'grid-cols-1 justify-items-center' : 'grid-cols-[repeat(auto-fit,_minmax(100px,_auto))]'}`}>
-                      {selectedDocumentId && (
-                        <div className="grid grid-cols-[auto_1fr] items-center gap-1 p-2 bg-primary/10 rounded-md">
-                          <FileText className="h-3 w-3 text-primary" />
-                          <span className="text-primary text-xs">
-                            {isMobile ? 'Doc' : 'Doc attached'}
-                          </span>
-                        </div>
-                      )}
-                      {!isMobile && (
-                        <Button variant="ghost" size="sm" className="h-auto p-2 text-xs hover:bg-muted opacity-70">
-                          <span>AI can make mistakes. Verify important information.</span>
-                        </Button>
-                      )}
-                    </div>
-                  </div>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -898,17 +461,6 @@ export default function AppPage() {
         </div>
       </div>
 
-        {/* Floating Action Button - Mobile Only */}
-        {isMobile && !sidebarOpen && (
-          <Button
-            className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-30 bg-blue-600 hover:bg-blue-700 text-white"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open conversations"
-            title="Open conversations"
-          >
-            <MessageSquare className="h-6 w-6" />
-          </Button>
-        )}
 
         {/* Upload Modal */}
         {showUpload && (
@@ -930,10 +482,9 @@ export default function AppPage() {
                 <DocumentUpload 
                   onUploadComplete={(document) => {
                     setShowUpload(false)
-                    // Auto-expand documents accordion after upload
-                    setDocumentsAccordionValue('documents')
+                    // Set the uploaded document as selected
+                    setSelectedDocumentId(document.id)
                   }}
-                  onDocumentListRefresh={fetchDocuments}
                 />
               </div>
             </div>
