@@ -67,6 +67,7 @@ export function MessageBubble({
   }
   const isUser = role === "user"
 
+
   return (
     <div 
       className={`group grid items-start animate-slideInUp ${

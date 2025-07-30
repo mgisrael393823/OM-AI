@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 
 export interface Message {
@@ -170,11 +170,19 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
                   
                   if (parsed.content) {
                     setMessages(prev => {
-                      const newMessages = [...prev]
-                      const lastMessage = newMessages[newMessages.length - 1]
-                      if (lastMessage && lastMessage.role === "assistant") {
-                        lastMessage.content += parsed.content
-                      }
+                      // Create new array and deep clone all messages
+                      const newMessages = prev.map((msg, index) => {
+                        if (index === prev.length - 1 && msg.role === "assistant") {
+                          // For the last assistant message, append the content
+                          return {
+                            ...msg,
+                            content: msg.content + parsed.content,
+                            // Force new object reference with timestamp
+                            __lastUpdate: Date.now()
+                          }
+                        }
+                        return { ...msg }
+                      })
                       return newMessages
                     })
                   } else if (parsed.done) {
@@ -192,19 +200,35 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
           } else {
             // Process plain text format: direct text chunks
             if (buffer) {
+              const currentBuffer = buffer  // Capture buffer before clearing
+              buffer = '' // Clear buffer BEFORE processing to avoid closure issues
+              
+              // Update immediately with each chunk
               setMessages(prev => {
-                const newMessages = [...prev]
-                const lastMessage = newMessages[newMessages.length - 1]
-                if (lastMessage && lastMessage.role === "assistant") {
-                  lastMessage.content += buffer
-                }
-                return newMessages
+                // Force completely new array and objects to ensure React re-renders
+                const result = prev.map((msg, index) => {
+                  if (index === prev.length - 1 && msg.role === "assistant") {
+                    return {
+                      id: msg.id,
+                      role: msg.role,
+                      content: (msg.content || '') + currentBuffer,
+                      timestamp: msg.timestamp
+                    }
+                  }
+                  return {
+                    id: msg.id,
+                    role: msg.role,
+                    content: msg.content,
+                    timestamp: msg.timestamp
+                  }
+                })
+                return result
               })
-              buffer = '' // Clear buffer after processing
             }
           }
         }
       }
+      
 
       // Reload chat sessions to update the list
       await loadChatSessions()
