@@ -121,10 +121,18 @@ export function validateAndFilterOmResponse(data: unknown): {
         `${err.path.join('.')}: ${err.message}`
       );
       
-      // Log validation failure for debugging
+      // Log validation failure with sanitized details to avoid exposing PII
+      const summary = typeof data === 'object' && data !== null
+        ? {
+            type: Array.isArray(data) ? 'array' : 'object',
+            keys: Object.keys(data).slice(0, 5)
+          }
+        : { type: typeof data };
+
       console.warn('OM Response validation failed:', {
         errors,
-        originalData: JSON.stringify(data, null, 2)
+        originalDataSummary: summary,
+        expectedShape: createEmptyOMResponse()
       });
       
       return {
