@@ -6,6 +6,9 @@ import { Logo } from "@/components/ui/logo"
 import { HeroSection } from "@/components/homepage/HeroSection"
 import { HowItWorksSection } from "@/components/homepage/HowItWorksSection"
 import { FeaturesGrid } from "@/components/homepage/FeaturesGrid"
+import { ROICalculator } from "@/components/homepage/ROICalculator"
+import { UseCasesSection } from "@/components/homepage/UseCasesSection"
+import { PricingSection } from "@/components/homepage/PricingSection"
 import { componentTypography, typography } from "@/lib/typography"
 import { CheckCircle } from "lucide-react"
 
@@ -43,6 +46,15 @@ export default function LandingPage() {
         
         {/* Features Section */}
         <FeaturesGrid />
+
+        {/* ROI Calculator */}
+        <ROICalculator />
+
+        {/* Use Cases Section */}
+        <UseCasesSection />
+
+        {/* Pricing Section */}
+        <PricingSection />
 
         {/* CTA Section */}
         <section className="py-20">
