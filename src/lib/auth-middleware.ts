@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { User } from '@supabase/supabase-js'
+import { ERROR_CODES, createApiError } from '@/lib/constants/errors'
 
 export interface AuthenticatedRequest extends NextApiRequest {
   user: User
@@ -43,7 +44,7 @@ export async function withAuth(
   }
   
   if (!token) {
-    return apiError(res, 401, 'No authentication token found', 'MISSING_TOKEN')
+    return createApiError(res, ERROR_CODES.MISSING_TOKEN)
   }
 
   // Validate environment variables
@@ -61,7 +62,7 @@ export async function withAuth(
     const { data: { user }, error } = await supabase.auth.getUser(token)
     
     if (error || !user) {
-      return apiError(res, 401, 'Invalid or expired token', 'INVALID_TOKEN', error?.message)
+      return createApiError(res, ERROR_CODES.INVALID_TOKEN, error?.message)
     }
 
     // Add user to request object
@@ -72,8 +73,8 @@ export async function withAuth(
     return await handler(authenticatedReq, res)
   } catch (error) {
     console.error('Auth middleware error:', error)
-    return apiError(res, 500, 'Authentication verification failed', 'AUTH_VERIFICATION_ERROR', 
-      error instanceof Error ? error.message : 'Unknown error')
+    return createApiError(res, ERROR_CODES.INTERNAL_ERROR, 
+      error instanceof Error ? error.message : 'Authentication verification failed')
   }
 }
 

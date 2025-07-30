@@ -10,6 +10,7 @@ import { withAuth } from '@/lib/auth-middleware'
 // Mock the auth middleware
 jest.mock('@/lib/auth-middleware', () => ({
   withAuth: jest.fn(),
+  withRateLimit: jest.fn((userId: string, limit: number, refill: number, callback: Function) => callback()),
   apiError: (res: any, status: number, message: string, code?: string) => {
     res.status(status).json({ error: message, code })
   }
@@ -23,7 +24,14 @@ jest.mock('@supabase/supabase-js', () => ({
       insert: jest.fn().mockReturnThis(),
       update: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
-      single: jest.fn(() => Promise.resolve({ data: null, error: null }))
+      in: jest.fn().mockReturnThis(),
+      textSearch: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      range: jest.fn().mockReturnThis(),
+      filter: jest.fn().mockReturnThis(),
+      single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+      then: jest.fn(() => Promise.resolve({ data: [], error: null }))
     }))
   }))
 }))
@@ -31,8 +39,16 @@ jest.mock('@supabase/supabase-js', () => ({
 // Mock OpenAI service
 jest.mock('@/lib/services/openai', () => ({
   openAIService: {
-    createStreamingCompletion: jest.fn(),
-    createChatCompletion: jest.fn()
+    createStreamingCompletion: jest.fn(() => Promise.resolve({
+      [Symbol.asyncIterator]: async function* () {
+        yield { choices: [{ delta: { content: 'Test' } }] }
+        yield { choices: [{ delta: { content: ' response' } }] }
+        yield { choices: [{ delta: {} }] }
+      }
+    })),
+    createChatCompletion: jest.fn(() => Promise.resolve({
+      choices: [{ message: { content: 'Test response' } }]
+    }))
   }
 }))
 
@@ -99,7 +115,7 @@ describe('/api/chat (unified endpoint)', () => {
 
       expect(res._getStatusCode()).toBe(400)
       const data = JSON.parse(res._getData())
-      expect(data.error).toContain('Message is required for simple format')
+      expect(data.error).toBe('Message is required')
       expect(data.code).toBe('MISSING_MESSAGE')
     })
 
@@ -157,8 +173,8 @@ describe('/api/chat (unified endpoint)', () => {
       const { req, res } = createMocks({
         method: 'POST',
         body: {
+          messages: null, // Explicitly null to trigger complex format validation
           options: { stream: false }
-          // messages missing
         }
       })
 
@@ -166,7 +182,7 @@ describe('/api/chat (unified endpoint)', () => {
 
       expect(res._getStatusCode()).toBe(400)
       const data = JSON.parse(res._getData())
-      expect(data.error).toContain('Messages array is required for complex format')
+      expect(data.error).toBe('Invalid messages format')
       expect(data.code).toBe('INVALID_MESSAGES')
     })
 
@@ -262,7 +278,7 @@ describe('/api/chat (unified endpoint)', () => {
 
       expect(res._getStatusCode()).toBe(405)
       const data = JSON.parse(res._getData())
-      expect(data.error).toBe('Method not allowed')
+      expect(data.error).toBe('HTTP method not allowed for this endpoint')
       expect(data.code).toBe('METHOD_NOT_ALLOWED')
     })
 

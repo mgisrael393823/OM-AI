@@ -1,33 +1,23 @@
 const nextJest = require('next/jest')
 
 const createJestConfig = nextJest({
-  // Provide the path to your Next.js app to load next.config.js and .env files
   dir: './',
 })
 
-// Add any custom config to be passed to Jest
 const customJestConfig = {
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testEnvironment: 'jsdom',
   testMatch: [
     '**/__tests__/**/*.test.ts',
     '**/__tests__/**/*.test.tsx'
   ],
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    'lucide-react': '<rootDir>/__mocks__/lucide-react.js'
   },
-  collectCoverageFrom: [
-    'src/pages/api/**/*.ts',
-    'src/components/**/*.{ts,tsx}',
-    'src/hooks/**/*.ts',
-    '!src/pages/api/**/*.d.ts',
-    '!src/pages/api/__tests__/**',
-    '!src/components/**/*.d.ts',
-    '!src/**/*.test.{ts,tsx}',
-    '!src/**/__tests__/**'
-  ],
-  coverageReporters: ['text', 'lcov', 'html']
+  transformIgnorePatterns: [
+    'node_modules/(?!(lucide-react|@radix-ui)/)'
+  ]
 }
 
-// createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
 module.exports = createJestConfig(customJestConfig)

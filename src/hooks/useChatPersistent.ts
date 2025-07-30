@@ -120,8 +120,11 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         body: JSON.stringify(payload),
       })
 
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorText = await response.text()
+        console.error('❌ API ERROR:', errorText)
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`)
       }
 
       // Get session ID from response headers
@@ -141,6 +144,8 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
 
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
+      const contentType = response.headers.get('content-type') || ''
+      const isSSEFormat = contentType.includes('text/event-stream')
 
       if (reader) {
         let buffer = ''
@@ -151,40 +156,51 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
 
           buffer += decoder.decode(value, { stream: true })
           
-          // Process SSE lines
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || '' // Keep incomplete line in buffer
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6) // Remove 'data: ' prefix
-              
-              try {
-                const parsed = JSON.parse(data)
+          if (isSSEFormat) {
+            // Process SSE format: data: {"content": "text"}\n\n
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || '' // Keep incomplete line in buffer
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6) // Remove 'data: ' prefix
                 
-                if (parsed.content) {
-                  setMessages(prev => {
-                    const newMessages = [...prev]
-                    const lastMessage = newMessages[newMessages.length - 1]
-                    if (lastMessage.role === "assistant") {
-                      lastMessage.content += parsed.content
-                    }
-                    return newMessages
-                  })
-                } else if (parsed.function_call) {
-                  // Handle function calls if needed
-                  console.log('Function call:', parsed.function_call)
-                } else if (parsed.done) {
-                  // Stream completed
-                  break
-                } else if (parsed.error) {
-                  console.error('Stream error:', parsed.error)
-                  throw new Error(parsed.error)
+                try {
+                  const parsed = JSON.parse(data)
+                  
+                  if (parsed.content) {
+                    setMessages(prev => {
+                      const newMessages = [...prev]
+                      const lastMessage = newMessages[newMessages.length - 1]
+                      if (lastMessage && lastMessage.role === "assistant") {
+                        lastMessage.content += parsed.content
+                      }
+                      return newMessages
+                    })
+                  } else if (parsed.done) {
+                    // Stream completed
+                    break
+                  } else if (parsed.error) {
+                    console.error('Stream error:', parsed.error)
+                    throw new Error(parsed.error)
+                  }
+                } catch (e) {
+                  console.warn('Invalid SSE data:', data)
                 }
-              } catch (e) {
-                // Skip invalid JSON
-                console.warn('Invalid SSE data:', data)
               }
+            }
+          } else {
+            // Process plain text format: direct text chunks
+            if (buffer) {
+              setMessages(prev => {
+                const newMessages = [...prev]
+                const lastMessage = newMessages[newMessages.length - 1]
+                if (lastMessage && lastMessage.role === "assistant") {
+                  lastMessage.content += buffer
+                }
+                return newMessages
+              })
+              buffer = '' // Clear buffer after processing
             }
           }
         }
