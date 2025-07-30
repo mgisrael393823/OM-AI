@@ -94,11 +94,12 @@ export function MessageBubble({
       {isGrouped && <div className="h-8 w-8 flex-shrink-0" />}
 
       {/* Message Content */}
-      <div className={`grid ${isUser ? 'justify-items-end' : 'justify-items-start'} w-full max-w-4xl min-w-0`}>
+      <div className={`grid ${isUser ? 'justify-items-end' : 'justify-items-start'} w-fit max-w-4xl min-w-0`}>
         {/* Message Bubble */}
         <div 
           className={`
-            relative px-4 py-3 rounded-2xl w-full max-w-full min-w-0
+            relative px-4 py-3 rounded-2xl max-w-full
+            ${isLoading && !content ? 'w-auto min-w-24' : 'w-fit min-w-0'}
             ${isUser 
               ? 'chat-bubble-user rounded-br-md' 
               : 'chat-bubble-assistant rounded-bl-md'
