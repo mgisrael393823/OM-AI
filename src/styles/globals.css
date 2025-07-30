@@ -30,7 +30,7 @@
     --chat-user-bg: 221.2 83.2% 53.3%;
     --chat-user-fg: 210 40% 98%;
     --chat-assistant-bg: 210 40% 96%;
-    --chat-assistant-fg: 222.2 84% 4.9%;
+    --chat-assistant-fg: 222.2 84% 4.9%; /* Dark text for readability */
     --chat-bubble-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     --chat-timestamp: 215.4 16.3% 56.9%;
     --chat-divider: 214.3 31.8% 91.4%;
@@ -81,7 +81,7 @@
     --chat-user-bg: 217.2 91.2% 59.8%;
     --chat-user-fg: 222.2 84% 4.9%;
     --chat-assistant-bg: 217.2 32.6% 17.5%;
-    --chat-assistant-fg: 210 40% 98%;
+    --chat-assistant-fg: 210 40% 98%; /* Light text for dark mode readability */
     --chat-bubble-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
     --chat-timestamp: 215 20.2% 65.1%;
     --chat-divider: 217.2 32.6% 17.5%;

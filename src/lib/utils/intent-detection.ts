@@ -121,13 +121,24 @@ function isHelpRequest(message: string): boolean {
  */
 function containsJsonRequest(message: string): boolean {
   const jsonPatterns = [
-    /\b(json|JSON)\s+(format|output|response|schema|data)/i,
-    /\b(export|extract|output)\s+as\s+json/i,
-    /\b(give|provide|return|show)\s+me\s+(the\s+)?json/i,
-    /\braw\s+(json|data|schema)/i,
-    /\bstructured\s+(output|data|format)/i
+    // "export JSON", "give me JSON", etc.
+    /\b(export|extract|output|provide|give|return|show)\s+(me\s+)?(the\s+)?(as\s+)?json\b/i,
+    // "json format", "json output", "json schema", etc.
+    /\bjson\s+(format|output|response|schema)\b/i,
+    // "return JSON format please" - reversed order
+    /\b(return|provide|give)\s+json\s+(format|output|schema)\b/i,
+    // "raw JSON"
+    /\braw\s+json\b/i,
+    // "structured json output" or "structured data format"
+    /\bstructured\s+(json\s+)?(output|format|data\s+format)\b/i,
+    // "show me the raw JSON schema"
+    /\bshow\s+me\s+(the\s+)?raw\s+json\s+(schema|output|format)\b/i,
+    // "please provide JSON"
+    /\bplease\s+(provide|give|return)\s+json\b/i,
+    // "I need JSON", "I want JSON schema"
+    /\bi\s+(need|want|require).*json\b/i
   ];
-  
+
   return jsonPatterns.some(pattern => pattern.test(message));
 }
 

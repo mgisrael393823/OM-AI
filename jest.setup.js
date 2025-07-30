@@ -62,7 +62,24 @@ jest.mock('@/lib/openai-client', () => ({
   openai: {
     chat: {
       completions: {
-        create: jest.fn()
+        create: jest.fn(async (params) => {
+          if (params.stream) {
+            return {
+              [Symbol.asyncIterator]: async function* () {
+                yield { choices: [{ delta: { content: 'Test' } }] }
+                yield { choices: [{ delta: { content: ' response' } }] }
+                yield { choices: [{ delta: {} }] }
+              }
+            }
+          } else {
+            return {
+              id: 'test-id',
+              model: 'gpt-4o',
+              choices: [{ message: { content: 'Test response' } }],
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+            }
+          }
+        })
       }
     }
   },
@@ -96,4 +113,22 @@ jest.mock('@/components/ui/button', () => ({
   Button: ({ children, onClick, className, ...props }) => 
     React.createElement('button', { onClick, className, ...props }, children)
 }))
+
+// Mock react-window
+jest.mock('react-window', () => {
+  const Actual = jest.requireActual('react-window');
+  const MockList = ({ children, itemCount, itemSize, height, width }) =>
+    React.createElement(
+      'div',
+      { 'data-testid': 'virtualized-list', style: { height, width } },
+      Array.from({ length: Math.min(itemCount, 10) }, (_, index) =>
+        children({ index, style: { height: itemSize } })
+      )
+    );
+  return {
+    ...Actual,
+    FixedSizeList: MockList,
+    List: MockList,            // alias if your code uses "List"
+  };
+})
 
