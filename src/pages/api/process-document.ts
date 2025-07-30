@@ -1,13 +1,14 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { withAuth, apiError, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 import { processUploadedDocument } from '@/lib/document-processor'
 import { getConfig } from '@/lib/config'
 import type { Database } from '@/types/database'
 
 async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 
   try {
@@ -15,12 +16,12 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
 
     // Validate required fields
     if (!fileName || !originalFileName || !fileSize || !userId) {
-      return apiError(res, 400, 'Missing required fields', 'MISSING_FIELDS')
+      return createApiError(res, ERROR_CODES.VALIDATION_ERROR, 'Missing required fields')
     }
 
     // Verify the userId matches the authenticated user
     if (userId !== req.user.id) {
-      return apiError(res, 403, 'User ID mismatch', 'USER_MISMATCH')
+      return createApiError(res, ERROR_CODES.FORBIDDEN, 'User ID mismatch')
     }
 
     console.log('Process Document API: Starting processing for:', originalFileName)
@@ -40,7 +41,7 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
 
     if (downloadError) {
       console.error('Download error:', downloadError)
-      return apiError(res, 404, `File not found: ${downloadError.message}`, 'FILE_NOT_FOUND')
+      return createApiError(res, ERROR_CODES.STORAGE_ERROR, `File not found: ${downloadError.message}`)
     }
 
     // Convert to buffer for processing
@@ -61,7 +62,7 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
 
     if (!processingResult.success) {
       console.error('Processing failed:', processingResult.error)
-      return apiError(res, 500, 'Document processing failed', 'PROCESSING_ERROR', processingResult.error)
+      return createApiError(res, ERROR_CODES.INTERNAL_ERROR, processingResult.error)
     }
 
     console.log('Process Document API: Processing completed successfully')
@@ -74,8 +75,11 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
 
   } catch (error) {
     console.error('Process document API error:', error)
-    return apiError(res, 500, 'Processing failed', 'PROCESSING_ERROR', 
-      error instanceof Error ? error.message : 'Unknown error')
+    return createApiError(
+      res,
+      ERROR_CODES.INTERNAL_ERROR,
+      error instanceof Error ? error.message : 'Unknown error'
+    )
   }
 }
 

@@ -1,7 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
-import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 
 async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   console.log('Chat Sessions API: Starting request', {
@@ -17,7 +18,7 @@ async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiRespon
       hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
       hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
     })
-    return apiError(res, 500, 'Server configuration error', 'MISSING_ENV_VARS')
+    return createApiError(res, ERROR_CODES.CONFIG_ERROR, 'Server configuration error')
   }
 
   const supabase = createClient<Database>(
@@ -52,7 +53,7 @@ async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiRespon
           hint: error.hint,
           userId: req.user.id
         })
-        return apiError(res, 500, 'Failed to fetch chat sessions', 'DATABASE_ERROR', error.message)
+        return createApiError(res, ERROR_CODES.DATABASE_ERROR, error.message)
       }
 
       console.log('Chat Sessions API: Successfully fetched sessions', {
@@ -68,8 +69,11 @@ async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiRespon
         stack: catchError instanceof Error ? catchError.stack : undefined,
         userId: req.user.id
       })
-      return apiError(res, 500, 'Unexpected error fetching chat sessions', 'UNEXPECTED_ERROR', 
-        catchError instanceof Error ? catchError.message : 'Unknown error')
+      return createApiError(
+        res,
+        ERROR_CODES.UNKNOWN_ERROR,
+        catchError instanceof Error ? catchError.message : 'Unknown error'
+      )
     }
   }
 
@@ -99,7 +103,7 @@ async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiRespon
           userId: req.user.id,
           requestBody: { title, document_id }
         })
-        return apiError(res, 500, 'Failed to create chat session', 'DATABASE_ERROR', error.message)
+        return createApiError(res, ERROR_CODES.DATABASE_ERROR, error.message)
       }
 
       console.log('Chat Sessions API: Successfully created session', {
@@ -116,12 +120,15 @@ async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiRespon
         stack: catchError instanceof Error ? catchError.stack : undefined,
         userId: req.user.id
       })
-      return apiError(res, 500, 'Unexpected error creating chat session', 'UNEXPECTED_ERROR', 
-        catchError instanceof Error ? catchError.message : 'Unknown error')
+      return createApiError(
+        res,
+        ERROR_CODES.UNKNOWN_ERROR,
+        catchError instanceof Error ? catchError.message : 'Unknown error'
+      )
     }
   }
 
-  return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
+  return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
 }
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {

@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 import { Database } from '@/types/database'
 
 const supabase = createClient<Database>(
@@ -11,20 +12,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { sessionId } = req.query
 
   if (typeof sessionId !== 'string') {
-    return res.status(400).json({ error: 'Invalid session ID' })
+    return createApiError(res, ERROR_CODES.VALIDATION_ERROR, 'Invalid session ID')
   }
 
   // Get auth user
   const authHeader = req.headers.authorization
   if (!authHeader) {
-    return res.status(401).json({ error: 'No authorization header' })
+    return createApiError(res, ERROR_CODES.MISSING_TOKEN)
   }
 
   const token = authHeader.replace('Bearer ', '')
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 
   if (authError || !user) {
-    return res.status(401).json({ error: 'Invalid token' })
+    return createApiError(res, ERROR_CODES.INVALID_TOKEN)
   }
 
   if (req.method === 'GET') {
@@ -46,7 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single()
 
     if (error) {
-      return res.status(404).json({ error: 'Session not found' })
+      return createApiError(res, ERROR_CODES.SESSION_NOT_FOUND)
     }
 
     return res.status(200).json({ session })
@@ -65,7 +66,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single()
 
     if (error) {
-      return res.status(500).json({ error: error.message })
+      return createApiError(res, ERROR_CODES.DATABASE_ERROR, error.message)
     }
 
     return res.status(200).json({ session })
@@ -80,11 +81,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('user_id', user.id)
 
     if (error) {
-      return res.status(500).json({ error: error.message })
+      return createApiError(res, ERROR_CODES.DATABASE_ERROR, error.message)
     }
 
     return res.status(200).json({ success: true })
   }
 
-  return res.status(405).json({ error: 'Method not allowed' })
+  return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
 }

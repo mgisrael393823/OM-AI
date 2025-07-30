@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 
 async function documentsHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   const supabase = createClient(
@@ -38,7 +39,7 @@ async function documentsHandler(req: AuthenticatedRequest, res: NextApiResponse)
 
       if (docsError) {
         console.error('Documents fetch error:', docsError)
-        return apiError(res, 500, 'Failed to fetch documents', 'FETCH_ERROR', docsError.message)
+        return createApiError(res, ERROR_CODES.DATABASE_ERROR, docsError.message)
       }
 
       // Get total count for pagination
@@ -94,8 +95,11 @@ async function documentsHandler(req: AuthenticatedRequest, res: NextApiResponse)
 
     } catch (error) {
       console.error('Documents handler error:', error)
-      return apiError(res, 500, 'Failed to fetch documents', 'HANDLER_ERROR',
-        error instanceof Error ? error.message : 'Unknown error')
+      return createApiError(
+        res,
+        ERROR_CODES.DATABASE_ERROR,
+        error instanceof Error ? error.message : 'Unknown error'
+      )
     }
 
   } else if (req.method === 'DELETE') {
@@ -103,7 +107,7 @@ async function documentsHandler(req: AuthenticatedRequest, res: NextApiResponse)
     const { ids } = req.body
 
     if (!Array.isArray(ids) || ids.length === 0) {
-      return apiError(res, 400, 'Document IDs are required', 'MISSING_IDS')
+      return createApiError(res, ERROR_CODES.VALIDATION_ERROR, 'Document IDs are required')
     }
 
     try {
@@ -115,11 +119,11 @@ async function documentsHandler(req: AuthenticatedRequest, res: NextApiResponse)
         .in('id', ids)
 
       if (fetchError) {
-        return apiError(res, 500, 'Failed to fetch documents', 'FETCH_ERROR', fetchError.message)
+        return createApiError(res, ERROR_CODES.DATABASE_ERROR, fetchError.message)
       }
 
       if (!documents || documents.length === 0) {
-        return apiError(res, 404, 'No documents found', 'NO_DOCUMENTS')
+        return createApiError(res, ERROR_CODES.SESSION_NOT_FOUND, 'No documents found')
       }
 
       // Delete from storage
@@ -144,7 +148,7 @@ async function documentsHandler(req: AuthenticatedRequest, res: NextApiResponse)
         .in('id', documents.map(doc => doc.id))
 
       if (deleteError) {
-        return apiError(res, 500, 'Failed to delete documents', 'DELETE_ERROR', deleteError.message)
+        return createApiError(res, ERROR_CODES.DATABASE_ERROR, deleteError.message)
       }
 
       return res.status(200).json({
@@ -155,12 +159,15 @@ async function documentsHandler(req: AuthenticatedRequest, res: NextApiResponse)
 
     } catch (error) {
       console.error('Delete error:', error)
-      return apiError(res, 500, 'Failed to delete documents', 'DELETE_ERROR',
-        error instanceof Error ? error.message : 'Unknown error')
+      return createApiError(
+        res,
+        ERROR_CODES.DATABASE_ERROR,
+        error instanceof Error ? error.message : 'Unknown error'
+      )
     }
 
   } else {
-    return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 }
 

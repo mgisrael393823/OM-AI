@@ -270,7 +270,7 @@ describe('/api/chat (unified endpoint)', () => {
 
       expect(res._getStatusCode()).toBe(405)
       const data = JSON.parse(res._getData())
-      expect(data.error).toBe('Method not allowed')
+      expect(data.error).toBe('HTTP method not allowed for this endpoint')
       expect(data.code).toBe('METHOD_NOT_ALLOWED')
     })
 

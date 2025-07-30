@@ -1,10 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 
 // This endpoint should only be called once to set up storage buckets
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 
   // Use service role key for admin operations
@@ -66,9 +67,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
   } catch (error) {
     console.error('Error setting up storage:', error)
-    return res.status(500).json({ 
-      error: 'Failed to set up storage',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    })
+    return createApiError(
+      res,
+      ERROR_CODES.STORAGE_ERROR,
+      error instanceof Error ? error.message : 'Unknown error'
+    )
   }
 }

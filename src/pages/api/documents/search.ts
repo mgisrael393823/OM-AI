@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 
 /**
  * Escapes special regex characters to prevent ReDoS attacks
@@ -24,13 +25,13 @@ interface SearchResult {
 
 async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
-    return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 
   const { q: query, documentId, type, page, limit = '20' } = req.query
 
   if (!query || typeof query !== 'string') {
-    return apiError(res, 400, 'Search query is required', 'MISSING_QUERY')
+    return createApiError(res, ERROR_CODES.VALIDATION_ERROR, 'Search query is required')
   }
 
   const supabase = createClient(
@@ -73,7 +74,7 @@ async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
     if (searchError) {
       console.error('Search error:', searchError)
-      return apiError(res, 500, 'Search failed', 'SEARCH_ERROR', searchError.message)
+      return createApiError(res, ERROR_CODES.SEARCH_ERROR, searchError.message)
     }
 
     // Process and rank results
@@ -187,8 +188,11 @@ async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
   } catch (error) {
     console.error('Search error:', error)
-    return apiError(res, 500, 'Search failed', 'SEARCH_ERROR',
-      error instanceof Error ? error.message : 'Unknown error')
+    return createApiError(
+      res,
+      ERROR_CODES.SEARCH_ERROR,
+      error instanceof Error ? error.message : 'Unknown error'
+    )
   }
 }
 

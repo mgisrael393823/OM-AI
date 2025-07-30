@@ -7,7 +7,8 @@
 
 import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
-import { withAuth, apiError, AuthenticatedRequest } from '@/lib/auth-middleware';
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware';
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors';
 import { isFeatureEnabled } from '@/lib/feature-flags';
 import { 
   UserPreferences, 
@@ -52,7 +53,7 @@ async function settingsHandler(req: AuthenticatedRequest, res: NextApiResponse) 
 
   // Rate limiting
   if (!(await checkRateLimit(user.id))) {
-    return apiError(res, 429, 'Too many requests', 'RATE_LIMIT_EXCEEDED');
+    return createApiError(res, ERROR_CODES.RATE_LIMIT_EXCEEDED);
   }
 
   const supabase = createClient(
@@ -67,7 +68,7 @@ async function settingsHandler(req: AuthenticatedRequest, res: NextApiResponse) 
       case 'PUT':
         return await handleUpdateSettings(supabase, user.id, req.body, res);
       default:
-        return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED');
+        return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED);
     }
   } catch (error) {
     logError(error, {
@@ -76,7 +77,7 @@ async function settingsHandler(req: AuthenticatedRequest, res: NextApiResponse) 
       method,
       requestId: req.headers['x-request-id'] as string
     });
-    return apiError(res, 500, 'Internal server error', 'INTERNAL_ERROR');
+    return createApiError(res, ERROR_CODES.INTERNAL_ERROR);
   }
 }
 
@@ -97,7 +98,7 @@ async function handleGetSettings(
       userId,
       operation: 'get_user_preferences'
     });
-    return apiError(res, 500, 'Failed to load user preferences', 'DATABASE_ERROR');
+    return createApiError(res, ERROR_CODES.DATABASE_ERROR, 'Failed to load user preferences');
   }
 
   // Merge user preferences with defaults
@@ -129,7 +130,7 @@ async function handleUpdateSettings(
       error: validationError,
       requestBody
     });
-    return apiError(res, 400, 'Invalid preferences format', 'VALIDATION_ERROR');
+    return createApiError(res, ERROR_CODES.VALIDATION_ERROR, 'Invalid preferences format');
   }
 
   // Get current user preferences
@@ -144,7 +145,7 @@ async function handleUpdateSettings(
       userId,
       operation: 'get_current_preferences'
     });
-    return apiError(res, 500, 'Failed to load current preferences', 'DATABASE_ERROR');
+    return createApiError(res, ERROR_CODES.DATABASE_ERROR, 'Failed to load current preferences');
   }
 
   // Merge with existing preferences
@@ -177,7 +178,7 @@ async function handleUpdateSettings(
       operation: 'validate_merged_preferences',
       updatedPrefs
     });
-    return apiError(res, 400, 'Invalid preference combination', 'VALIDATION_ERROR');
+    return createApiError(res, ERROR_CODES.VALIDATION_ERROR, 'Invalid preference combination');
   }
 
   // Update database with transaction
@@ -197,7 +198,7 @@ async function handleUpdateSettings(
       operation: 'update_preferences',
       preferences: validatedPrefs
     });
-    return apiError(res, 500, 'Failed to save preferences', 'DATABASE_ERROR');
+    return createApiError(res, ERROR_CODES.DATABASE_ERROR, 'Failed to save preferences');
   }
 
   // Return updated preferences
@@ -213,10 +214,7 @@ async function handleUpdateSettings(
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   // Check feature flag first
   if (!isFeatureEnabled('SETTINGS_API')) {
-    return res.status(404).json({ 
-      error: 'Feature not available',
-      code: 'FEATURE_DISABLED'
-    });
+    return createApiError(res, ERROR_CODES.CONFIG_ERROR, 'Feature not available')
   }
   
   // Apply authentication and call settings handler

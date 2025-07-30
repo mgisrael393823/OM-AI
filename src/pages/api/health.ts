@@ -1,9 +1,10 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 
   try {

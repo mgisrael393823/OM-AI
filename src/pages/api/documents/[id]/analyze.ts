@@ -1,16 +1,17 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 import { PDFAnalyzer } from '@/lib/agents/pdf-parser'
 
 async function analyzeHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
-    return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    return apiError(res, 400, 'Document ID is required', 'MISSING_DOCUMENT_ID')
+    return createApiError(res, ERROR_CODES.VALIDATION_ERROR, 'Document ID is required')
   }
 
   const supabase = createClient(
@@ -28,7 +29,7 @@ async function analyzeHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       .single()
 
     if (docError || !document) {
-      return apiError(res, 404, 'Document not found', 'DOCUMENT_NOT_FOUND')
+      return createApiError(res, ERROR_CODES.DOCUMENT_CONTEXT_ERROR, 'Document not found')
     }
 
     // Get document chunks
@@ -40,7 +41,7 @@ async function analyzeHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
     if (chunksError) {
       console.error('Error fetching chunks:', chunksError)
-      return apiError(res, 500, 'Failed to fetch document content', 'CHUNKS_ERROR')
+      return createApiError(res, ERROR_CODES.DATABASE_ERROR, 'Failed to fetch document content')
     }
 
     // Get document tables
@@ -52,7 +53,7 @@ async function analyzeHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
     if (tablesError) {
       console.error('Error fetching tables:', tablesError)
-      return apiError(res, 500, 'Failed to fetch document tables', 'TABLES_ERROR')
+      return createApiError(res, ERROR_CODES.DATABASE_ERROR, 'Failed to fetch document tables')
     }
 
     // Analyze content for real estate metrics
@@ -115,8 +116,11 @@ async function analyzeHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
   } catch (error) {
     console.error('Analysis error:', error)
-    return apiError(res, 500, 'Failed to analyze document', 'ANALYSIS_ERROR',
-      error instanceof Error ? error.message : 'Unknown error')
+    return createApiError(
+      res,
+      ERROR_CODES.INTERNAL_ERROR,
+      error instanceof Error ? error.message : 'Unknown error'
+    )
   }
 }
 

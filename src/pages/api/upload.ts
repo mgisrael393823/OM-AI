@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import formidable from 'formidable'
 import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
-import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 
@@ -15,7 +16,7 @@ export const config = {
 
 async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -23,7 +24,7 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
       hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
     })
-    return apiError(res, 500, 'Server configuration error', 'CONFIG_ERROR')
+    return createApiError(res, ERROR_CODES.CONFIG_ERROR)
   }
 
   const supabase = createClient(
@@ -43,7 +44,7 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     const file = Array.isArray(files.file) ? files.file[0] : files.file
 
     if (!file) {
-      return apiError(res, 400, 'No file uploaded', 'NO_FILE')
+      return createApiError(res, ERROR_CODES.NO_FILE)
     }
 
     // Read file buffer
@@ -52,7 +53,7 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     // Quick validation
     const quickValidation = PDFValidator.quickValidate(fileBuffer, file.originalFilename || undefined)
     if (!quickValidation.isValid) {
-      return apiError(res, 400, quickValidation.error || 'Invalid PDF file', 'INVALID_PDF')
+      return createApiError(res, ERROR_CODES.INVALID_PDF, quickValidation.error || 'Invalid PDF file')
     }
 
     // Comprehensive PDF validation
@@ -60,8 +61,11 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     // Block obviously problematic files
     if (!validationResult.isValid) {
-      return apiError(res, 400, 'PDF validation failed', 'PDF_VALIDATION_FAILED', 
-        validationResult.errors.join('; '))
+      return createApiError(
+        res,
+        ERROR_CODES.PDF_VALIDATION_FAILED,
+        validationResult.errors.join('; ')
+      )
     }
 
     // Generate unique filename with fixed .pdf extension to prevent path traversal
@@ -78,7 +82,7 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
     if (uploadError) {
       console.error('Upload error:', uploadError)
-      return apiError(res, 500, 'Failed to upload file', 'STORAGE_ERROR', uploadError.message)
+      return createApiError(res, ERROR_CODES.STORAGE_ERROR, uploadError.message)
     }
 
     // Initialize PDF parser for background processing
@@ -134,7 +138,7 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       console.error('Database error:', dbError)
       // Clean up uploaded file if database insert fails
       await supabase.storage.from('documents').remove([fileName])
-      return apiError(res, 500, 'Failed to save document metadata', 'DATABASE_ERROR', dbError.message)
+      return createApiError(res, ERROR_CODES.DATABASE_ERROR, dbError.message)
     }
 
     // Store parsed content if successful
@@ -220,8 +224,11 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     })
   } catch (error) {
     console.error('Upload error:', error)
-    return apiError(res, 500, 'Failed to process upload', 'UPLOAD_ERROR',
-      error instanceof Error ? error.message : 'Unknown error')
+    return createApiError(
+      res,
+      ERROR_CODES.UPLOAD_ERROR,
+      error instanceof Error ? error.message : 'Unknown error'
+    )
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { withAuth, apiError, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
+import { createApiError, ERROR_CODES } from '@/lib/constants/errors'
 import { getConfig } from '@/lib/config'
 import formidable from 'formidable'
 import { readFileSync } from 'fs'
@@ -16,7 +17,7 @@ export const config = {
 
 async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
+    return createApiError(res, ERROR_CODES.METHOD_NOT_ALLOWED)
   }
 
   try {
@@ -36,7 +37,7 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
     const uploadedFile = Array.isArray(files.file) ? files.file[0] : files.file
 
     if (!uploadedFile) {
-      return apiError(res, 400, 'No file uploaded', 'NO_FILE')
+      return createApiError(res, ERROR_CODES.NO_FILE)
     }
 
     // Generate secure filename with fixed .pdf extension to prevent path traversal
@@ -44,7 +45,7 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
 
     // Validate file type
     if (uploadedFile.mimetype !== 'application/pdf') {
-      return apiError(res, 400, 'Only PDF files are allowed', 'INVALID_FILE_TYPE')
+      return createApiError(res, ERROR_CODES.INVALID_FILE_TYPE)
     }
 
     // Read the file buffer
@@ -68,7 +69,7 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
 
     if (uploadError) {
       console.error('Supabase storage upload error:', uploadError)
-      return apiError(res, 500, `Storage upload failed: ${uploadError.message}`, 'STORAGE_ERROR')
+      return createApiError(res, ERROR_CODES.STORAGE_ERROR, `Storage upload failed: ${uploadError.message}`)
     }
 
     console.log('Supabase Upload API: File uploaded successfully:', fileName)
@@ -85,15 +86,18 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
     
     if (error instanceof Error) {
       if (error.message.includes('File size limit')) {
-        return apiError(res, 413, 'File too large. Maximum size is 16MB.', 'FILE_TOO_LARGE')
+        return createApiError(res, ERROR_CODES.FILE_TOO_LARGE, 'File too large. Maximum size is 16MB.')
       }
       if (error.message.includes('Invalid file type')) {
-        return apiError(res, 400, 'Invalid file type. Only PDF files are allowed.', 'INVALID_FILE_TYPE')
+        return createApiError(res, ERROR_CODES.INVALID_FILE_TYPE, 'Invalid file type. Only PDF files are allowed.')
       }
     }
     
-    return apiError(res, 500, 'Upload failed', 'UPLOAD_ERROR', 
-      error instanceof Error ? error.message : 'Unknown error')
+    return createApiError(
+      res,
+      ERROR_CODES.UPLOAD_ERROR,
+      error instanceof Error ? error.message : 'Unknown error'
+    )
   }
 }
 
