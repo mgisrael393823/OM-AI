@@ -158,37 +158,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     const documentIds = normalizedRequest.documentContext?.documentIds || 
       (normalizedRequest.documentId ? [normalizedRequest.documentId] : [])
     
-    console.log('📄 DOCUMENT CONTEXT:', {
-      hasDocumentId: !!normalizedRequest.documentId,
-      documentId: normalizedRequest.documentId,
-      documentIds,
-      sessionId: normalizedRequest.sessionId,
-      userId: req.user.id
-    })
-    
     if (documentIds.length > 0) {
       try {
         const userQuery = isSimple ? normalizedRequest.message : 
           normalizedRequest.messages?.[normalizedRequest.messages.length - 1]?.content || ""
-        
-        console.log('🔍 SEARCHING CHUNKS:', {
-          documentIds,
-          userQuery: userQuery.slice(0, 100),
-          userId: req.user.id
-        })
-        
-        // First, check if the document exists
-        const { data: docCheck, error: docError } = await supabase
-          .from('documents')
-          .select('id, original_filename, created_at')
-          .eq('user_id', req.user.id)
-          .in('id', documentIds)
-        
-        console.log('📋 DOCUMENT CHECK:', {
-          found: docCheck?.length || 0,
-          documents: docCheck,
-          error: docError
-        })
         
         // Get document chunks - try without text search first to ensure we get content
         const { data: allChunks, error: allChunksError } = await supabase
@@ -197,20 +170,17 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             content,
             page_number,
             chunk_type,
-            document_id,
             documents!inner(original_filename)
           `)
           .eq('user_id', req.user.id)
           .in('document_id', documentIds)
           .limit(10)
         
-        console.log('📚 ALL CHUNKS:', {
-          found: allChunks?.length || 0,
-          error: allChunksError,
-          documentIds: allChunks?.map(c => c.document_id)
-        })
+        if (allChunksError) {
+          console.error('Error retrieving document chunks:', allChunksError)
+        }
         
-        // Now try with text search if we have chunks
+        // Now try with text search if we have chunks and a query
         let relevantChunks = allChunks
         if (allChunks && allChunks.length > 0 && userQuery) {
           const { data: searchChunks, error: searchError } = await supabase
@@ -226,11 +196,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             .textSearch('content', userQuery)
             .limit(5)
           
-          console.log('🔎 SEARCH CHUNKS:', {
-            found: searchChunks?.length || 0,
-            error: searchError,
-            userQuery: userQuery.slice(0, 50)
-          })
+          if (searchError) {
+            console.error('Error in document text search:', searchError)
+          }
           
           // Use search results if available, otherwise fall back to all chunks
           if (searchChunks && searchChunks.length > 0) {
@@ -253,24 +221,10 @@ ${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}`;
   .join('\n')}
 
 Please reference this document context in your response when relevant.`
-          
-          console.log('✅ CONTEXT PREPARED:', {
-            chunks: relevantChunks.length,
-            contextLength: contextualInformation.length,
-            documentNames: relevantChunks.map(c => (c as any).documents?.original_filename)
-          })
-        } else {
-          console.log('⚠️ NO CHUNKS FOUND:', {
-            documentIds,
-            hasAllChunks: !!allChunks,
-            allChunksLength: allChunks?.length || 0
-          })
         }
       } catch (error) {
-        console.error('❌ ERROR RETRIEVING DOCUMENT CONTEXT:', error)
+        console.error('Error retrieving document context:', error)
       }
-    } else {
-      console.log('ℹ️ NO DOCUMENT IDS PROVIDED')
     }
 
     // Build messages for OpenAI
@@ -404,7 +358,6 @@ Please reference this document context in your response when relevant.`
       }
 
       for await (const chunk of response) {
-        console.log('🔄 CHUNK:', chunk.choices[0]?.delta || chunk)
         const content = chunk.choices[0]?.delta?.content || ""
         if (content) {
           buffer += content

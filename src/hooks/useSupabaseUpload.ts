@@ -98,13 +98,6 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
       const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
       const fileName = `${userId}/${timestamp}-${sanitizedName}`
 
-      console.log('Supabase Upload: Starting upload for:', fileName, {
-        fileSize: file.size,
-        fileType: file.type,
-        fileName: file.name,
-        userId,
-        sessionValid: !!session.access_token
-      })
 
       // Create a promise to track upload progress
       const uploadPromise = new Promise<{ data: any; error: any }>((resolve, reject) => {
@@ -123,16 +116,10 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
         })
 
         xhr.addEventListener('load', () => {
-          console.log('Supabase Upload: XHR load event', {
-            status: xhr.status,
-            statusText: xhr.statusText,
-            responseLength: xhr.responseText?.length || 0
-          })
           
           if (xhr.status >= 200 && xhr.status < 300) {
             try {
               const response = JSON.parse(xhr.responseText)
-              console.log('Supabase Upload: Upload successful', response)
               resolve({ data: response, error: null })
             } catch (e) {
               console.warn('Supabase Upload: Response parsing failed, using fallback', e)
@@ -182,15 +169,7 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
         throw new Error(`Upload failed: ${uploadError.message}`)
       }
 
-      console.log('Supabase Upload: File uploaded successfully:', fileName)
       setProgress(95) // Upload complete, now processing
-
-      console.log('Supabase Upload: Starting document processing', {
-        fileName,
-        originalFileName: file.name,
-        fileSize: file.size,
-        userId
-      })
       
       // Process the document via API with retry logic
       let processingResult
@@ -213,12 +192,6 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
             }),
           })
 
-          console.log('Supabase Upload: Processing response received', {
-            status: processingResponse.status,
-            statusText: processingResponse.statusText,
-            ok: processingResponse.ok,
-            retryCount
-          })
 
           if (!processingResponse.ok) {
             const errorText = await processingResponse.text()
@@ -231,11 +204,6 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
           }
 
           processingResult = await processingResponse.json()
-          console.log('Supabase Upload: Processing result received', {
-            success: processingResult?.success,
-            hasDocument: !!processingResult?.document,
-            hasError: !!processingResult?.error
-          })
 
           if (!processingResult.success) {
             throw new Error(processingResult.error || 'Document processing failed')
@@ -261,7 +229,6 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
           
           // Wait before retry (exponential backoff)
           const waitTime = Math.pow(2, retryCount) * 1000 // 2s, 4s
-          console.log(`Supabase Upload: Retrying processing in ${waitTime}ms`)
           await new Promise(resolve => setTimeout(resolve, waitTime))
         }
       }
@@ -271,7 +238,6 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
       if (config.onProgress) {
         config.onProgress(file.name, 100)
       }
-      console.log('Supabase Upload: Document processing completed')
 
       // Get public URL for the file
       const { data: urlData } = supabase.storage

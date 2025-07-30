@@ -114,12 +114,13 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         }
       }
       
-      console.log('📤 CLIENT PAYLOAD:', {
-        ...payload,
-        hasDocumentId: !!(documentId || selectedDocumentIdRef.current),
-        documentIdSource: documentId ? 'parameter' : 'selectedDocumentIdRef',
-        selectedDocumentIdRefValue: selectedDocumentIdRef.current
-      })
+      // Log payload for debugging if needed
+      if (process.env.NODE_ENV === 'development') {
+        console.log('📤 Sending message:', {
+          hasDocumentId: !!(documentId || selectedDocumentIdRef.current),
+          sessionId: currentSessionId
+        })
+      }
       
       const response = await fetch(`${window.location.origin}/api/chat`, {
         method: "POST",
