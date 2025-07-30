@@ -71,28 +71,11 @@ export function MessageBubble({
   return (
     <div 
       className={`group grid items-start animate-slideInUp ${
-        isUser ? 'grid-cols-[1fr_auto] justify-items-end' : 'grid-cols-[auto_1fr]'
-      } gap-2`}
+        isUser ? 'justify-items-end' : 'justify-items-start'
+      }`}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => setShowActions(false)}
     >
-      {/* Avatar - Hide if grouped */}
-      {!isGrouped && (
-        <Avatar className="h-8 w-8 flex-shrink-0">
-          <AvatarFallback 
-            className={isUser ? "chat-avatar-user" : "chat-avatar-assistant"}
-          >
-            {isUser ? (
-              <User className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <Bot className="h-4 w-4" aria-hidden="true" />
-            )}
-          </AvatarFallback>
-        </Avatar>
-      )}
-
-      {/* Spacer for grouped messages */}
-      {isGrouped && <div className="h-8 w-8 flex-shrink-0" />}
 
       {/* Message Content */}
       <div className={`grid ${isUser ? 'justify-items-end' : 'justify-items-start'} w-fit max-w-4xl min-w-0`}>
@@ -130,7 +113,7 @@ export function MessageBubble({
 
         {/* Timestamp and Actions - Only show for non-grouped messages */}
         {!isGrouped && (
-          <div className={`grid items-center gap-2 ${isUser ? 'grid-cols-[auto_auto] justify-items-end' : 'grid-cols-[auto_auto]'}`}>
+          <div className={`mt-2 grid items-center gap-2 ${isUser ? 'grid-cols-[auto_auto] justify-items-end' : 'grid-cols-[auto_auto]'}`}>
             <time className="chat-timestamp" dateTime={typeof timestamp === 'string' ? timestamp : timestamp.toISOString()}>
               {formatTime(timestamp)}
             </time>

@@ -94,6 +94,7 @@ export default function AppPage() {
   const [showAllDocuments, setShowAllDocuments] = useState(false)
   const [documentsAccordionValue, setDocumentsAccordionValue] = useState<string>('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
   
   const { 
@@ -166,9 +167,19 @@ export default function AppPage() {
     }
   }, [user])
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when new messages arrive, but only if user is already at bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    if (!messagesEndRef.current || !scrollContainerRef.current) return
+    
+    const scrollContainer = scrollContainerRef.current
+    
+    // Check if user is already near the bottom (within 100px)
+    const isNearBottom = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight < 100
+    
+    // Only auto-scroll if user is already near bottom
+    if (isNearBottom) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" })
+    }
   }, [messages])
 
   // Swipe gesture handling for mobile
@@ -322,7 +333,7 @@ export default function AppPage() {
               : 'px-3 py-4'
           }`}>
           {/* Sidebar Header */}
-          <div className={`flex-shrink-0 ${sidebarState === 'collapsed' && !isMobile && !isTablet ? 'pb-4' : 'pb-4 border-b border-border'}`}>
+          <div className={`flex-shrink-0 pb-4`}>
             {sidebarState === 'collapsed' && !isMobile && !isTablet ? (
               /* Collapsed: Icon with expand button */
               <div className="flex flex-col items-center gap-2">
@@ -673,49 +684,38 @@ export default function AppPage() {
         )}
 
         {/* Main Content - Grid column 2 */}
-        <div className="flex flex-col overflow-hidden flex-1">
-          {/* Mobile Header */}
-          {isMobile && (
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSidebarOpen(true)}
-                aria-label="Open sidebar"
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-              <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
-              <div className="w-8" /> {/* Spacer */}
-            </div>
-          )}
-          
-          {/* Tablet Header with sidebar toggle */}
-          {isTablet && (
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <div className="flex items-center space-x-3">
+        <div className="flex flex-col h-full flex-1">
+          {/* HEADER - Only above chat area */}
+          <header className="flex items-center justify-between px-4 py-2 border-b bg-white dark:bg-gray-900">
+            <div className="flex items-center space-x-2">
+              {(isMobile || isTablet) && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={toggleSidebar}
-                  aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+                  onClick={() => setSidebarOpen(true)}
+                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                  aria-label="Open menu"
                 >
                   <Menu className="h-5 w-5" />
                 </Button>
-                <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => router.push('/settings')}
-                  title="Settings"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </div>
+              )}
             </div>
-          )}
+            <div className="flex items-center space-x-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push('/settings')}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+              >
+                <Settings className="h-5 w-5" />
+              </Button>
+              <Avatar className="h-8 w-8 cursor-pointer" onClick={() => router.push('/profile')}>
+                <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
+                  {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
+                </AvatarFallback>
+              </Avatar>
+            </div>
+          </header>
 
           {/* Selected Document Header */}
           {selectedDocumentId && (
@@ -738,66 +738,62 @@ export default function AppPage() {
           )}
 
           {/* Fully Responsive Chat Area */}
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+          <div className="flex-1 flex flex-col min-h-0">
             {/* Messages Container - Responsive with proper constraints */}
-            <div className="flex-1 relative">
-              <div 
-                ref={messagesEndRef}
-                className="h-full overflow-y-auto overflow-x-hidden scrollbar-auto-hide"
-                style={{ 
-                  paddingBottom: 'clamp(80px, 15vh, 140px)', // Responsive bottom padding
-                  paddingTop: 'env(safe-area-inset-top, 0)' // Safe area for notched devices
-                }}
-              >
-                {messages.length === 0 ? (
-                  // Responsive Welcome Screen
-                  <div className="h-full flex items-center justify-center p-4 sm:p-6 lg:p-8">
-                    <ChatWelcome
-                      onStartChat={() => {
-                        // Focus input or trigger suggested message
-                        const input = document.querySelector('textarea')
-                        input?.focus()
+            <div 
+              ref={scrollContainerRef}
+              className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-auto-hide p-4 pt-8 pb-32"
+            >
+              {messages.length === 0 ? (
+                // Responsive Welcome Screen
+                <div className="h-full flex items-center justify-center">
+                  <ChatWelcome
+                    onStartChat={() => {
+                      // Focus input or trigger suggested message
+                      const input = document.querySelector('textarea')
+                      input?.focus()
+                    }}
+                    hasDocuments={documents.length > 0}
+                    onUploadDocument={() => setShowUpload(true)}
+                  />
+                </div>
+              ) : (
+                // Message Thread Container - Grid Layout
+                <div className="grid grid-cols-1 justify-items-center w-full min-h-full">
+                  <div className="grid grid-cols-1 w-full max-w-3xl gap-3">
+                    <MessageGroup
+                      messages={messages}
+                      isLoading={isLoading}
+                      onCopy={(content) => {
+                        // Optional: Add analytics or toast notification
+                        console.log('Message copied:', content.slice(0, 50) + '...')
                       }}
-                      hasDocuments={documents.length > 0}
-                      onUploadDocument={() => setShowUpload(true)}
                     />
+                    {/* Scroll anchor - this is what messagesEndRef should point to */}
+                    <div ref={messagesEndRef} className="h-1" />
                   </div>
-                ) : (
-                  // Message Thread Container - Grid Layout
-                  <div className="grid grid-cols-1 justify-items-center w-full min-h-full p-4">
-                    <div className="grid grid-cols-1 w-full max-w-3xl gap-3">
-                      <MessageGroup
-                        messages={messages}
-                        isLoading={isLoading}
-                        onCopy={(content) => {
-                          // Optional: Add analytics or toast notification
-                          console.log('Message copied:', content.slice(0, 50) + '...')
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Responsive Floating Scroll to Bottom Button */}
-              <ScrollToBottom
-                target={messagesEndRef}
-                threshold={200}
-                position="bottom-right"
-                offset={{ 
-                  x: isMobile ? 16 : 24, 
-                  y: isMobile ? 120 : 140 
-                }}
-                showUnreadCount={false}
-                size={isMobile ? "sm" : "md"}
-                variant="default"
-                className="shadow-lg"
-              />
+                </div>
+              )}
             </div>
+
+            {/* Responsive Floating Scroll to Bottom Button */}
+            <ScrollToBottom
+              target={scrollContainerRef}
+              threshold={200}
+              position="bottom-right"
+              offset={{ 
+                x: isMobile ? 16 : 24, 
+                y: isMobile ? 80 : 100 
+              }}
+              showUnreadCount={false}
+              size={isMobile ? "sm" : "md"}
+              variant="default"
+              className="shadow-lg"
+            />
 
             {/* Input Area - Grid Layout */}
             <div 
-              className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border"
+              className="flex-shrink-0 bg-background/95 backdrop-blur-sm border-t border-border"
               style={{
                 paddingBottom: 'env(safe-area-inset-bottom, 0)' // Safe area for devices with home indicator
               }}
@@ -902,47 +898,47 @@ export default function AppPage() {
         </div>
       </div>
 
-      {/* Floating Action Button - Mobile Only */}
-      {isMobile && !sidebarOpen && (
-        <Button
-          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-30 bg-blue-600 hover:bg-blue-700 text-white"
-          onClick={() => setSidebarOpen(true)}
-          aria-label="Open conversations"
-          title="Open conversations"
-        >
-          <MessageSquare className="h-6 w-6" />
-        </Button>
-      )}
+        {/* Floating Action Button - Mobile Only */}
+        {isMobile && !sidebarOpen && (
+          <Button
+            className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-30 bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open conversations"
+            title="Open conversations"
+          >
+            <MessageSquare className="h-6 w-6" />
+          </Button>
+        )}
 
-      {/* Upload Modal */}
-      {showUpload && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                  Upload Document
-                </h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowUpload(false)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+        {/* Upload Modal */}
+        {showUpload && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                    Upload Document
+                  </h2>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowUpload(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <DocumentUpload 
+                  onUploadComplete={(document) => {
+                    setShowUpload(false)
+                    // Auto-expand documents accordion after upload
+                    setDocumentsAccordionValue('documents')
+                  }}
+                  onDocumentListRefresh={fetchDocuments}
+                />
               </div>
-              <DocumentUpload 
-                onUploadComplete={(document) => {
-                  setShowUpload(false)
-                  // Auto-expand documents accordion after upload
-                  setDocumentsAccordionValue('documents')
-                }}
-                onDocumentListRefresh={fetchDocuments}
-              />
             </div>
           </div>
-        </div>
-      )}
+        )}
     </ErrorBoundary>
   )
 }
