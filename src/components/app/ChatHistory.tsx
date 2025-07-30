@@ -12,6 +12,7 @@ import {
   ChevronUp,
   Loader2
 } from "lucide-react"
+import { componentTypography } from "@/lib/typography"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,10 +56,19 @@ interface ListItemData {
   hasMore?: boolean
 }
 
-// Constants
-const ITEM_HEIGHT = 56 // Compact item height with proper padding
-const EXPANDED_ITEM_HEIGHT = 72 // Expanded item height with proper padding
-const LOAD_MORE_HEIGHT = 48 // Load more height (includes p-1 wrapper)
+// Responsive constants optimized for ChatGPT-like density
+const ITEM_HEIGHT = {
+  mobile: 40,    // Reduced but still touch-friendly (meets accessibility standards)
+  desktop: 32    // Ultra-compact desktop similar to ChatGPT
+}
+const EXPANDED_ITEM_HEIGHT = {
+  mobile: 52,    // Compact expanded with touch targets
+  desktop: 44    // Compact expanded height
+}
+const LOAD_MORE_HEIGHT = {
+  mobile: 36,    // Compact mobile load more height
+  desktop: 28    // Ultra-compact desktop load more
+}
 const INITIAL_LOAD_COUNT = 20
 const LOAD_MORE_COUNT = 20
 
@@ -71,10 +81,10 @@ const dateFormatter = new Intl.DateTimeFormat('en-US', {
   minute: '2-digit'
 })
 
-// Loading skeleton component
+// Loading skeleton component with responsive spacing
 const ChatItemSkeleton = React.memo(() => (
-  <div className="grid grid-cols-1 p-1">
-    <div className="grid grid-cols-1 gap-2 animate-pulse p-2">
+  <div className="grid grid-cols-1 px-3 min-h-[40px] sm:min-h-[32px]">
+    <div className="grid grid-cols-1 gap-1 animate-pulse py-1 sm:py-0.5">
       <div className="grid grid-rows-2 gap-1">
         <div className="h-3.5 bg-muted rounded w-3/4" />
         <div className="h-2.5 bg-muted rounded w-1/2" />
@@ -92,11 +102,11 @@ const ListItem = React.memo<{ index: number; style: React.CSSProperties; data: L
     
     if (item.type === 'loadMore') {
       return (
-        <div style={style} className="grid grid-cols-1 p-2">
+        <div style={style} className="grid grid-cols-1 px-3 min-h-[36px] sm:min-h-[28px]">
           <Button
             variant="ghost"
             size="sm"
-            className="w-full h-8 text-xs text-muted-foreground"
+            className={`w-full h-8 text-muted-foreground touch-manipulation my-1 sm:my-0.5 ${componentTypography.button.ghost}`}
             onClick={item.onLoadMore}
             disabled={!item.hasMore}
           >
@@ -183,12 +193,12 @@ const ChatSessionItem = React.memo<{
   const title = session.title || 'Untitled Chat'
 
   return (
-    <div className="grid grid-cols-1 py-2 px-4 sm:px-3">
+    <div className="grid grid-cols-1 px-3 min-h-[40px] sm:min-h-[32px]">
       <div className={`
-        group relative rounded-md transition-colors duration-200
+        group relative rounded-md transition-colors duration-200 touch-manipulation py-1 sm:py-0.5
         ${isSelected 
           ? 'bg-accent text-accent-foreground' 
-          : 'hover:bg-muted/10'
+          : 'hover:bg-muted/10 active:bg-muted/20'
         }
       `}>
         {editingSessionId === session.id ? (
@@ -223,33 +233,25 @@ const ChatSessionItem = React.memo<{
             aria-current={isSelected ? 'true' : 'false'}
             aria-label={`${title}, ${relativeTime}`}
           >
-            <div className="grid grid-cols-[1fr_auto] gap-2">
+            <div className="flex items-center justify-between gap-2">
               {/* Content Column */}
-              <div className="grid grid-rows-auto gap-1 min-w-0">
+              <div className="flex-1 min-w-0">
                 {/* Title Row */}
-                <p className="truncate text-sm text-muted-foreground">
+                <p className={`truncate leading-tight ${componentTypography.chat.title}`}>
                   {title}
                 </p>
                 
-                {/* Document Badge */}
-                {session.document_id && (
-                  <div className="flex items-center mt-1">
-                    <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4">
-                      Doc
-                    </Badge>
-                  </div>
-                )}
                 
                 {/* Expanded Details Row */}
                 {isExpanded && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className={`leading-tight mt-0.5 ${componentTypography.chat.systemMessage}`}>
                     {session.messages?.length || 0} messages
                   </p>
                 )}
               </div>
               
               {/* Actions Column */}
-              <div className="flex items-start">
+              <div className="flex items-center">
                 {onToggleExpanded && (
                   <button
                     className="h-6 w-6 p-0 opacity-0 group-hover:opacity-60 hover:opacity-100 rounded flex items-center justify-center transition-opacity"
@@ -326,20 +328,39 @@ export function ChatHistory({
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerHeight, setContainerHeight] = useState(400)
 
-  // Update container height on resize
+  // Update container height on resize and force virtual list refresh
   useEffect(() => {
     const updateHeight = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect()
         const availableHeight = window.innerHeight - rect.top - 20 // 20px buffer
         setContainerHeight(Math.max(300, Math.min(600, availableHeight)))
+        
+        // Force virtual list to recalculate item heights on resize
+        if (listRef.current) {
+          listRef.current.resetAfterIndex(0, true)
+        }
       }
     }
 
     updateHeight()
-    window.addEventListener('resize', updateHeight)
-    return () => window.removeEventListener('resize', updateHeight)
+    const debouncedUpdate = debounce(updateHeight, 100)
+    window.addEventListener('resize', debouncedUpdate)
+    return () => window.removeEventListener('resize', debouncedUpdate)
   }, [])
+
+  // Simple debounce function for resize handling
+  function debounce(func: Function, wait: number) {
+    let timeout: NodeJS.Timeout
+    return function executedFunction(...args: any[]) {
+      const later = () => {
+        clearTimeout(timeout)
+        func(...args)
+      }
+      clearTimeout(timeout)
+      timeout = setTimeout(later, wait)
+    }
+  }
 
   // Handle expanding/collapsing sessions
   const handleToggleExpanded = useCallback((sessionId: string) => {
@@ -426,15 +447,23 @@ export function ChatHistory({
     setExpandedSessions(new Set())
   }, [searchQuery])
 
-  // Calculate item height dynamically
+  // Calculate item height dynamically with responsive sizing
   const getItemHeight = useCallback((index: number) => {
     const item = virtualListItems[index]
-    if (item?.type === 'loadMore') return LOAD_MORE_HEIGHT
+    // Use mobile heights for touch devices, desktop for others
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+    
+    if (item?.type === 'loadMore') {
+      return isMobile ? LOAD_MORE_HEIGHT.mobile : LOAD_MORE_HEIGHT.desktop
+    }
     if (item?.type === 'session') {
       const isExpanded = item.isExpanded || false
-      return isExpanded ? EXPANDED_ITEM_HEIGHT : ITEM_HEIGHT
+      if (isExpanded) {
+        return isMobile ? EXPANDED_ITEM_HEIGHT.mobile : EXPANDED_ITEM_HEIGHT.desktop
+      }
+      return isMobile ? ITEM_HEIGHT.mobile : ITEM_HEIGHT.desktop
     }
-    return ITEM_HEIGHT
+    return isMobile ? ITEM_HEIGHT.mobile : ITEM_HEIGHT.desktop
   }, [virtualListItems])
 
   // Loading skeleton
@@ -444,8 +473,8 @@ export function ChatHistory({
         <div className="p-2 border-b">
           <div className="h-8 bg-muted rounded animate-pulse" />
         </div>
-        <div className="flex-1 grid grid-cols-1 gap-2 p-2" role="status" aria-label="Loading conversations">
-          {[...Array(6)].map((_, i) => (
+        <div className="flex-1 grid grid-cols-1 gap-1 py-1 px-3 sm:py-0.5" role="status" aria-label="Loading conversations">
+          {[...Array(8)].map((_, i) => (
             <ChatItemSkeleton key={`skeleton-${i}`} />
           ))}
         </div>
@@ -457,25 +486,34 @@ export function ChatHistory({
     <div className="flex flex-col h-full" ref={containerRef}>
       {/* Header Section - Hidden when collapsed */}
       {!isCollapsed && (
-        <div className="grid grid-rows-1 border-b border-muted">
+        <div className="grid grid-rows-1 border-b border-transparent">
           {/* Search Row */}
-          <div className="grid grid-cols-1 p-2">
+          <div className="grid grid-cols-1 py-1 px-3 sm:py-0.5 mb-2">
             <div className="relative">
-              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Search className="absolute left-0 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 h-8 text-xs border-0 bg-transparent hover:bg-muted/10 focus:bg-background focus-visible:ring-2 focus-visible:ring-accent transition-colors"
+                className={`pl-6 h-8 border-0 bg-transparent hover:bg-muted/10 focus:bg-background focus-visible:ring-2 focus-visible:ring-accent transition-colors ${componentTypography.form.input}`}
                 aria-label="Search conversations"
               />
             </div>
             {searchQuery && (
-              <div className="mt-1 text-xs text-muted-foreground" role="status" aria-live="polite">
+              <div className={`mt-0.5 ${componentTypography.form.helper}`} role="status" aria-live="polite">
                 {totalCount} result{totalCount !== 1 ? 's' : ''}
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Chats Label - Only show when there are conversations */}
+      {!isCollapsed && virtualListItems.length > 0 && (
+        <div className="px-3 pt-1.5 pb-0.5">
+          <h3 className={componentTypography.sidebar.sectionLabel}>
+            Chats
+          </h3>
         </div>
       )}
 
@@ -487,14 +525,14 @@ export function ChatHistory({
         ) : virtualListItems.length === 0 ? (
           <div className="p-4 text-center">
             <MessageSquare className="h-6 w-6 mx-auto text-muted-foreground mb-2" />
-            <p className="text-xs text-muted-foreground">
+            <p className={componentTypography.chat.systemMessage}>
               {searchQuery ? 'No conversations found' : 'No conversations yet'}
             </p>
           </div>
         ) : (
           <List
             ref={listRef}
-            height={containerHeight - (isCollapsed ? 0 : 48)} // Account for header when not collapsed
+            height={containerHeight - (isCollapsed ? 0 : virtualListItems.length > 0 ? 64 : 40)} // Account for ChatGPT-aligned spacing
             width="100%"
             itemCount={virtualListItems.length}
             itemSize={getItemHeight}

@@ -1,6 +1,7 @@
 import React from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Bot, User } from "lucide-react"
+import { componentTypography } from "@/lib/typography"
 
 export interface MessageBubbleProps {
   role: "user" | "assistant"
@@ -48,7 +49,7 @@ export function MessageBubble({
         aria-label={`${isUser ? 'User' : 'Assistant'} message`}
       >
         <div className="grid grid-cols-1 gap-2">
-          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+          <p className={`whitespace-pre-wrap break-words ${componentTypography.chat.message}`}>
             {content}
           </p>
           
@@ -60,7 +61,7 @@ export function MessageBubble({
                 <div className="w-2 h-2 bg-current rounded-full opacity-60 animation-delay-200"></div>
                 <div className="w-2 h-2 bg-current rounded-full opacity-80 animation-delay-400"></div>
               </div>
-              <span className="text-xs opacity-70">Thinking...</span>
+              <span className={`opacity-70 ${componentTypography.chat.systemMessage}`}>Thinking...</span>
             </div>
           )}
         </div>

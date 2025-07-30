@@ -27,6 +27,7 @@ import { MessageGroup } from "@/components/app/MessageGroup"
 import { ScrollToBottom } from "@/components/ui/scroll-to-bottom"
 import { useAuth } from "@/contexts/AuthContext"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
+import { componentTypography, responsiveTypography } from "@/lib/typography"
 
 
 export default function AppPage() {
@@ -167,14 +168,14 @@ export default function AppPage() {
           ref={sidebarRef}
         >
           {/* Sidebar Content */}
-          <div className="flex flex-col h-full px-3 py-4">
+          <div className="flex flex-col h-full px-3 py-3">
           {/* Sidebar Header */}
-          <div className="flex-shrink-0 pb-4">
-            <div className="flex items-center justify-between">
+          <div className="flex-shrink-0 pb-3">
+            <div className="flex items-center justify-between min-h-[44px]">
               {/* Brand Section */}
-              <div className="flex items-center gap-2">
-                <Building2 className="h-6 w-6 text-blue-600" />
-                <span className="font-semibold text-gray-900 dark:text-white">OM Intel Chat</span>
+              <div className="flex items-center gap-3">
+                <Building2 className="w-5 h-5 text-blue-600" />
+                <span className={`text-gray-900 dark:text-white ${componentTypography.sidebar.header}`}>OM Intel Chat</span>
               </div>
               
               {/* Close button for mobile */}
@@ -182,21 +183,21 @@ export default function AppPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setSidebarOpen(false)}
-                className="h-7 w-7 p-0 md:hidden"
+                className="h-8 w-8 p-0 md:hidden"
               >
-                <X className="h-4 w-4" />
+                <X className="w-5 h-5" />
               </Button>
             </div>
           </div>
 
           {/* New Chat Button */}
-          <div className="flex-shrink-0 pt-4">
+          <div className="flex-shrink-0 pb-1">
             <Button 
-              className="w-full justify-start hover:bg-muted/10 focus-visible:ring-2 focus-visible:ring-accent transition-colors" 
+              className={`w-full min-h-[44px] justify-start hover:bg-muted/10 active:bg-muted/20 focus-visible:ring-2 focus-visible:ring-accent transition-colors px-3 ${componentTypography.sidebar.navItem}`}
               variant="ghost"
               onClick={handleNewChat}
             >
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="w-5 h-5 mr-2" />
               New Chat
             </Button>
           </div>
@@ -216,18 +217,18 @@ export default function AppPage() {
 
 
           {/* User Profile */}
-          <div className="flex-shrink-0 pt-4 border-t border-border">
-            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+          <div className="flex-shrink-0 pt-3 border-t border-border">
+            <div className="flex items-center gap-3 min-h-[44px]">
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
                   {userDisplayData.name.split(' ').map((n: string) => n[0]).join('')}
                 </AvatarFallback>
               </Avatar>
-              <div className="grid grid-rows-2 gap-0 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+              <div className="flex-1 min-w-0">
+                <p className={`text-gray-900 dark:text-white truncate ${componentTypography.sidebar.userName}`}>
                   {userDisplayData.name}
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className={componentTypography.sidebar.userPlan}>
                   {userDisplayData.plan}
                 </p>
               </div>
@@ -238,7 +239,7 @@ export default function AppPage() {
                 title="Settings"
                 className="h-8 w-8 p-0"
               >
-                <Settings className="h-4 w-4" />
+                <Settings className="w-5 h-5" />
               </Button>
             </div>
           </div>
@@ -272,7 +273,7 @@ export default function AppPage() {
             
             {/* Current Chat Title - Center */}
             <div className="flex-1 flex justify-center">
-              <h1 className="text-sm font-medium text-foreground truncate max-w-md">
+              <h1 className={`text-foreground truncate max-w-md ${componentTypography.chat.title}`}>
                 {currentSessionId 
                   ? chatSessions.find(s => s.id === currentSessionId)?.title || 'New Chat'
                   : 'New Chat'
@@ -364,7 +365,7 @@ export default function AppPage() {
                 {selectedDocumentId && (
                   <div className="mb-4 flex items-center gap-2 px-4 py-2 bg-primary/20 backdrop-blur-sm rounded-lg w-fit">
                     <FileText className="h-4 w-4 text-primary" />
-                    <span className="text-primary text-sm font-medium">
+                    <span className={`text-primary ${componentTypography.form.label}`}>
                       Document attached
                     </span>
                     <Button
@@ -399,12 +400,13 @@ export default function AppPage() {
                         }
                       }}
                       placeholder="Send a message..."
-                      className="
+                      className={`
                         w-full resize-none rounded-3xl border border-border bg-white dark:bg-gray-900 shadow-lg 
                         focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all
-                        min-h-14 max-h-48 px-4 pt-4 pb-12 text-base leading-6
+                        min-h-14 max-h-48 px-4 pt-4 pb-12 leading-6
                         placeholder:text-muted-foreground/70 textarea-custom-scroll
-                      "
+                        ${componentTypography.chat.input}
+                      `}
                       disabled={isLoading}
                       rows={1}
                       style={{
@@ -425,7 +427,7 @@ export default function AppPage() {
                     title="Attach file"
                   >
                     <Paperclip className="h-4 w-4 mr-1" />
-                    <span className="text-sm">Attach</span>
+                    <span className={componentTypography.button.ghost}>Attach</span>
                   </Button>
 
                   {/* Send Button - Bottom Right */}
@@ -456,7 +458,7 @@ export default function AppPage() {
             <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
               <div className="p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  <h2 className={`text-gray-900 dark:text-white ${componentTypography.modal.title}`}>
                     Upload Document
                   </h2>
                   <Button

@@ -1,6 +1,7 @@
 import React from 'react'
 import { MessageCircle, FileText, Zap, Sparkles, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { componentTypography, typography } from '@/lib/typography'
 
 interface ChatWelcomeProps {
   onStartChat: () => void
@@ -34,10 +35,10 @@ export function ChatWelcome({ onStartChat, hasDocuments, onUploadDocument }: Cha
         {/* Welcome Header */}
         <div className="grid grid-cols-1 justify-items-center gap-2">
           <Sparkles className="h-8 w-8 text-muted-foreground" />
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+          <h1 className={`tracking-tight ${typography.sectionHeader} text-xl sm:text-2xl`}>
             Welcome to OM Intel Chat
           </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
+          <p className={`text-muted-foreground ${typography.body} sm:${typography.bodyLarge}`}>
             AI-powered CRE analysis
           </p>
         </div>
@@ -51,7 +52,7 @@ export function ChatWelcome({ onStartChat, hasDocuments, onUploadDocument }: Cha
               size="sm"
               disabled={suggestion.disabled}
               onClick={suggestion.disabled ? undefined : suggestion.action}
-              className="grid grid-cols-[auto_1fr] items-center gap-2 px-4 py-2 h-auto text-sm transition-colors hover:bg-muted/50 rounded-md"
+              className={`grid grid-cols-[auto_1fr] items-center gap-2 px-4 py-2 h-auto transition-colors hover:bg-muted/50 rounded-md ${componentTypography.button.secondary}`}
             >
               {suggestion.icon}
               <span>{suggestion.title}</span>
@@ -63,7 +64,7 @@ export function ChatWelcome({ onStartChat, hasDocuments, onUploadDocument }: Cha
         {/* Status */}
         {hasDocuments && (
           <div className="grid grid-cols-1 justify-items-center">
-            <div className="text-xs sm:text-sm text-muted-foreground bg-muted/30 rounded-lg p-3 max-w-md">
+            <div className={`text-muted-foreground bg-muted/30 rounded-lg p-3 max-w-md ${typography.bodySmall} sm:${typography.body}`}>
               📄 You have documents ready for analysis. Ask me anything about them!
             </div>
           </div>

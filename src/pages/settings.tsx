@@ -24,6 +24,7 @@ import {
   Save,
   ArrowLeft
 } from 'lucide-react'
+import { componentTypography, typography } from '@/lib/typography'
 
 interface UserSettings {
   // Profile
@@ -199,26 +200,26 @@ export default function SettingsPage() {
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Settings</h1>
-              <p className="text-gray-600 dark:text-gray-400">Manage your account and preferences</p>
+              <h1 className={`text-gray-900 dark:text-white ${typography.pageTitle}`}>Settings</h1>
+              <p className={`text-gray-600 dark:text-gray-400 ${typography.body}`}>Manage your account and preferences</p>
             </div>
           </div>
 
           <Tabs defaultValue="profile" className="space-y-6">
             <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="profile" className="flex items-center gap-2">
+              <TabsTrigger value="profile" className={`flex items-center gap-2 ${componentTypography.button.secondary}`}>
                 <User className="h-4 w-4" />
                 Profile
               </TabsTrigger>
-              <TabsTrigger value="ai" className="flex items-center gap-2">
+              <TabsTrigger value="ai" className={`flex items-center gap-2 ${componentTypography.button.secondary}`}>
                 <Brain className="h-4 w-4" />
                 AI Preferences
               </TabsTrigger>
-              <TabsTrigger value="display" className="flex items-center gap-2">
+              <TabsTrigger value="display" className={`flex items-center gap-2 ${componentTypography.button.secondary}`}>
                 <Palette className="h-4 w-4" />
                 Display
               </TabsTrigger>
-              <TabsTrigger value="account" className="flex items-center gap-2">
+              <TabsTrigger value="account" className={`flex items-center gap-2 ${componentTypography.button.secondary}`}>
                 <Shield className="h-4 w-4" />
                 Account
               </TabsTrigger>
@@ -228,8 +229,8 @@ export default function SettingsPage() {
             <TabsContent value="profile" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Profile Information</CardTitle>
-                  <CardDescription>
+                  <CardTitle className={componentTypography.card.title}>Profile Information</CardTitle>
+                  <CardDescription className={componentTypography.card.subtitle}>
                     Update your personal information and profile settings
                   </CardDescription>
                 </CardHeader>
@@ -241,10 +242,10 @@ export default function SettingsPage() {
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" className={componentTypography.button.secondary}>
                         Change Avatar
                       </Button>
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p className={`text-gray-500 mt-1 ${typography.bodySmall}`}>
                         JPG, GIF or PNG. 1MB max.
                       </p>
                     </div>
@@ -252,32 +253,33 @@ export default function SettingsPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="fullName">Full Name</Label>
+                      <Label htmlFor="fullName" className={componentTypography.form.label}>Full Name</Label>
                       <Input
                         id="fullName"
                         value={settings.fullName}
                         onChange={(e) => setSettings({ ...settings, fullName: e.target.value })}
+                        className={componentTypography.form.input}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="email">Email</Label>
+                      <Label htmlFor="email" className={componentTypography.form.label}>Email</Label>
                       <Input
                         id="email"
                         type="email"
                         value={settings.email}
                         disabled
-                        className="bg-gray-50 dark:bg-gray-800"
+                        className={`bg-gray-50 dark:bg-gray-800 ${componentTypography.form.input}`}
                       />
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Subscription</Label>
+                    <Label className={componentTypography.form.label}>Subscription</Label>
                     <div className="flex items-center gap-2">
-                      <Badge variant={profile?.subscription_tier === 'starter' ? 'secondary' : 'default'}>
+                      <Badge variant={profile?.subscription_tier === 'starter' ? 'secondary' : 'default'} className={typography.label}>
                         {profile?.subscription_tier?.toUpperCase() || 'STARTER'}
                       </Badge>
-                      <span className="text-sm text-gray-500">
+                      <span className={`text-gray-500 ${typography.bodySmall}`}>
                         {profile?.usage_count || 0} / {profile?.usage_limit || 10} documents this month
                       </span>
                     </div>
@@ -290,31 +292,31 @@ export default function SettingsPage() {
             <TabsContent value="ai" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>AI Model Settings</CardTitle>
-                  <CardDescription>
+                  <CardTitle className={componentTypography.card.title}>AI Model Settings</CardTitle>
+                  <CardDescription className={componentTypography.card.subtitle}>
                     Configure how the AI responds to your queries
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="space-y-2">
-                    <Label htmlFor="model">Preferred Model</Label>
+                    <Label htmlFor="model" className={componentTypography.form.label}>Preferred Model</Label>
                     <Select
                       value={settings.preferredModel}
                       onValueChange={(value) => setSettings({ ...settings, preferredModel: value })}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className={componentTypography.form.input}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="gpt-4-turbo-preview">GPT-4 Turbo (Recommended)</SelectItem>
-                        <SelectItem value="gpt-4">GPT-4</SelectItem>
-                        <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo (Faster)</SelectItem>
+                        <SelectItem value="gpt-4-turbo-preview" className={componentTypography.form.input}>GPT-4 Turbo (Recommended)</SelectItem>
+                        <SelectItem value="gpt-4" className={componentTypography.form.input}>GPT-4</SelectItem>
+                        <SelectItem value="gpt-3.5-turbo" className={componentTypography.form.input}>GPT-3.5 Turbo (Faster)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Temperature: {settings.temperature}</Label>
+                    <Label className={componentTypography.form.label}>Temperature: {settings.temperature}</Label>
                     <Slider
                       value={[settings.temperature]}
                       onValueChange={([value]) => setSettings({ ...settings, temperature: value })}
@@ -323,13 +325,13 @@ export default function SettingsPage() {
                       step={0.1}
                       className="w-full"
                     />
-                    <p className="text-sm text-gray-500">
+                    <p className={`text-gray-500 ${typography.bodySmall}`}>
                       Lower values make responses more focused, higher values more creative
                     </p>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Max Tokens: {settings.maxTokens}</Label>
+                    <Label className={componentTypography.form.label}>Max Tokens: {settings.maxTokens}</Label>
                     <Slider
                       value={[settings.maxTokens]}
                       onValueChange={([value]) => setSettings({ ...settings, maxTokens: value })}
@@ -338,7 +340,7 @@ export default function SettingsPage() {
                       step={500}
                       className="w-full"
                     />
-                    <p className="text-sm text-gray-500">
+                    <p className={`text-gray-500 ${typography.bodySmall}`}>
                       Maximum length of AI responses (higher = longer responses, more cost)
                     </p>
                   </div>
@@ -350,42 +352,42 @@ export default function SettingsPage() {
             <TabsContent value="display" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Display Preferences</CardTitle>
-                  <CardDescription>
+                  <CardTitle className={componentTypography.card.title}>Display Preferences</CardTitle>
+                  <CardDescription className={componentTypography.card.subtitle}>
                     Customize how the application looks and feels
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="space-y-2">
-                    <Label>Theme</Label>
+                    <Label className={componentTypography.form.label}>Theme</Label>
                     <Select
                       value={settings.theme}
                       onValueChange={(value: 'light' | 'dark' | 'system') => setSettings({ ...settings, theme: value })}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className={componentTypography.form.input}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="system">System Default</SelectItem>
-                        <SelectItem value="light">Light</SelectItem>
-                        <SelectItem value="dark">Dark</SelectItem>
+                        <SelectItem value="system" className={componentTypography.form.input}>System Default</SelectItem>
+                        <SelectItem value="light" className={componentTypography.form.input}>Light</SelectItem>
+                        <SelectItem value="dark" className={componentTypography.form.input}>Dark</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Language</Label>
+                    <Label className={componentTypography.form.label}>Language</Label>
                     <Select
                       value={settings.language}
                       onValueChange={(value) => setSettings({ ...settings, language: value })}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className={componentTypography.form.input}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="en">English</SelectItem>
-                        <SelectItem value="es">Spanish</SelectItem>
-                        <SelectItem value="fr">French</SelectItem>
+                        <SelectItem value="en" className={componentTypography.form.input}>English</SelectItem>
+                        <SelectItem value="es" className={componentTypography.form.input}>Spanish</SelectItem>
+                        <SelectItem value="fr" className={componentTypography.form.input}>French</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -395,8 +397,8 @@ export default function SettingsPage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <Label>Email Notifications</Label>
-                        <p className="text-sm text-gray-500">
+                        <Label className={componentTypography.form.label}>Email Notifications</Label>
+                        <p className={`text-gray-500 ${typography.bodySmall}`}>
                           Get notified about important updates
                         </p>
                       </div>
@@ -408,8 +410,8 @@ export default function SettingsPage() {
 
                     <div className="flex items-center justify-between">
                       <div>
-                        <Label>Push Notifications</Label>
-                        <p className="text-sm text-gray-500">
+                        <Label className={componentTypography.form.label}>Push Notifications</Label>
+                        <p className={`text-gray-500 ${typography.bodySmall}`}>
                           Get real-time notifications in your browser
                         </p>
                       </div>
@@ -427,37 +429,37 @@ export default function SettingsPage() {
             <TabsContent value="account" className="space-y-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Account Security</CardTitle>
-                  <CardDescription>
+                  <CardTitle className={componentTypography.card.title}>Account Security</CardTitle>
+                  <CardDescription className={componentTypography.card.subtitle}>
                     Manage your account security and data
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <Button variant="outline">
+                  <Button variant="outline" className={componentTypography.button.secondary}>
                     Change Password
                   </Button>
 
                   <Separator />
 
                   <div className="space-y-4">
-                    <h4 className="font-medium text-red-600">Danger Zone</h4>
+                    <h4 className={`text-red-600 ${typography.subsectionHeader}`}>Danger Zone</h4>
                     <div className="border border-red-200 rounded-lg p-4 space-y-4">
                       <div>
-                        <h5 className="font-medium">Export Data</h5>
-                        <p className="text-sm text-gray-500 mb-2">
+                        <h5 className={typography.subsectionHeader}>Export Data</h5>
+                        <p className={`text-gray-500 mb-2 ${typography.bodySmall}`}>
                           Download all your data including documents and chat history
                         </p>
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" className={componentTypography.button.secondary}>
                           Export Data
                         </Button>
                       </div>
                       
                       <div>
-                        <h5 className="font-medium text-red-600">Delete Account</h5>
-                        <p className="text-sm text-gray-500 mb-2">
+                        <h5 className={`text-red-600 ${typography.subsectionHeader}`}>Delete Account</h5>
+                        <p className={`text-gray-500 mb-2 ${typography.bodySmall}`}>
                           Permanently delete your account and all associated data
                         </p>
-                        <Button variant="destructive" size="sm">
+                        <Button variant="destructive" size="sm" className={componentTypography.button.primary}>
                           Delete Account
                         </Button>
                       </div>
@@ -470,7 +472,7 @@ export default function SettingsPage() {
 
           {/* Save Button */}
           <div className="flex justify-end pt-6">
-            <Button onClick={handleSave} disabled={isSaving}>
+            <Button onClick={handleSave} disabled={isSaving} className={componentTypography.button.primary}>
               {isSaving ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>

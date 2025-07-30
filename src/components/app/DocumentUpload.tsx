@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import { useSupabaseUpload } from "@/hooks/useSupabaseUpload"
 import { toast } from "sonner"
+import { componentTypography, typography } from "@/lib/typography"
 
 interface UploadFile {
   id: string

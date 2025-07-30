@@ -112,14 +112,81 @@
   * {
     @apply border-border;
   }
+  
+  html {
+    font-family: var(--font-noto-sans), 'Noto Sans', system-ui, sans-serif;
+  }
+  
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-noto-sans), 'Noto Sans', system-ui, sans-serif;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'clig' 1, 'calt' 1;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Ensure font variables are available */
+  :root {
+    --font-inter: var(--font-inter);
+    --font-noto-sans: var(--font-noto-sans);  
+    --font-fira-code: var(--font-fira-code);
   }
 }
 
 @layer components {
   .container {
     @apply mx-auto px-4 md:px-6 lg:px-8 max-w-7xl w-full;
+  }
+  
+  /* Typography Components */
+  .typography-heading {
+    @apply font-inter font-semibold;
+  }
+  
+  .typography-nav {
+    @apply font-inter font-medium;
+  }
+  
+  .typography-label {
+    @apply font-inter font-normal;
+  }
+  
+  .typography-body {
+    @apply font-noto font-normal;
+  }
+  
+  .typography-body-emphasis {
+    @apply font-noto font-semibold;
+  }
+  
+  .typography-mono {
+    @apply font-fira font-normal;
+  }
+  
+  /* Semantic Typography Classes */
+  .text-page-title {
+    @apply typography-heading text-2xl lg:text-3xl;
+  }
+  
+  .text-section-header {
+    @apply typography-heading text-lg;
+  }
+  
+  .text-chat-message {
+    @apply typography-body text-sm leading-relaxed;
+  }
+  
+  .text-chat-input {
+    @apply typography-mono text-base;
+  }
+  
+  .text-nav-link {
+    @apply typography-nav text-sm;
+  }
+  
+  .text-form-label {
+    @apply typography-label text-sm font-medium;
   }
   
   .glass-card {

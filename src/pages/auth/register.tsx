@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Building2, Eye, EyeOff, Loader2 } from "lucide-react"
+import { componentTypography, typography } from "@/lib/typography"
 
 export default function RegisterPage() {
   const router = useRouter()

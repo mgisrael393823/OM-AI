@@ -22,6 +22,14 @@ const config: Config = {
   }),
   theme: {
   	extend: {
+  		fontFamily: {
+  			inter: ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
+  			noto: ['var(--font-noto-sans)', 'Noto Sans', 'system-ui', 'sans-serif'],
+  			fira: ['var(--font-fira-code)', 'Fira Code', 'Monaco', 'Consolas', 'monospace'],
+  			// Override default Tailwind fonts with our custom fonts
+  			sans: ['var(--font-noto-sans)', 'Noto Sans', 'system-ui', 'sans-serif'],
+  			mono: ['var(--font-fira-code)', 'Fira Code', 'Monaco', 'Consolas', 'monospace'],
+  		},
   		colors: {
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',

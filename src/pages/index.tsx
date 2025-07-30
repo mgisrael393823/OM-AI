@@ -1,6 +1,7 @@
 import React from "react"
 import Head from "next/head"
 import Link from "next/link"
+import { componentTypography, typography } from "@/lib/typography"
 
 export default function LandingPage() {
   return (
@@ -19,14 +20,14 @@ export default function LandingPage() {
               <div className="h-8 w-8 bg-blue-600 rounded grid grid-cols-1 justify-items-center items-center">
                 <span className="text-white font-bold text-sm">OM</span>
               </div>
-              <span className="text-xl font-bold text-slate-900 dark:text-white">OM Intel Chat</span>
+              <span className={`text-slate-900 dark:text-white ${typography.pageTitle}`}>OM Intel Chat</span>
             </div>
             <div></div> {/* Spacer column */}
             <div className="grid grid-cols-2 items-center gap-4">
-              <Link href="/auth/login" className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">
+              <Link href="/auth/login" className={`text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white ${componentTypography.button.link}`}>
                 Sign In
               </Link>
-              <Link href="/auth/register" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors">
+              <Link href="/auth/register" className={`bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors ${componentTypography.button.primary}`}>
                 Get Started
               </Link>
             </div>
@@ -38,30 +39,30 @@ export default function LandingPage() {
           <div className="container mx-auto px-4">
             <div className="mx-auto max-w-4xl text-center">
               <div className="grid grid-cols-1 justify-items-center gap-4">
-                <div className="grid grid-cols-[auto_auto] items-center gap-1 px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded-full">
+                <div className={`grid grid-cols-[auto_auto] items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full ${typography.caption}`}>
                   <span>⚡</span>
                   <span>AI-Powered Analysis</span>
                 </div>
-                <h1 className="text-4xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-6xl lg:text-7xl">
+                <h1 className={`text-4xl tracking-tight text-slate-900 dark:text-white sm:text-6xl lg:text-7xl ${typography.pageTitle}`}>
                   Transform Your{" "}
                   <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                     CRE Deal Analysis
                   </span>
                 </h1>
-                <p className="text-lg leading-8 text-slate-600 dark:text-slate-300 max-w-2xl">
+                <p className={`leading-8 text-slate-600 dark:text-slate-300 max-w-2xl ${typography.bodyLarge}`}>
                   Upload offering memorandums and get instant insights, key metrics, and investment analysis 
                   through conversational AI. Make smarter real estate decisions faster.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 justify-items-center">
-                  <Link href="/auth/register" className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition-colors grid grid-cols-[auto_auto] items-center gap-2">
+                  <Link href="/auth/register" className={`bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition-colors grid grid-cols-[auto_auto] items-center gap-2 ${componentTypography.button.primary}`}>
                     <span>Start Free Trial</span>
                     <span>→</span>
                   </Link>
-                  <button className="border border-slate-300 text-slate-700 px-8 py-3 rounded-lg hover:bg-slate-50 transition-colors">
+                  <button className={`border border-slate-300 text-slate-700 px-8 py-3 rounded-lg hover:bg-slate-50 transition-colors ${componentTypography.button.secondary}`}>
                     Watch Demo
                   </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm text-slate-500">
+                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-6 text-slate-500 ${typography.bodySmall}`}>
                   <div className="grid grid-cols-[auto_auto] items-center gap-2 justify-self-center">
                     <span className="text-green-500">✓</span>
                     <span>No credit card required</span>
@@ -80,10 +81,10 @@ export default function LandingPage() {
         <section className="py-20 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
           <div className="container mx-auto px-4">
             <div className="mx-auto max-w-2xl text-center grid grid-cols-1 gap-4 mb-16">
-              <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
+              <h2 className={`tracking-tight text-slate-900 dark:text-white sm:text-4xl ${typography.sectionHeader} text-3xl`}>
                 Everything you need for CRE analysis
               </h2>
-              <p className="text-lg text-slate-600 dark:text-slate-300">
+              <p className={`text-slate-600 dark:text-slate-300 ${typography.bodyLarge}`}>
                 Powerful AI tools designed specifically for commercial real estate professionals
               </p>
             </div>
@@ -94,8 +95,8 @@ export default function LandingPage() {
                     <div className="h-10 w-10 bg-blue-100 text-blue-600 rounded-lg grid grid-cols-1 justify-items-center items-center">
                       📄
                     </div>
-                    <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Smart Document Processing</h3>
-                    <p className="text-slate-600 dark:text-slate-300">
+                    <h3 className={`text-slate-900 dark:text-white ${typography.subsectionHeader} text-xl`}>Smart Document Processing</h3>
+                    <p className={`text-slate-600 dark:text-slate-300 ${typography.body}`}>
                       Upload PDFs and get instant text extraction with intelligent parsing of key deal metrics
                     </p>
                   </div>
@@ -106,8 +107,8 @@ export default function LandingPage() {
                     <div className="h-10 w-10 bg-green-100 text-green-600 rounded-lg grid grid-cols-1 justify-items-center items-center">
                       💬
                     </div>
-                    <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Conversational AI</h3>
-                    <p className="text-slate-600 dark:text-slate-300">
+                    <h3 className={`text-slate-900 dark:text-white ${typography.subsectionHeader} text-xl`}>Conversational AI</h3>
+                    <p className={`text-slate-600 dark:text-slate-300 ${typography.body}`}>
                       Ask questions about your deals in natural language and get detailed, contextual responses
                     </p>
                   </div>
@@ -118,8 +119,8 @@ export default function LandingPage() {
                     <div className="h-10 w-10 bg-purple-100 text-purple-600 rounded-lg grid grid-cols-1 justify-items-center items-center">
                       📊
                     </div>
-                    <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Deal Snapshots</h3>
-                    <p className="text-slate-600 dark:text-slate-300">
+                    <h3 className={`text-slate-900 dark:text-white ${typography.subsectionHeader} text-xl`}>Deal Snapshots</h3>
+                    <p className={`text-slate-600 dark:text-slate-300 ${typography.body}`}>
                       Automatically generate comprehensive deal summaries with key metrics and investment highlights
                     </p>
                   </div>
@@ -134,13 +135,13 @@ export default function LandingPage() {
           <div className="container mx-auto px-4">
             <div className="mx-auto max-w-2xl text-center">
               <div className="grid grid-cols-1 gap-4 justify-items-center">
-                <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
+                <h2 className={`tracking-tight text-slate-900 dark:text-white sm:text-4xl ${typography.sectionHeader} text-3xl`}>
                   Ready to transform your deal analysis?
                 </h2>
-                <p className="text-lg text-slate-600 dark:text-slate-300">
+                <p className={`text-slate-600 dark:text-slate-300 ${typography.bodyLarge}`}>
                   Join thousands of real estate professionals using AI to make smarter investment decisions.
                 </p>
-                <Link href="/auth/register" className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition-colors grid grid-cols-[auto_auto] items-center gap-2">
+                <Link href="/auth/register" className={`bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition-colors grid grid-cols-[auto_auto] items-center gap-2 ${componentTypography.button.primary}`}>
                   <span>Start Your Free Trial</span>
                   <span>→</span>
                 </Link>
@@ -158,12 +159,12 @@ export default function LandingPage() {
                   <div className="h-6 w-6 bg-blue-600 rounded grid grid-cols-1 justify-items-center items-center">
                     <span className="text-white font-bold text-xs">OM</span>
                   </div>
-                  <span className="font-bold text-slate-900 dark:text-white">OM Intel Chat</span>
+                  <span className={`text-slate-900 dark:text-white ${typography.navLink} font-bold`}>OM Intel Chat</span>
                 </div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
+                <p className={`text-slate-600 dark:text-slate-400 ${typography.bodySmall}`}>
                   AI-powered commercial real estate analysis platform.
                 </p>
-                <div className="text-sm text-slate-600 dark:text-slate-400">
+                <div className={`text-slate-600 dark:text-slate-400 ${typography.bodySmall}`}>
                   © 2024 OM Intel Chat. All rights reserved.
                 </div>
               </div>
