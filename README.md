@@ -61,9 +61,12 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
    SENTRY_ORG=your_sentry_org
    SENTRY_PROJECT=your_sentry_project
    SENTRY_AUTH_TOKEN=your_sentry_auth_token
-   
+
    # Environment
    NODE_ENV=development
+
+   # Debug (optional)
+   DEBUG_CHUNK_LOGS=false
    ```
    
    > **Note**: As of recent updates, environment variable validation is strictly enforced. Missing required Supabase variables will prevent the application from starting.
