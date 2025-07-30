@@ -69,6 +69,9 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
    > **Note**: As of recent updates, environment variable validation is strictly enforced. Missing required Supabase variables will prevent the application from starting.
 
 4. **Run database migrations**
+   Apply all SQL files in `supabase/migrations`, including
+   `supabase/migrations/20250729161400_add_prompt_versioning.sql` which
+   introduces the prompt versioning tables.
    ```bash
    npx supabase db push
    ```

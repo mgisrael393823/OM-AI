@@ -718,7 +718,8 @@ This ensures all components integrate properly.
 - `/src/pages/api/admin/prompts.ts` - Prompt version management
 
 ### Database Migrations
-- `prompt_versions` table - Store all prompt versions with metadata
+- `supabase/migrations/20250729161400_add_prompt_versioning.sql` - Adds the
+  `prompt_versions` table and message metadata for version tracking
 - Updated `messages` metadata - Track prompt type and version
 - Enhanced `usage_logs` - Include token analytics
 
