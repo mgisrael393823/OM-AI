@@ -94,10 +94,11 @@ describe('OM Response Validation', () => {
       };
 
       const result = validateAndFilterOmResponse(validResponse);
-      
+
       expect(result.success).toBe(true);
       expect(result.data).toBeDefined();
       expect(result.errors).toBeUndefined();
+      expect(result.warnings).toEqual([]);
       expect(result.data?.DealSnapshot.PropertyName).toBe("Sunset Plaza Apartments");
     });
 
@@ -161,11 +162,12 @@ describe('OM Response Validation', () => {
       };
 
       const result = validateAndFilterOmResponse(incompleteResponse);
-      
+
       expect(result.success).toBe(true);
       expect(result.data).toBeDefined();
       expect(result.data?.DealSnapshot.Address).toBe("");
       expect(result.data?.UnitMix).toEqual([]);
+      expect(result.warnings).toEqual([]);
     });
 
     it('should reject invalid structure', () => {
@@ -178,10 +180,11 @@ describe('OM Response Validation', () => {
       };
 
       const result = validateAndFilterOmResponse(invalidResponse);
-      
+
       expect(result.success).toBe(false);
       expect(result.errors).toBeDefined();
       expect(result.errors!.length).toBeGreaterThan(0);
+      expect(result.warnings).toBeUndefined();
     });
 
     it('should filter inappropriate recommended actions', () => {
@@ -250,12 +253,13 @@ describe('OM Response Validation', () => {
       };
 
       const result = validateAndFilterOmResponse(responseWithBadActions);
-      
+
       expect(result.success).toBe(true);
       expect(result.data?.RecommendedActions).toEqual([
         "Conduct market analysis",
         "Research comparables"
       ]);
+      expect(result.warnings).toEqual([]);
     });
 
     it('should validate cap rate ranges', () => {
@@ -318,9 +322,10 @@ describe('OM Response Validation', () => {
       };
 
       const result = validateAndFilterOmResponse(responseWithHighCapRate);
-      
+
       expect(result.success).toBe(false);
       expect(result.errors).toContainEqual(expect.stringContaining("Cap rate"));
+      expect(result.warnings).toBeUndefined();
     });
   });
 
@@ -330,7 +335,8 @@ describe('OM Response Validation', () => {
       
       const validation = validateAndFilterOmResponse(emptyResponse);
       expect(validation.success).toBe(true);
-      
+      expect(validation.warnings).toEqual([]);
+
       // Check all fields are empty strings
       expect(emptyResponse.DealSnapshot.PropertyName).toBe("");
       expect(emptyResponse.FinancialSummary.CapRate).toBe("");
@@ -450,33 +456,37 @@ describe('OM Response Validation', () => {
       };
 
       const result = validateAndFilterOmResponse(responseWithPII);
-      
+
       expect(result.success).toBe(true);
       expect(result.data?.LocationHighlights.Demographics).toContain("[REDACTED]");
       expect(result.data?.LocationHighlights.Demographics).not.toContain("john.doe@example.com");
+      expect(result.warnings).toEqual([]);
     });
   });
 
   describe('Error Handling', () => {
     it('should handle null input', () => {
       const result = validateAndFilterOmResponse(null);
-      
+
       expect(result.success).toBe(false);
       expect(result.errors).toBeDefined();
+      expect(result.warnings).toBeUndefined();
     });
 
     it('should handle undefined input', () => {
       const result = validateAndFilterOmResponse(undefined);
-      
+
       expect(result.success).toBe(false);
       expect(result.errors).toBeDefined();
+      expect(result.warnings).toBeUndefined();
     });
 
     it('should handle invalid JSON structure', () => {
       const result = validateAndFilterOmResponse("invalid json string");
-      
+
       expect(result.success).toBe(false);
       expect(result.errors).toBeDefined();
+      expect(result.warnings).toBeUndefined();
     });
   });
 });

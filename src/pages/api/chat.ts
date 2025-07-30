@@ -404,14 +404,16 @@ Please reference this document context in your response when relevant.`
       // Validate and filter structured response only if JSON was requested
       let validatedContent = assistantContent;
       let validationWarnings: string[] = [];
+      let warnings: string[] = [];
       
       if (useJsonSchema && assistantContent) {
         try {
           const parsedResponse = JSON.parse(assistantContent);
           const validation = validateAndFilterOmResponse(parsedResponse);
-          
+
           if (validation.success && validation.data) {
             validatedContent = JSON.stringify(validation.data);
+            warnings = validation.warnings || [];
           } else {
             console.warn('OM Response validation failed (non-streaming):', validation.errors);
             validationWarnings = validation.errors || [];
@@ -449,7 +451,8 @@ Please reference this document context in your response when relevant.`
         model: response.model,
         usage: response.usage,
         sessionId,
-        ...(validationWarnings.length > 0 && { validationWarnings })
+        ...(validationWarnings.length > 0 && { validationWarnings }),
+        ...(warnings.length > 0 && { warnings })
       })
     }
 

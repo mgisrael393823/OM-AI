@@ -103,17 +103,21 @@ export type OMResponse = z.infer<typeof OMResponseSchema>;
  * Validates and filters OM response in a single pass
  * @param data - Raw response data to validate
  * @returns Validated and filtered OM response with fallbacks
+ *          and any financial range warnings
  */
 export function validateAndFilterOmResponse(data: unknown): {
   success: boolean;
   data?: OMResponse;
   errors?: string[];
+  warnings?: string[];
 } {
   try {
     const validated = OMResponseSchema.parse(data);
+    const warnings = validateFinancialRanges(validated);
     return {
       success: true,
-      data: validated
+      data: validated,
+      ...(warnings.length > 0 && { warnings })
     };
   } catch (error) {
     if (error instanceof z.ZodError) {
