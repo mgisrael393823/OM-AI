@@ -73,14 +73,25 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
   // Normalize and validate request format
   const normalizedRequest = normalizeRequest(req.body)
-  const isSimple = typeof normalizedRequest.message === 'string'
+  const hasMessage = 'message' in req.body
+  const hasMessages = 'messages' in req.body
+  const hasOptions = 'options' in req.body
+  const hasDocumentContext = 'documentContext' in req.body
+  
+  // Simple format: has message field (with optional sessionId, documentId, options for compatibility)
+  // Complex format: has messages array field
+  // If neither, default to simple format for better error messages
+  const isSimple = hasMessage || !hasMessages
 
   // Validate request format
-  if (isSimple && !normalizedRequest.message) {
-    return createApiError(res, ERROR_CODES.MISSING_MESSAGE)
-  }
-  if (!isSimple && (!normalizedRequest.messages || !Array.isArray(normalizedRequest.messages))) {
-    return createApiError(res, ERROR_CODES.INVALID_MESSAGES)
+  if (isSimple) {
+    if (!normalizedRequest.message) {
+      return createApiError(res, ERROR_CODES.MISSING_MESSAGE)
+    }
+  } else {
+    if (!normalizedRequest.messages || !Array.isArray(normalizedRequest.messages)) {
+      return createApiError(res, ERROR_CODES.INVALID_MESSAGES)
+    }
   }
 
   // Log deprecated endpoint usage
@@ -245,8 +256,8 @@ Please reference this document context in your response when relevant.`
       content: contextualInformation ? `${systemPrompt}\n\nDOCUMENT CONTEXT:\n${contextualInformation}` : systemPrompt
     }
 
-    // Always use SSE format for backward compatibility (since frontend expects it)
-    const useSSEFormat = true
+    // Use SSE format for deprecated endpoints or when explicitly requested
+    const useSSEFormat = !!deprecatedEndpoint
     const shouldStream = normalizedRequest.options?.stream !== false
 
     if (shouldStream) {
