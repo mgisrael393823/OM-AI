@@ -10,7 +10,7 @@ import { withAuth } from '@/lib/auth-middleware'
 // Mock the auth middleware
 jest.mock('@/lib/auth-middleware', () => ({
   withAuth: jest.fn(),
-  withRateLimit: jest.fn((userId: string, limit: number, refill: number, callback: Function) => callback()),
+  withRateLimit: jest.fn((userId: string, limit: number, refill: number, callback: (...args: any[]) => void) => callback()),
   apiError: (res: any, status: number, message: string, code?: string) => {
     res.status(status).json({ error: message, code })
   }

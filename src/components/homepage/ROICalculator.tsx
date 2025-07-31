@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react'
+import Link from 'next/link'
 import { Calculator, Clock, DollarSign, TrendingUp } from 'lucide-react'
 import { typography, componentTypography } from '@/lib/typography'
 import { cn } from '@/lib/utils'
@@ -168,9 +169,9 @@ export function ROICalculator() {
               <p className={cn('text-slate-600 dark:text-slate-400 mb-4', typography.bodySmall)}>
                 Based on Professional plan at $299/month
               </p>
-              <a href="/auth/register" className={cn('inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 sm:px-6 py-2 sm:py-3 rounded-lg hover:bg-primary/90 transition-colors', componentTypography.button.primary)}>
+              <Link href="/auth/register" className={cn('inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 sm:px-6 py-2 sm:py-3 rounded-lg hover:bg-primary/90 transition-colors', componentTypography.button.primary)}>
                 Start Saving Today →
-              </a>
+              </Link>
             </div>
           </div>
         </div>

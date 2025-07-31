@@ -120,7 +120,7 @@ export default function RegisterPage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className={`text-slate-900 dark:text-white ${typography.sectionSubheader}`}>Check your email</h3>
+                    <h3 className={`text-slate-900 dark:text-white ${typography.subsectionHeader}`}>Check your email</h3>
                     <p className={`text-slate-600 dark:text-slate-400 mt-2 ${typography.body}`}>
                       We've sent a confirmation link to <strong>{formData.email}</strong>
                     </p>
