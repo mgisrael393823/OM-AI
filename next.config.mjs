@@ -38,6 +38,50 @@ const nextConfig = {
             },
           ],
         },
+        // Aggressive cache busting for auth routes
+        {
+          source: '/auth/(.*)',
+          headers: [
+            {
+              key: 'Cache-Control',
+              value: 'no-cache, no-store, must-revalidate, max-age=0',
+            },
+            {
+              key: 'Pragma',
+              value: 'no-cache',
+            },
+            {
+              key: 'Expires',
+              value: '0',
+            },
+            {
+              key: 'Vary',
+              value: '*',
+            },
+          ],
+        },
+        // Auth API routes cache busting
+        {
+          source: '/api/auth/(.*)',
+          headers: [
+            {
+              key: 'Cache-Control',
+              value: 'no-cache, no-store, must-revalidate, max-age=0',
+            },
+            {
+              key: 'Pragma',
+              value: 'no-cache',
+            },
+            {
+              key: 'Expires',
+              value: '0',
+            },
+            {
+              key: 'Vary',
+              value: '*',
+            },
+          ],
+        },
         {
           source: '/_next/static/(.*)',
           headers: [

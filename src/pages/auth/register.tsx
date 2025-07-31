@@ -98,7 +98,7 @@ export default function RegisterPage() {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
-            <Link href="/" className="inline-flex items-center space-x-2 text-2xl font-bold text-slate-900 dark:text-white">
+            <Link href="/" className={`inline-flex items-center space-x-2 text-slate-900 dark:text-white ${typography.pageTitle}`}>
               <Building2 className="h-8 w-8 text-blue-600" />
               <span>OM Intel Chat</span>
             </Link>
@@ -106,8 +106,8 @@ export default function RegisterPage() {
 
           <Card className="border-0 bg-white/80 backdrop-blur-md dark:bg-slate-800/80">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Create your account</CardTitle>
-              <CardDescription>
+              <CardTitle className={typography.sectionHeader}>Create your account</CardTitle>
+              <CardDescription className={typography.body}>
                 Start analyzing deals with AI in minutes
               </CardDescription>
             </CardHeader>
@@ -120,19 +120,19 @@ export default function RegisterPage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Check your email</h3>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
+                    <h3 className={`text-slate-900 dark:text-white ${typography.sectionSubheader}`}>Check your email</h3>
+                    <p className={`text-slate-600 dark:text-slate-400 mt-2 ${typography.body}`}>
                       We've sent a confirmation link to <strong>{formData.email}</strong>
                     </p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
+                    <p className={`text-slate-600 dark:text-slate-400 mt-2 ${typography.body}`}>
                       Click the link in the email to verify your account and start using OM Intel Chat.
                     </p>
                   </div>
-                  <div className="text-center text-sm text-slate-600 dark:text-slate-400">
+                  <div className={`text-center text-slate-600 dark:text-slate-400 ${typography.body}`}>
                     Didn't receive the email?{" "}
                     <button 
                       onClick={() => setEmailSent(false)}
-                      className="text-blue-600 hover:underline font-medium"
+                      className={`text-blue-600 hover:underline ${componentTypography.button.link} font-medium`}
                     >
                       Try again
                     </button>
@@ -143,17 +143,18 @@ export default function RegisterPage() {
                   <form onSubmit={handleSubmit} className="space-y-4">
                     {error && (
                       <Alert variant="destructive">
-                        <AlertDescription>{error}</AlertDescription>
+                        <AlertDescription className={typography.error}>{error}</AlertDescription>
                       </Alert>
                     )}
 
                     <div className="space-y-2">
-                      <Label htmlFor="fullName">Full Name</Label>
+                      <Label htmlFor="fullName" className={componentTypography.form.label}>Full Name</Label>
                       <Input
                         id="fullName"
                         name="fullName"
                         type="text"
                         placeholder="Enter your full name"
+                        className={componentTypography.form.input}
                         value={formData.fullName}
                         onChange={handleInputChange}
                         autoComplete="name"
@@ -163,12 +164,13 @@ export default function RegisterPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="email">Email</Label>
+                      <Label htmlFor="email" className={componentTypography.form.label}>Email</Label>
                       <Input
                         id="email"
                         name="email"
                         type="email"
                         placeholder="Enter your email"
+                        className={componentTypography.form.input}
                         value={formData.email}
                         onChange={handleInputChange}
                         autoComplete="email"
@@ -178,13 +180,14 @@ export default function RegisterPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="password">Password</Label>
+                      <Label htmlFor="password" className={componentTypography.form.label}>Password</Label>
                       <div className="relative">
                         <Input
                           id="password"
                           name="password"
                           type={showPassword ? "text" : "password"}
                           placeholder="Create a password"
+                          className={componentTypography.form.input}
                           value={formData.password}
                           onChange={handleInputChange}
                           autoComplete="new-password"
@@ -209,13 +212,14 @@ export default function RegisterPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="confirmPassword">Confirm Password</Label>
+                      <Label htmlFor="confirmPassword" className={componentTypography.form.label}>Confirm Password</Label>
                       <div className="relative">
                         <Input
                           id="confirmPassword"
                           name="confirmPassword"
                           type={showConfirmPassword ? "text" : "password"}
                           placeholder="Confirm your password"
+                          className={componentTypography.form.input}
                           value={formData.confirmPassword}
                           onChange={handleInputChange}
                           autoComplete="new-password"
@@ -246,19 +250,19 @@ export default function RegisterPage() {
                         onCheckedChange={(checked) => setAcceptTerms(checked as boolean)}
                         disabled={isLoading}
                       />
-                      <Label htmlFor="terms" className="text-sm">
+                      <Label htmlFor="terms" className={`${componentTypography.form.label} text-sm`}>
                         I agree to the{" "}
-                        <Link href="#" className="text-blue-600 hover:underline">
+                        <Link href="#" className={`text-blue-600 hover:underline ${componentTypography.button.link}`}>
                           Terms of Service
                         </Link>{" "}
                         and{" "}
-                        <Link href="#" className="text-blue-600 hover:underline">
+                        <Link href="#" className={`text-blue-600 hover:underline ${componentTypography.button.link}`}>
                           Privacy Policy
                         </Link>
                       </Label>
                     </div>
 
-                    <Button type="submit" className="w-full" disabled={isLoading}>
+                    <Button type="submit" className={`w-full ${componentTypography.button.primary}`} disabled={isLoading}>
                       {isLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -270,9 +274,9 @@ export default function RegisterPage() {
                     </Button>
                   </form>
 
-                  <div className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
+                  <div className={`mt-6 text-center text-slate-600 dark:text-slate-400 ${typography.body}`}>
                     Already have an account?{" "}
-                    <Link href="/auth/login" className="text-blue-600 hover:underline font-medium">
+                    <Link href="/auth/login" className={`text-blue-600 hover:underline ${componentTypography.button.link} font-medium`}>
                       Sign in
                     </Link>
                   </div>

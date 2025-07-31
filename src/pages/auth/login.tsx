@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Building2, Eye, EyeOff, Loader2 } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { componentTypography, typography } from "@/lib/typography"
+import { DEV_AUTH_UTILS } from "@/lib/dev-auth-utils"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -164,6 +165,31 @@ export default function LoginPage() {
                   Forgot your password?
                 </button>
               </div>
+
+              {/* Development debugging tools */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                  <div className="text-xs text-yellow-800 dark:text-yellow-200 font-medium mb-2">
+                    Development Tools
+                  </div>
+                  <div className="space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => DEV_AUTH_UTILS.clearAuthStorage()}
+                      className="text-xs px-2 py-1 bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-200 rounded hover:bg-yellow-300 dark:hover:bg-yellow-700"
+                    >
+                      Clear Auth Cache
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => DEV_AUTH_UTILS.debugAuthStorage()}
+                      className="text-xs px-2 py-1 bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded hover:bg-blue-300 dark:hover:bg-blue-700"
+                    >
+                      Debug Storage
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className={`mt-6 text-center text-slate-600 dark:text-slate-400 ${typography.body}`}>
                 Don't have an account?{" "}

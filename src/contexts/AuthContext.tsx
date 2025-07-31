@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { User, Session, AuthError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { logError, logWarning } from '@/lib/error-logger'
+import { DEV_AUTH_UTILS } from '@/lib/dev-auth-utils'
 import * as Sentry from '@sentry/nextjs'
 
 interface UserProfile {
@@ -39,9 +40,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Development: Check for stale tokens and clear if found
+    if (process.env.NODE_ENV === 'development' && DEV_AUTH_UTILS.hasStaleTokens()) {
+      console.log('🧹 Clearing stale auth tokens in development')
+      DEV_AUTH_UTILS.clearAuthStorage()
+    }
+
     // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       console.log('🔍 Initial session check:', session?.user?.email || 'No user')
+      
+      if (error) {
+        console.warn('⚠️ Session check error:', error)
+        if (process.env.NODE_ENV === 'development') {
+          DEV_AUTH_UTILS.clearAuthStorage()
+        }
+      }
+      
       setSession(session)
       setUser(session?.user ?? null)
       
@@ -49,6 +64,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('👤 Fetching user profile for:', session.user.email)
         await fetchUserProfile(session.user.id, session.user)
         console.log('✅ Profile fetch completed')
+      } else {
+        setProfile(null)
       }
       
       console.log('🏁 Setting loading to false')
@@ -60,6 +77,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🔄 Auth state change:', event, session?.user?.email || 'No user')
+      
+      // Reset loading state for auth changes
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+        setLoading(true)
+      }
+      
       setSession(session)
       setUser(session?.user ?? null)
       
@@ -69,6 +92,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('✅ Profile fetch completed')
       } else {
         setProfile(null)
+        // Clear storage on sign out in development
+        if (event === 'SIGNED_OUT' && process.env.NODE_ENV === 'development') {
+          DEV_AUTH_UTILS.clearAuthStorage()
+        }
       }
       
       console.log('🏁 Setting loading to false')
@@ -229,6 +256,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signIn = async (email: string, password: string) => {
+    // Clear any stale storage before attempting sign in (development only)
+    if (process.env.NODE_ENV === 'development') {
+      DEV_AUTH_UTILS.clearAuthStorage()
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -239,6 +271,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut()
+    
+    // Clear all auth storage after sign out (development only)
+    if (process.env.NODE_ENV === 'development') {
+      DEV_AUTH_UTILS.clearAuthStorage()
+    }
+    
     return { error }
   }
 
