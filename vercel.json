@@ -1,5 +1,14 @@
 {
   "framework": "nextjs",
+  "build": {
+    "env": {
+      "VERCEL_AUTO_POLLUTE": "1"
+    }
+  },
+  "routes": [
+    { "src": "/_next/static/.*", "headers": { "cache-control": "public, max-age=0, must-revalidate" } },
+    { "src": "/.*\\.html", "headers": { "cache-control": "public, max-age=0, must-revalidate" } }
+  ],
   "redirects": [
     {
       "source": "/old-path",
