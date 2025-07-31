@@ -24,8 +24,9 @@ export default function LoginPage() {
   useEffect(() => {
     console.log('🔐 Login page - auth state:', { loading, hasUser: !!user })
     if (!loading && user) {
-      console.log('✅ Already authenticated, redirecting to app')
-      router.push("/app")
+      const redirectTo = router.query.redirect as string || "/app"
+      console.log('✅ Already authenticated, redirecting to:', redirectTo)
+      router.push(redirectTo)
     }
   }, [user, loading, router])
 
@@ -46,8 +47,9 @@ export default function LoginPage() {
 
       if (user) {
         console.log('✅ Login successful, user:', user.email)
-        console.log('🔄 Auth context will handle navigation via useEffect')
-        // Don't manually navigate - let the useEffect handle it when user state updates
+        const redirectTo = router.query.redirect as string || "/app"
+        console.log('🔄 Redirecting to:', redirectTo)
+        router.push(redirectTo)
       } else {
         console.log('⚠️ Login returned no user')
         setError("Login failed - no user returned")
@@ -158,9 +160,9 @@ export default function LoginPage() {
               </form>
 
               <div className="mt-6 text-center">
-                <Link href="#" className={`text-blue-600 hover:underline ${componentTypography.button.link}`}>
+                <button type="button" className={`text-blue-600 hover:underline ${componentTypography.button.link}`}>
                   Forgot your password?
-                </Link>
+                </button>
               </div>
 
               <div className={`mt-6 text-center text-slate-600 dark:text-slate-400 ${typography.body}`}>
