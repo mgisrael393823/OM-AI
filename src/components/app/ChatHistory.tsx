@@ -350,7 +350,7 @@ export function ChatHistory({
   }, [])
 
   // Simple debounce function for resize handling
-  function debounce(func: Function, wait: number) {
+  function debounce(func: (...args: any[]) => void, wait: number) {
     let timeout: NodeJS.Timeout
     return function executedFunction(...args: any[]) {
       const later = () => {

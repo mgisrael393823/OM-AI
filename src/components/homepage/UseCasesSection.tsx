@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import Link from 'next/link'
 import { Building, TrendingUp, Users, Banknote, ChevronRight } from 'lucide-react'
 import { typography, componentTypography } from '@/lib/typography'
 import { cn } from '@/lib/utils'
@@ -137,12 +138,12 @@ export function UseCasesSection() {
             </div>
 
             <div className="mt-8 text-center">
-              <a 
+              <Link 
                 href="/auth/register" 
                 className={cn('inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 sm:px-6 py-2 sm:py-3 rounded-lg hover:bg-primary/90 transition-colors', componentTypography.button.primary)}
               >
                 Start Your Free Trial →
-              </a>
+              </Link>
             </div>
           </div>
         </div>
