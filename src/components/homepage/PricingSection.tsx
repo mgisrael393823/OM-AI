@@ -1,10 +1,14 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { typography, componentTypography } from '@/lib/typography'
 import { cn } from '@/lib/utils'
+import { useRouter } from 'next/router'
+import { PRICING_PLANS } from '@/lib/pricing-config'
+import { supabase } from '@/lib/supabase'
 
 const pricingTiers = [
   {
+    id: 'starter',
     name: 'Starter',
     price: '$99',
     period: '/month',
@@ -21,6 +25,7 @@ const pricingTiers = [
     highlighted: false
   },
   {
+    id: 'professional',
     name: 'Professional',
     price: '$299',
     period: '/month',
@@ -37,6 +42,7 @@ const pricingTiers = [
     highlighted: true
   },
   {
+    id: 'enterprise',
     name: 'Enterprise',
     price: 'Custom',
     period: '',
@@ -55,6 +61,62 @@ const pricingTiers = [
 ]
 
 export function PricingSection() {
+  const router = useRouter()
+  const [isLoading, setIsLoading] = useState<string | null>(null)
+
+  const handleCheckout = async (planId: string) => {
+    if (planId === 'enterprise') {
+      router.push('/contact')
+      return
+    }
+
+    setIsLoading(planId)
+    
+    try {
+      const plan = PRICING_PLANS[planId as keyof typeof PRICING_PLANS]
+      
+      // Get current session token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        router.push(`/auth/login?redirect=/pricing&plan=${planId}`)
+        return
+      }
+      
+      const response = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          priceId: plan.priceId,
+          planType: planId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.error) {
+        // If not authenticated, redirect to login
+        if (response.status === 401) {
+          router.push(`/auth/login?redirect=/pricing&plan=${planId}`)
+        } else {
+          console.error('Checkout error:', data.error)
+          alert('Failed to start checkout. Please try again.')
+        }
+        return
+      }
+
+      // Redirect to Stripe checkout
+      window.location.href = data.url
+    } catch (error) {
+      console.error('Checkout error:', error)
+      alert('Failed to start checkout. Please try again.')
+    } finally {
+      setIsLoading(null)
+    }
+  }
+
   return (
     <section className="py-20 bg-slate-50 dark:bg-slate-900/50">
       <div className="container mx-auto px-4">
@@ -143,18 +205,19 @@ export function PricingSection() {
                   ))}
                 </ul>
 
-                <a
-                  href={tier.name === 'Enterprise' ? '/contact' : '/auth/register'}
+                <button
+                  onClick={() => handleCheckout(tier.id)}
+                  disabled={isLoading === tier.id}
                   className={cn(
-                    'block text-center px-4 sm:px-6 py-2 sm:py-3 rounded-lg transition-colors',
+                    'block w-full text-center px-4 sm:px-6 py-2 sm:py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
                     tier.highlighted
                       ? 'bg-white text-primary hover:bg-slate-100'
                       : 'bg-primary text-primary-foreground hover:bg-primary/90',
                     componentTypography.button.primary
                   )}
                 >
-                  {tier.cta}
-                </a>
+                  {isLoading === tier.id ? 'Loading...' : tier.cta}
+                </button>
               </div>
             ))}
           </div>
