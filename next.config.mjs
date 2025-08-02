@@ -180,8 +180,7 @@ const nextConfig = {
       config.optimization.removeEmptyChunks = false;
       config.optimization.splitChunks = false;
       
-      // Better source maps for debugging
-      config.devtool = 'eval-cheap-module-source-map';
+      // Source maps handled by Sentry webpack plugin
     }
     
     return config;
