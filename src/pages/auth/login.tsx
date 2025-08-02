@@ -50,7 +50,8 @@ export default function LoginPage() {
         console.log('✅ Login successful, user:', user.email)
         const redirectTo = router.query.redirect as string || "/app"
         console.log('🔄 Redirecting to:', redirectTo)
-        router.push(redirectTo)
+        await router.push(redirectTo)
+        window.location.reload() // Force reload to clear cache
       } else {
         console.log('⚠️ Login returned no user')
         setError("Login failed - no user returned")

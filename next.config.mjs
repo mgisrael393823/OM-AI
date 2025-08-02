@@ -9,10 +9,23 @@ const __dirname = dirname(__filename);
 const nextConfig = {
   reactStrictMode: true,
   
-  // Development-specific headers for cache busting
+  // Headers for cache busting
   headers: async () => {
+    const headers = [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, max-age=0',
+          },
+        ],
+      },
+    ];
+
     if (process.env.NODE_ENV === 'development') {
       return [
+        ...headers,
         {
           source: '/(.*)',
           headers: [
@@ -101,7 +114,7 @@ const nextConfig = {
         },
       ];
     }
-    return [];
+    return headers;
   },
   
   // Optimize build performance
