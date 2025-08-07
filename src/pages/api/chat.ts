@@ -240,7 +240,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           console.log("Chunks analysis:")
           console.log(`Total chunks available: ${allChunks?.length || 0}`)
           console.log(`Search results: ${searchChunks?.length || 0}`)
-          console.log(`Using ${chunksToUse.length} chunks:`, chunksToUse.map((c, idx) => {
+          console.log(`Using ${chunksToUse.length} chunks:`, chunksToUse.map((c: any, idx) => {
             const preview = c.content.substring(0, 100).replace(/\n/g, ' ') + '...'
             return `${idx + 1}. Page ${c.page_number} (${(c as any).documents?.original_filename || 'Unknown'}): "${preview}"`
           }))
