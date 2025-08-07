@@ -240,7 +240,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           console.log("Chunks analysis:")
           console.log(`Total chunks available: ${allChunks?.length || 0}`)
           console.log(`Search results: ${searchChunks?.length || 0}`)
-          console.log(`Using ${chunksToUse.length} chunks:`, chunksToUse.map((c, idx) => {
+          console.log(`Using ${chunksToUse.length} chunks:`, chunksToUse.map((c: any, idx: number) => {
             const preview = c.content.substring(0, 100).replace(/\n/g, ' ') + '...'
             return `${idx + 1}. Page ${c.page_number} (${(c as any).documents?.original_filename || 'Unknown'}): "${preview}"`
           }))
@@ -255,7 +255,7 @@ DOCUMENT CONTEXT:
 The following information is from the user's uploaded documents:
 
 ${chunksToUse
-  .map((chunk, index) => {
+  .map((chunk: any, index: number) => {
     const docName = (chunk as any).documents?.original_filename ?? 'Unknown';
     return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
 ${chunk.content.substring(0, 1500)}${chunk.content.length > 1500 ? '...' : ''}`;
