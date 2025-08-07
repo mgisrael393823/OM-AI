@@ -2,7 +2,7 @@
 -- This migration adds comprehensive prompt version tracking and message metadata
 
 -- Create prompt_versions table for centralized prompt management
-CREATE TABLE prompt_versions (
+CREATE TABLE IF NOT EXISTS prompt_versions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   prompt_type VARCHAR(50) NOT NULL,
   version VARCHAR(20) NOT NULL,
@@ -15,9 +15,9 @@ CREATE TABLE prompt_versions (
 );
 
 -- Create indexes for efficient prompt lookups
-CREATE INDEX idx_prompt_versions_type_version ON prompt_versions(prompt_type, version);
-CREATE INDEX idx_prompt_versions_active ON prompt_versions(prompt_type, is_active) WHERE is_active = true;
-CREATE INDEX idx_prompt_versions_created_at ON prompt_versions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_type_version ON prompt_versions(prompt_type, version);
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_active ON prompt_versions(prompt_type, is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_created_at ON prompt_versions(created_at DESC);
 
 -- Add prompt versioning columns to messages table
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS prompt_version VARCHAR(20);
@@ -25,9 +25,9 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS function_calls JSONB;
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS token_usage JSONB;
 
 -- Create indexes for message metadata queries
-CREATE INDEX idx_messages_prompt_version ON messages(prompt_version);
-CREATE INDEX idx_messages_function_calls ON messages USING GIN(function_calls) WHERE function_calls IS NOT NULL;
-CREATE INDEX idx_messages_token_usage ON messages USING GIN(token_usage) WHERE token_usage IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_messages_prompt_version ON messages(prompt_version);
+CREATE INDEX IF NOT EXISTS idx_messages_function_calls ON messages USING GIN(function_calls) WHERE function_calls IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_messages_token_usage ON messages USING GIN(token_usage) WHERE token_usage IS NOT NULL;
 
 -- Insert initial OM analyst prompt version
 INSERT INTO prompt_versions (prompt_type, version, content, changelog, is_active)
@@ -37,22 +37,38 @@ VALUES (
   'Elite OM Intel analyst system prompt with deterministic JSON output enforcement',
   'Initial production version with structured outputs and comprehensive schema validation',
   true
-);
+)
+ON CONFLICT (prompt_type, version) DO NOTHING;
 
 -- Create RLS policies for prompt_versions table
-ALTER TABLE prompt_versions ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_tables 
+    WHERE schemaname = 'public' AND tablename = 'prompt_versions' 
+    AND rowsecurity = true
+  ) THEN
+    ALTER TABLE prompt_versions ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $$;
 
--- Policy: Users can read all prompt versions (for system functionality)
-CREATE POLICY "prompt_versions_read_all" ON prompt_versions
-  FOR SELECT USING (true);
+-- Create RLS policies with conditional checks
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'prompt_versions_read_all' AND tablename = 'prompt_versions' AND schemaname = 'public') THEN
+    CREATE POLICY "prompt_versions_read_all" ON prompt_versions FOR SELECT USING (true);
+  END IF;
+END $$;
 
--- Policy: Only authenticated users can insert new versions (admin functionality)
-CREATE POLICY "prompt_versions_insert_authenticated" ON prompt_versions
-  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'prompt_versions_insert_authenticated' AND tablename = 'prompt_versions' AND schemaname = 'public') THEN
+    CREATE POLICY "prompt_versions_insert_authenticated" ON prompt_versions FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+  END IF;
+END $$;
 
--- Policy: Only the creator can update their prompt versions
-CREATE POLICY "prompt_versions_update_creator" ON prompt_versions
-  FOR UPDATE USING (created_by = auth.uid());
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'prompt_versions_update_creator' AND tablename = 'prompt_versions' AND schemaname = 'public') THEN
+    CREATE POLICY "prompt_versions_update_creator" ON prompt_versions FOR UPDATE USING (created_by = auth.uid());
+  END IF;
+END $$;
 
 -- Add helpful comments
 COMMENT ON TABLE prompt_versions IS 'Centralized storage for versioned AI prompts with change tracking';
@@ -66,7 +82,7 @@ COMMENT ON COLUMN messages.function_calls IS 'OpenAI function calls made during 
 COMMENT ON COLUMN messages.token_usage IS 'Token consumption data (input, output, total tokens)';
 
 -- Create a view for active prompts (commonly used)
-CREATE VIEW active_prompts AS
+CREATE OR REPLACE VIEW active_prompts AS
 SELECT 
   prompt_type,
   version,
@@ -137,15 +153,19 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER ensure_single_active_version
-  BEFORE INSERT OR UPDATE ON prompt_versions
-  FOR EACH ROW
-  EXECUTE FUNCTION check_single_active_version();
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'ensure_single_active_version' AND tgrelid = 'prompt_versions'::regclass) THEN
+    CREATE TRIGGER ensure_single_active_version
+      BEFORE INSERT OR UPDATE ON prompt_versions
+      FOR EACH ROW
+      EXECUTE FUNCTION check_single_active_version();
+  END IF;
+END $$;
 
 COMMENT ON TRIGGER ensure_single_active_version ON prompt_versions IS 'Ensures only one version per prompt type can be active';
 
 -- Create analytics view for prompt performance tracking
-CREATE VIEW prompt_usage_analytics AS
+CREATE OR REPLACE VIEW prompt_usage_analytics AS
 SELECT 
   m.prompt_version,
   pv.prompt_type,
