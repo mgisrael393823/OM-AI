@@ -2,7 +2,7 @@
 create extension if not exists "uuid-ossp";
 
 -- Users table (extends Supabase auth.users)
-create table public.users (
+create table if not exists public.users (
   id uuid references auth.users on delete cascade primary key,
   email text unique not null,
   full_name text,
@@ -17,7 +17,7 @@ create table public.users (
 );
 
 -- Documents table
-create table public.documents (
+create table if not exists public.documents (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.users(id) on delete cascade not null,
   filename text not null,
@@ -33,7 +33,7 @@ create table public.documents (
 );
 
 -- Chat sessions table
-create table public.chat_sessions (
+create table if not exists public.chat_sessions (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.users(id) on delete cascade not null,
   title text,
@@ -43,7 +43,7 @@ create table public.chat_sessions (
 );
 
 -- Messages table
-create table public.messages (
+create table if not exists public.messages (
   id uuid default uuid_generate_v4() primary key,
   chat_session_id uuid references public.chat_sessions(id) on delete cascade not null,
   role text not null check (role in ('user', 'assistant')),
@@ -53,7 +53,7 @@ create table public.messages (
 );
 
 -- Subscriptions table for tracking usage and billing
-create table public.subscriptions (
+create table if not exists public.subscriptions (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.users(id) on delete cascade not null,
   stripe_subscription_id text unique not null,
@@ -67,7 +67,7 @@ create table public.subscriptions (
 );
 
 -- Usage tracking table
-create table public.usage_logs (
+create table if not exists public.usage_logs (
   id uuid default uuid_generate_v4() primary key,
   user_id uuid references public.users(id) on delete cascade not null,
   action text not null check (action in ('document_upload', 'chat_message', 'document_analysis')),
@@ -78,15 +78,15 @@ create table public.usage_logs (
 );
 
 -- Indexes for performance
-create index idx_documents_user_id on public.documents(user_id);
-create index idx_documents_status on public.documents(status);
-create index idx_chat_sessions_user_id on public.chat_sessions(user_id);
-create index idx_chat_sessions_document_id on public.chat_sessions(document_id);
-create index idx_messages_chat_session_id on public.messages(chat_session_id);
-create index idx_messages_created_at on public.messages(created_at);
-create index idx_subscriptions_user_id on public.subscriptions(user_id);
-create index idx_usage_logs_user_id on public.usage_logs(user_id);
-create index idx_usage_logs_created_at on public.usage_logs(created_at);
+create index if not exists idx_documents_user_id on public.documents(user_id);
+create index if not exists idx_documents_status on public.documents(status);
+create index if not exists idx_chat_sessions_user_id on public.chat_sessions(user_id);
+create index if not exists idx_chat_sessions_document_id on public.chat_sessions(document_id);
+create index if not exists idx_messages_chat_session_id on public.messages(chat_session_id);
+create index if not exists idx_messages_created_at on public.messages(created_at);
+create index if not exists idx_subscriptions_user_id on public.subscriptions(user_id);
+create index if not exists idx_usage_logs_user_id on public.usage_logs(user_id);
+create index if not exists idx_usage_logs_created_at on public.usage_logs(created_at);
 
 -- Updated_at trigger function
 create or replace function public.handle_updated_at()
@@ -97,7 +97,21 @@ begin
 end;
 $$ language plpgsql;
 
--- Updated_at triggers
-create trigger handle_updated_at before update on public.users for each row execute function public.handle_updated_at();
-create trigger handle_updated_at before update on public.chat_sessions for each row execute function public.handle_updated_at();
-create trigger handle_updated_at before update on public.subscriptions for each row execute function public.handle_updated_at();
+-- Updated_at triggers (with IF NOT EXISTS equivalent using DO blocks)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'handle_updated_at' AND tgrelid = 'public.users'::regclass) THEN
+    CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'handle_updated_at' AND tgrelid = 'public.chat_sessions'::regclass) THEN
+    CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.chat_sessions FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'handle_updated_at' AND tgrelid = 'public.subscriptions'::regclass) THEN
+    CREATE TRIGGER handle_updated_at BEFORE UPDATE ON public.subscriptions FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  END IF;
+END $$;
