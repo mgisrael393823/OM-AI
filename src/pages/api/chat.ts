@@ -255,7 +255,7 @@ DOCUMENT CONTEXT:
 The following information is from the user's uploaded documents:
 
 ${chunksToUse
-  .map((chunk, index) => {
+  .map((chunk: any, index: number) => {
     const docName = (chunk as any).documents?.original_filename ?? 'Unknown';
     return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
 ${chunk.content.substring(0, 1500)}${chunk.content.length > 1500 ? '...' : ''}`;
