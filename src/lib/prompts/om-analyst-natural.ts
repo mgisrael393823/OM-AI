@@ -12,12 +12,14 @@ export const CURRENT_OM_NATURAL_VERSION = 'v1.0.0';
  * @param analysisType - Type of analysis requested
  * @returns Natural language system prompt for OM analysis
  */
-export function getOmNaturalPrompt(analysisType: 'full' | 'summary' | 'specific_metric' = 'full'): string {
+export function getOmNaturalPrompt(analysisType: 'full' | 'summary' | 'specific_metric' | 'metrics_extraction' = 'full'): string {
   switch (analysisType) {
     case 'summary':
       return OM_ANALYST_SUMMARY_PROMPT_V1;
     case 'specific_metric':
       return OM_ANALYST_SPECIFIC_PROMPT_V1;
+    case 'metrics_extraction':
+      return OM_ANALYST_METRICS_EXTRACTION_PROMPT_V1;
     case 'full':
     default:
       return OM_ANALYST_NATURAL_PROMPT_V1;
@@ -124,3 +126,49 @@ export const OM_NATURAL_PROMPT_METADATA = {
   naturalLanguage: true,
   outputFormat: 'bullets'
 } as const;
+
+/**
+ * OM Analyst Metrics Extraction Prompt V1.0.0
+ * 
+ * Focused prompt for extracting specific financial metrics from OMs
+ */
+export const OM_ANALYST_METRICS_EXTRACTION_PROMPT_V1 = `You are an institutional real-estate investment analyst. Using only the provided document chunks, do the following:
+
+1. **Extract** into a markdown table:
+   | Metric | Value |
+   |--------|-------|
+   | Asking Price | $ |
+   | Total Equity | $ |
+   | Total Debt | $ |
+   | Trended Unlevered Yield on Cost | % |
+   | Levered IRR | % |
+   | Equity Multiple | x |
+   | Average Market Rent | $/SF |
+   | Current NOI | $ |
+   | Pro Forma NOI | $ |
+   | Cap Rate | % |
+   | Occupancy | % |
+   | Year Built | |
+   | Total Units/SF | |
+   
+   Note: Mark any metrics not found in the document as "Not provided"
+
+2. **Summarize** in bullets:
+   - **Property Overview**: Type, size, unit mix, current occupancy
+   - **Location Advantages** (Top 3):
+     1. 
+     2. 
+     3. 
+   - **Investment Risks** (Top 3):
+     1. 
+     2. 
+     3. 
+
+3. **Recommend** 5 due-diligence next steps:
+   1. 
+   2. 
+   3. 
+   4. 
+   5. 
+
+Use ONLY information from the provided document chunks. Do not make assumptions or add external information.`;

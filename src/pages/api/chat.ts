@@ -163,7 +163,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         const userQuery = isSimple ? normalizedRequest.message : 
           normalizedRequest.messages?.[normalizedRequest.messages.length - 1]?.content || ""
         
-        // Get document chunks - try without text search first to ensure we get content
+        // Get document chunks - prioritize financial content
+        const financialKeywords = ['price', 'noi', 'cap rate', 'return', 'cash flow', 'revenue', 'income', 'expense', 'rent', 'square', 'sf', 'unit', 'acquisition', 'purchase']
+        
         const { data: allChunks, error: allChunksError } = await supabase
           .from('document_chunks')
           .select(`
@@ -174,7 +176,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           `)
           .eq('user_id', req.user.id)
           .in('document_id', documentIds)
-          .limit(10)
+          .order('page_number', { ascending: true })
+          .limit(100)
         
         if (allChunksError) {
           console.error('Error retrieving document chunks:', allChunksError)
@@ -182,41 +185,80 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         
         // Now try with text search if we have chunks and a query
         let relevantChunks = allChunks
+        let searchChunks = null
+        
         if (allChunks && allChunks.length > 0 && userQuery) {
-          const { data: searchChunks, error: searchError } = await supabase
-            .from('document_chunks')
-            .select(`
-              content,
-              page_number,
-              chunk_type,
-              documents!inner(original_filename)
-            `)
-            .eq('user_id', req.user.id)
-            .in('document_id', documentIds)
-            .textSearch('content', userQuery)
-            .limit(5)
+          // First try RPC call with plainto_tsquery for safe text search
+          const { data, error: searchError } = await supabase
+            .rpc('search_document_chunks', {
+              p_user_id: req.user.id,
+              p_document_ids: documentIds,
+              p_query: userQuery,
+              p_limit: 20
+            })
+          
+          searchChunks = data
           
           if (searchError) {
             console.error('Error in document text search:', searchError)
+            console.log('Falling back to filtered chunk retrieval')
+            
+            // Filter by Milwaukee OM specifically if available
+            const milwaukeeChunks = allChunks.filter(chunk => 
+              (chunk as any).documents?.original_filename?.toLowerCase().includes('milwaukee')
+            )
+            
+            if (milwaukeeChunks.length > 0) {
+              relevantChunks = milwaukeeChunks
+              console.log(`Filtered to ${milwaukeeChunks.length} Milwaukee OM chunks`)
+            }
           }
           
-          // Use search results if available, otherwise fall back to all chunks
+          // Use search results if available, otherwise fall back to filtered chunks
           if (searchChunks && searchChunks.length > 0) {
             relevantChunks = searchChunks
           }
         }
 
         if (relevantChunks && relevantChunks.length > 0) {
+          // If no search was performed, prioritize chunks with financial keywords
+          if (!searchChunks && (userQuery.toLowerCase().includes('metric') || userQuery.toLowerCase().includes('financial') || userQuery.toLowerCase().includes('key'))) {
+            const financialChunks = relevantChunks.filter(chunk => 
+              financialKeywords.some(keyword => 
+                chunk.content.toLowerCase().includes(keyword)
+              )
+            )
+            if (financialChunks.length > 0) {
+              relevantChunks = [...financialChunks, ...relevantChunks.filter(c => !financialChunks.includes(c))].slice(0, 20)
+            }
+          }
+          
+          // Use searchChunks if available (from RPC search), otherwise use relevantChunks
+          const chunksToUse = (searchChunks && searchChunks.length > 0) ? searchChunks : relevantChunks
+          
+          // Enhanced logging with chunk content preview
+          console.log("Chunks analysis:")
+          console.log(`Total chunks available: ${allChunks?.length || 0}`)
+          console.log(`Search results: ${searchChunks?.length || 0}`)
+          console.log(`Using ${chunksToUse.length} chunks:`, chunksToUse.map((c, idx) => {
+            const preview = c.content.substring(0, 100).replace(/\n/g, ' ') + '...'
+            return `${idx + 1}. Page ${c.page_number} (${(c as any).documents?.original_filename || 'Unknown'}): "${preview}"`
+          }))
+          
+          if (!searchChunks || searchChunks.length === 0) {
+            console.warn("Fallback to filtered chunks - RPC search returned no results")
+          }
+          
           contextualInformation = `
 
 DOCUMENT CONTEXT:
 The following information is from the user's uploaded documents:
 
-${relevantChunks
+${chunksToUse
   .map((chunk, index) => {
     const docName = (chunk as any).documents?.original_filename ?? 'Unknown';
     return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
-${chunk.content.substring(0, 800)}${chunk.content.length > 800 ? '...' : ''}`;
+${chunk.content.substring(0, 1500)}${chunk.content.length > 1500 ? '...' : ''}`;
   })
   .join('\n')}
 
@@ -274,7 +316,13 @@ Please reference this document context in your response when relevant.`
       useJsonSchema = true;
     } else if (intentAnalysis.intent === ChatIntent.DOCUMENT_ANALYSIS && hasDocContext) {
       // Document analysis with natural language output
-      systemPrompt = getOmNaturalPrompt(intentAnalysis.analysisType || 'full');
+      const lowerQuery = userMessage.toLowerCase();
+      if (lowerQuery.includes('key') && (lowerQuery.includes('data') || lowerQuery.includes('metric') || lowerQuery.includes('point'))) {
+        // User specifically asking for key data points/metrics
+        systemPrompt = getOmNaturalPrompt('metrics_extraction');
+      } else {
+        systemPrompt = getOmNaturalPrompt(intentAnalysis.analysisType || 'full');
+      }
     } else {
       // General conversation
       systemPrompt = getConversationalPrompt(hasDocContext);

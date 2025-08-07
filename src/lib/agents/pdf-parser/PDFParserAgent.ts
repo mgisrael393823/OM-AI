@@ -18,7 +18,7 @@ export class PDFParserAgent implements IPDFParserAgent {
     extractTables: true,
     performOCR: false,
     ocrConfidenceThreshold: 70,
-    chunkSize: 1000,
+    chunkSize: 4000,
     preserveFormatting: true
   };
 

@@ -283,9 +283,9 @@ export class TextProcessor {
   }
 
   /**
-   * Split text into semantic chunks for better processing
+   * Split text into semantic chunks with overlap for better processing
    */
-  static createSemanticChunks(text: string, maxChunkSize = 1000): Array<{
+  static createSemanticChunks(text: string, maxChunkSize = 4000, overlap = 800): Array<{
     text: string;
     type: 'paragraph' | 'list' | 'table' | 'header';
     tokens: number;
@@ -295,18 +295,29 @@ export class TextProcessor {
 
     let currentChunk = '';
     let currentTokens = 0;
+    let previousOverlap = '';
 
-    for (const paragraph of paragraphs) {
+    for (let i = 0; i < paragraphs.length; i++) {
+      const paragraph = paragraphs[i];
       const paraTokens = Math.ceil(paragraph.length / 4); // Rough token estimate
 
       if (currentTokens + paraTokens > maxChunkSize && currentChunk.length > 0) {
+        // Save current chunk
         chunks.push({
           text: this.cleanText(currentChunk),
-          type: 'paragraph',
+          type: this.detectParagraphType(currentChunk),
           tokens: currentTokens
         });
-        currentChunk = paragraph;
-        currentTokens = paraTokens;
+        
+        // Create overlap from the end of current chunk
+        const overlapTokens = Math.ceil(overlap / 4);
+        const words = currentChunk.split(' ');
+        const overlapWords = words.slice(-Math.min(overlapTokens, words.length));
+        previousOverlap = overlapWords.join(' ');
+        
+        // Start new chunk with overlap
+        currentChunk = previousOverlap + (previousOverlap ? '\n\n' : '') + paragraph;
+        currentTokens = Math.ceil(previousOverlap.length / 4) + paraTokens;
       } else {
         currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
         currentTokens += paraTokens;
@@ -316,7 +327,7 @@ export class TextProcessor {
     if (currentChunk.trim().length > 0) {
       chunks.push({
         text: this.cleanText(currentChunk),
-        type: 'paragraph',
+        type: this.detectParagraphType(currentChunk),
         tokens: currentTokens
       });
     }
