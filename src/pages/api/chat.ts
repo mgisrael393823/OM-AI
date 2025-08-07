@@ -163,8 +163,24 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         const userQuery = isSimple ? normalizedRequest.message : 
           normalizedRequest.messages?.[normalizedRequest.messages.length - 1]?.content || ""
         
-        // Get document chunks - prioritize financial content
-        const financialKeywords = ['price', 'noi', 'cap rate', 'return', 'cash flow', 'revenue', 'income', 'expense', 'rent', 'square', 'sf', 'unit', 'acquisition', 'purchase']
+        // Get document chunks - prioritize financial content with comprehensive keywords
+        const financialKeywords = [
+          // Core financial metrics
+          'irr', 'leveraged irr', 'levered irr', 'equity multiple', 'cash on cash', 'noi', 'cap rate', 'capitalization rate',
+          'total investment', 'equity investment', 'debt', 'loan', 'financing', 'ltv', 'dscr',
+          // Returns and performance
+          'return', 'yield', 'distribution', 'cash flow', 'net cash flow', 'operating cash flow',
+          'revenue', 'income', 'rental income', 'gross rental income', 'effective gross income',
+          // Property financials  
+          'rent', 'rental rate', 'lease', 'occupancy', 'vacancy', 'expense', 'operating expense',
+          'noi', 'net operating income', 'ebitda', 'debt service', 'mortgage payment',
+          // Property details
+          'square feet', 'sf', 'psf', 'unit', 'apartment', 'bedroom', 'bath', 'parking',
+          'acquisition', 'purchase', 'sale', 'price', 'valuation', 'appraisal',
+          // Deal structure
+          'hold period', 'exit', 'refinance', 'disposition', 'summary', 'executive summary',
+          'key metrics', 'financial highlights', 'investment highlights', 'deal points'
+        ]
         
         const { data: allChunks, error: allChunksError } = await supabase
           .from('document_chunks')
@@ -201,16 +217,54 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           
           if (searchError) {
             console.error('Error in document text search:', searchError)
-            console.log('Falling back to filtered chunk retrieval')
+            console.log('Falling back to keyword-based financial chunk filtering')
             
-            // Filter by Milwaukee OM specifically if available
-            const milwaukeeChunks = allChunks.filter(chunk => 
-              (chunk as any).documents?.original_filename?.toLowerCase().includes('milwaukee')
-            )
-            
-            if (milwaukeeChunks.length > 0) {
-              relevantChunks = milwaukeeChunks
-              console.log(`Filtered to ${milwaukeeChunks.length} Milwaukee OM chunks`)
+            // Prioritize chunks with financial keywords for key deal points queries
+            if (userQuery.toLowerCase().includes('key') || userQuery.toLowerCase().includes('deal point') || 
+                userQuery.toLowerCase().includes('metric') || userQuery.toLowerCase().includes('financial')) {
+              
+              // Score chunks by financial keyword matches
+              const scoredChunks = allChunks.map(chunk => {
+                const content = chunk.content.toLowerCase()
+                let score = 0
+                
+                // Higher weight for executive summary/key sections
+                if (content.includes('executive summary') || content.includes('investment highlights') || 
+                    content.includes('key metrics') || content.includes('financial highlights')) {
+                  score += 10
+                }
+                
+                // Count financial keyword matches
+                financialKeywords.forEach(keyword => {
+                  if (content.includes(keyword.toLowerCase())) {
+                    score += 1
+                  }
+                })
+                
+                return { chunk, score }
+              }).filter(item => item.score > 0)
+              
+              // Sort by score and take top chunks
+              const topScoredChunks = scoredChunks
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 15)
+                .map(item => item.chunk)
+              
+              if (topScoredChunks.length > 0) {
+                relevantChunks = topScoredChunks
+                console.log(`Prioritized ${topScoredChunks.length} financial content chunks`)
+              }
+            } else {
+              // For non-financial queries, try document-specific filtering
+              const specificChunks = allChunks.filter(chunk => {
+                const filename = (chunk as any).documents?.original_filename?.toLowerCase() || ''
+                return filename.includes('milwaukee') || filename.includes('tampa') || filename.includes('om')
+              })
+              
+              if (specificChunks.length > 0) {
+                relevantChunks = specificChunks
+                console.log(`Filtered to ${specificChunks.length} document-specific chunks`)
+              }
             }
           }
           
@@ -221,16 +275,59 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         }
 
         if (relevantChunks && relevantChunks.length > 0) {
-          // If no search was performed, prioritize chunks with financial keywords
-          if (!searchChunks && userQuery && (userQuery.toLowerCase().includes('metric') || userQuery.toLowerCase().includes('financial') || userQuery.toLowerCase().includes('key'))) {
-            const financialChunks = relevantChunks.filter(chunk => 
-              financialKeywords.some(keyword => 
-                chunk.content.toLowerCase().includes(keyword)
-              )
+          // Enhanced financial content prioritization for key deal points queries
+          if (!searchChunks && userQuery && (userQuery.toLowerCase().includes('metric') || 
+              userQuery.toLowerCase().includes('financial') || userQuery.toLowerCase().includes('key') ||
+              userQuery.toLowerCase().includes('deal point') || userQuery.toLowerCase().includes('highlight'))) {
+            
+            // Score and rank chunks by financial relevance
+            const scoredFinancialChunks = relevantChunks.map(chunk => {
+              const content = chunk.content.toLowerCase()
+              let score = 0
+              
+              // Executive summary sections get highest priority
+              if (content.includes('executive summary') || content.includes('investment summary') ||
+                  content.includes('key metrics') || content.includes('financial highlights')) {
+                score += 20
+              }
+              
+              // IRR and equity multiple are critical metrics
+              if (content.includes('irr') || content.includes('equity multiple')) {
+                score += 15
+              }
+              
+              // Other key financial metrics
+              if (content.includes('noi') || content.includes('cap rate') || 
+                  content.includes('cash flow') || content.includes('total investment')) {
+                score += 10
+              }
+              
+              // General financial keywords
+              const keywordMatches = financialKeywords.filter(keyword => 
+                content.includes(keyword.toLowerCase())
+              ).length
+              score += keywordMatches
+              
+              return { chunk, score }
+            })
+            
+            // Sort by financial relevance and prioritize top chunks
+            const topFinancialChunks = scoredFinancialChunks
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 12)
+              .map(item => item.chunk)
+            
+            // Add remaining chunks to fill context
+            const remainingChunks = relevantChunks
+              .filter(chunk => !topFinancialChunks.includes(chunk))
+              .slice(0, 8)
+            
+            relevantChunks = [...topFinancialChunks, ...remainingChunks]
+            console.log(`Prioritized financial chunks with scores:`, scoredFinancialChunks
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 5)
+              .map(item => ({ score: item.score, preview: item.chunk.content.substring(0, 50) }))
             )
-            if (financialChunks.length > 0) {
-              relevantChunks = [...financialChunks, ...relevantChunks.filter(c => !financialChunks.includes(c))].slice(0, 20)
-            }
           }
           
           // Use searchChunks if available (from RPC search), otherwise use relevantChunks
