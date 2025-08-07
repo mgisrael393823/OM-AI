@@ -222,7 +222,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
         if (relevantChunks && relevantChunks.length > 0) {
           // If no search was performed, prioritize chunks with financial keywords
-          if (!searchChunks && (userQuery.toLowerCase().includes('metric') || userQuery.toLowerCase().includes('financial') || userQuery.toLowerCase().includes('key'))) {
+          if (!searchChunks && userQuery && (userQuery.toLowerCase().includes('metric') || userQuery.toLowerCase().includes('financial') || userQuery.toLowerCase().includes('key'))) {
             const financialChunks = relevantChunks.filter(chunk => 
               financialKeywords.some(keyword => 
                 chunk.content.toLowerCase().includes(keyword)
