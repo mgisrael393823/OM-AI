@@ -65,7 +65,7 @@ export async function processUploadedDocument(
         extractTables: true,
         performOCR: validationResult.metadata.isEncrypted || !validationResult.metadata.hasText,
         ocrConfidenceThreshold: 70,
-        chunkSize: 1000,
+        chunkSize: 4000,
         preserveFormatting: true
       })
     } catch (error) {
