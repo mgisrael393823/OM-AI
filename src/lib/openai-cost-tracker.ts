@@ -73,13 +73,14 @@ export class OpenAICostTracker {
     usage?: LimitCheckResult
   }> {
     try {
-      // Check daily limits using our SQL function
+      // Use new typed RPC for getting daily cost
+      type DailyCostRow = Database["public"]["Functions"]["get_openai_daily_cost"]["Returns"][number]
+      
       const { data, error } = await this.supabase
-        .rpc('check_openai_limits', { p_user_id: userId })
-        .single()
+        .rpc('get_openai_daily_cost', { p_user: userId })
 
       if (error) {
-        console.error('Error checking OpenAI limits:', error)
+        console.error('Error checking OpenAI daily cost:', error)
         // Be conservative - if we can't check, don't allow
         return { 
           canProceed: false, 
@@ -87,34 +88,44 @@ export class OpenAICostTracker {
         }
       }
 
-      if (!data) {
-        return { 
-          canProceed: false, 
-          reason: 'No usage data available' 
-        }
-      }
+      // Safely extract daily cost with type guard and numeric coercion
+      const costData = data as DailyCostRow[] | null
+      const dailyCost = Number(costData?.[0]?.daily_cost ?? 0)
 
       // Check emergency stop conditions
-      if (data.daily_cost >= this.EMERGENCY_STOP_DAILY) {
+      if (dailyCost >= this.EMERGENCY_STOP_DAILY) {
         return {
           canProceed: false,
           reason: `Daily cost limit exceeded ($${this.EMERGENCY_STOP_DAILY})`,
-          usage: data
+          usage: {
+            daily_tokens: 0, // We don't have token count from new function
+            daily_cost: dailyCost,
+            is_within_limits: false
+          }
         }
       }
 
-      // Check normal limits
-      if (!data.is_within_limits) {
+      // Check against configured daily limit (default $10)
+      const dailyLimit = 10.00 // TODO: Make this configurable
+      if (dailyCost >= dailyLimit) {
         return {
           canProceed: false,
-          reason: `Daily limit exceeded (${data.daily_tokens} tokens, $${data.daily_cost.toFixed(2)})`,
-          usage: data
+          reason: `Daily limit exceeded ($${dailyCost.toFixed(2)} of $${dailyLimit})`,
+          usage: {
+            daily_tokens: 0,
+            daily_cost: dailyCost,
+            is_within_limits: false
+          }
         }
       }
 
       return {
         canProceed: true,
-        usage: data
+        usage: {
+          daily_tokens: 0, // We don't track tokens in the new function
+          daily_cost: dailyCost,
+          is_within_limits: true
+        }
       }
     } catch (error) {
       console.error('Error in checkLimitsBeforeCall:', error)
