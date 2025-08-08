@@ -11,6 +11,7 @@ import { getOmNaturalPrompt } from '@/lib/prompts/om-analyst-natural'
 import { detectIntent, suggestResponseFormat, ChatIntent } from '@/lib/utils/intent-detection'
 import { validateAndFilterOmResponse, createEmptyOMResponse } from '@/lib/validation/om-response'
 import omSummarySchema from '@/lib/validation/om-schema.json'
+import { getOpenAICostTracker } from '@/lib/openai-cost-tracker'
 import type { Database } from '@/types/database'
 
 // Unified request type supporting both simple and complex formats
@@ -205,9 +206,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         
         if (allChunks && allChunks.length > 0 && userQuery) {
           // First try RPC call with plainto_tsquery for safe text search
+          // Fixed: Removed p_user_id parameter - function now uses auth.uid() internally for security
           const { data, error: searchError } = await supabase
             .rpc('search_document_chunks', {
-              p_user_id: req.user.id,
               p_document_ids: documentIds,
               p_query: userQuery,
               p_limit: 20
@@ -430,6 +431,14 @@ Please reference this document context in your response when relevant.`
       content: contextualInformation ? `${systemPrompt}\n\nDOCUMENT CONTEXT:\n${contextualInformation}` : systemPrompt
     }
 
+    // SECURITY: Check OpenAI cost limits before making the call
+    const costTracker = getOpenAICostTracker()
+    const limitCheck = await costTracker.checkLimitsBeforeCall(req.user.id)
+    
+    if (!limitCheck.canProceed) {
+      return createApiError(res, ERROR_CODES.RATE_LIMIT_EXCEEDED, limitCheck.reason)
+    }
+
     // Use SSE format for deprecated endpoints or when explicitly requested
     const useSSEFormat = !!deprecatedEndpoint
     const shouldStream = normalizedRequest.options?.stream !== false
@@ -456,10 +465,11 @@ Please reference this document context in your response when relevant.`
 
       // Create streaming response with optional structured outputs
       let response;
+      const modelName = normalizedRequest.options?.model || "gpt-4o"
       
       if (useJsonSchema) {
         response = await openai.chat.completions.create({
-          model: normalizedRequest.options?.model || "gpt-4o",
+          model: modelName,
           messages: [systemMessage, ...messages],
           temperature: normalizedRequest.options?.temperature || 0.7,
           max_tokens: normalizedRequest.options?.maxTokens || 2000,
@@ -475,7 +485,7 @@ Please reference this document context in your response when relevant.`
         });
       } else {
         response = await openai.chat.completions.create({
-          model: normalizedRequest.options?.model || "gpt-4o",
+          model: modelName,
           messages: [systemMessage, ...messages],
           temperature: normalizedRequest.options?.temperature || 0.7,
           max_tokens: normalizedRequest.options?.maxTokens || 2000,
@@ -553,13 +563,26 @@ Please reference this document context in your response when relevant.`
       }
 
       res.end()
+      
+      // Track usage after streaming completes
+      // Note: Streaming responses don't include usage data, so we estimate
+      const inputText = [systemMessage, ...messages].map(m => m.content).join(' ')
+      const estimatedInputTokens = Math.ceil(inputText.length / 4) // Rough estimation: 4 chars per token
+      const estimatedOutputTokens = Math.ceil(assistantResponse.length / 4)
+      
+      await costTracker.trackUsage(req.user.id, {
+        model: modelName,
+        inputTokens: estimatedInputTokens,
+        outputTokens: estimatedOutputTokens
+      })
     } else {
       // Non-streaming response with optional structured outputs
       let response;
+      const modelName = normalizedRequest.options?.model || "gpt-4o"
       
       if (useJsonSchema) {
         response = await openai.chat.completions.create({
-          model: normalizedRequest.options?.model || "gpt-4o",
+          model: modelName,
           messages: [systemMessage, ...messages],
           temperature: normalizedRequest.options?.temperature || 0.7,
           max_tokens: normalizedRequest.options?.maxTokens || 2000,
@@ -575,7 +598,7 @@ Please reference this document context in your response when relevant.`
         });
       } else {
         response = await openai.chat.completions.create({
-          model: normalizedRequest.options?.model || "gpt-4o",
+          model: modelName,
           messages: [systemMessage, ...messages],
           temperature: normalizedRequest.options?.temperature || 0.7,
           max_tokens: normalizedRequest.options?.maxTokens || 2000,
@@ -625,6 +648,15 @@ Please reference this document context in your response when relevant.`
         await supabase.from('chat_sessions')
           .update({ updated_at: new Date().toISOString() })
           .eq('id', sessionId)
+      }
+
+      // Track usage for non-streaming response (has actual token counts)
+      if (response.usage) {
+        await costTracker.trackUsage(req.user.id, {
+          model: modelName,
+          inputTokens: response.usage.prompt_tokens || 0,
+          outputTokens: response.usage.completion_tokens || 0
+        })
       }
 
       res.status(200).json({

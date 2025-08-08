@@ -45,6 +45,7 @@ export default function AppPage() {
   const [message, setMessage] = useState("")
   const [showUpload, setShowUpload] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
+  const [selectedDocumentName, setSelectedDocumentName] = useState<string | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -183,7 +184,7 @@ export default function AppPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setSidebarOpen(false)}
-                className="h-8 w-8 p-0 md:hidden"
+                className="h-10 w-10 p-0 md:hidden touch-manipulation"
               >
                 <X className="w-5 h-5" />
               </Button>
@@ -214,7 +215,6 @@ export default function AppPage() {
               isCollapsed={false}
             />
           </div>
-
 
           {/* User Profile */}
           <div className="flex-shrink-0 pt-3 border-t border-border">
@@ -264,7 +264,7 @@ export default function AppPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setSidebarOpen(true)}
-                className="h-8 w-8 p-0 hover:bg-muted rounded md:hidden"
+                className="h-10 w-10 p-0 hover:bg-muted rounded md:hidden touch-manipulation"
                 aria-label="Open menu"
               >
                 <Menu className="h-5 w-5" />
@@ -363,15 +363,18 @@ export default function AppPage() {
               <div className="max-w-3xl mx-auto p-4 sm:p-6">
                 {/* Selected Document Indicator */}
                 {selectedDocumentId && (
-                  <div className="mb-4 flex items-center gap-2 px-4 py-2 bg-primary/20 backdrop-blur-sm rounded-lg w-fit">
-                    <FileText className="h-4 w-4 text-primary" />
-                    <span className={`text-primary ${componentTypography.form.label}`}>
-                      Document attached
+                  <div className="mb-4 flex items-center gap-2 px-4 py-2 bg-primary/20 backdrop-blur-sm rounded-lg w-fit max-w-xs sm:max-w-md">
+                    <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+                    <span className={`text-primary ${componentTypography.form.label} truncate`} title={selectedDocumentName || 'Document attached'}>
+                      Attached: {selectedDocumentName || 'Document'}
                     </span>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setSelectedDocumentId(null)}
+                      onClick={() => {
+                        setSelectedDocumentId(null)
+                        setSelectedDocumentName(null)
+                      }}
                       className="h-6 w-6 p-0 text-primary hover:text-primary/80"
                     >
                       <X className="h-4 w-4" />
@@ -435,7 +438,7 @@ export default function AppPage() {
                     size="sm"
                     onClick={handleSendMessage}
                     disabled={!message.trim() || isLoading}
-                    className="absolute right-3 bottom-3 w-8 h-8 rounded-full bg-black text-white hover:bg-gray-800 disabled:bg-gray-300 disabled:text-gray-500"
+                    className="absolute right-3 bottom-3 w-10 h-10 rounded-full bg-black text-white hover:bg-gray-800 disabled:bg-gray-300 disabled:text-gray-500 touch-manipulation"
                     title="Send message"
                   >
                     {isLoading ? (
@@ -474,6 +477,7 @@ export default function AppPage() {
                     setShowUpload(false)
                     // Set the uploaded document as selected
                     setSelectedDocumentId(document.id)
+                    setSelectedDocumentName(document.name || document.original_filename || 'Document')
                   }}
                 />
               </div>

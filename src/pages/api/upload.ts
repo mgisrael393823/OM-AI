@@ -81,27 +81,8 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       return apiError(res, 500, 'Failed to upload file', 'STORAGE_ERROR', uploadError.message)
     }
 
-    // Initialize PDF parser for background processing
-    const pdfParser = new PDFParserAgent()
-    let parseResult = null
-    let processingError = null
-
-    try {
-      // Parse PDF content
-      parseResult = await pdfParser.parseBuffer(fileBuffer, {
-        extractTables: true,
-        performOCR: validationResult.metadata.isEncrypted || !validationResult.metadata.hasText,
-        ocrConfidenceThreshold: 70,
-        chunkSize: 4000,
-        preserveFormatting: true
-      })
-    } catch (error) {
-      console.error('PDF parsing error:', error)
-      processingError = error instanceof Error ? error.message : 'Unknown parsing error'
-    } finally {
-      // Clean up parser resources
-      await pdfParser.cleanup()
-    }
+    // ASYNC PROCESSING: Don't parse PDF synchronously anymore
+    // Instead, we'll enqueue a background job after saving the document
 
     // Save document metadata to database with parsing results
     const { data: documentData, error: dbError } = await supabase
@@ -113,18 +94,11 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         storage_path: uploadData.path,
         file_size: file.size,
         file_type: file.mimetype || 'application/pdf',
-        status: parseResult?.success ? 'completed' : 'processing',
+        status: 'processing', // Always start as processing since we do it async
         metadata: {
           validation: validationResult,
-          parsing: parseResult ? {
-            success: parseResult.success,
-            pages: parseResult.pages.length,
-            tables: parseResult.tables.length,
-            chunks: parseResult.chunks.length,
-            processingTime: parseResult.processingTime,
-            error: parseResult.error
-          } : null,
-          processingError
+          parsing: null, // Will be filled in by background job
+          processingError: null
         }
       })
       .select()
@@ -137,56 +111,16 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       return apiError(res, 500, 'Failed to save document metadata', 'DATABASE_ERROR', dbError.message)
     }
 
-    // Store parsed content if successful
-    if (parseResult?.success && parseResult.chunks.length > 0) {
-      const { error: chunksError } = await supabase
-        .from('document_chunks')
-        .insert(
-          parseResult.chunks.map(chunk => ({
-            document_id: documentData.id,
-            user_id: req.user.id,
-            chunk_id: chunk.id,
-            content: chunk.text,
-            page_number: chunk.page,
-            chunk_type: chunk.type,
-            tokens: chunk.tokens,
-            metadata: {
-              startY: chunk.startY,
-              endY: chunk.endY
-            }
-          }))
-        )
+    // Enqueue background processing job
+    const { error: jobError } = await supabase.rpc('enqueue_processing_job', {
+      p_document_id: documentData.id,
+      p_user_id: req.user.id,
+      p_job_type: 'pdf_processing'
+    })
 
-      if (chunksError) {
-        console.error('Failed to store document chunks:', chunksError)
-        // Don't fail the upload, just log the error
-      }
-
-      // Store extracted tables
-      if (parseResult.tables.length > 0) {
-        const { error: tablesError } = await supabase
-          .from('document_tables')
-          .insert(
-            parseResult.tables.map(table => ({
-              document_id: documentData.id,
-              user_id: req.user.id,
-              page_number: table.page,
-              table_data: table.rows,
-              headers: table.headers,
-              position: {
-                x: table.x,
-                y: table.y,
-                width: table.width,
-                height: table.height
-              }
-            }))
-          )
-
-        if (tablesError) {
-          console.error('Failed to store document tables:', tablesError)
-          // Don't fail the upload, just log the error
-        }
-      }
+    if (jobError) {
+      console.error('Failed to enqueue processing job:', jobError)
+      // Don't fail the upload, just log the error - the document can be processed later
     }
 
     // Clean up temp file
@@ -208,14 +142,11 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           warnings: validationResult.warnings,
           metadata: validationResult.metadata
         },
-        parsing: parseResult ? {
-          success: parseResult.success,
-          pages: parseResult.pages.length,
-          tables: parseResult.tables.length,
-          chunks: parseResult.chunks.length,
-          processingTime: parseResult.processingTime,
-          error: parseResult.error
-        } : null
+        parsing: {
+          success: null, // Will be updated when processing completes
+          status: 'processing', // Indicate async processing in progress
+          enqueuedAt: new Date().toISOString()
+        }
       }
     })
   } catch (error) {

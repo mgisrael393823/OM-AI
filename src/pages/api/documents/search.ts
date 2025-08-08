@@ -44,7 +44,7 @@ async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       .from('document_chunks')
       .select(`
         *,
-        documents!inner(id, name, user_id)
+        documents!inner(id, original_filename, user_id)
       `)
       .eq('documents.user_id', req.user.id)
       .textSearch('content', query)
@@ -111,7 +111,7 @@ async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       if (relevanceScore > 0) {
         results.push({
           documentId: chunk.document_id,
-          documentName: chunk.documents.name,
+          documentName: chunk.documents.original_filename,
           chunkId: chunk.chunk_id,
           content: chunk.content,
           page: chunk.page_number,

@@ -39,11 +39,14 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
       return apiError(res, 400, 'No file uploaded', 'NO_FILE')
     }
 
-    // Extract the custom fileName from form data if provided
-    const customFileName = Array.isArray(fields.fileName) ? fields.fileName[0] : fields.fileName
+    // SECURITY FIX: Never trust client-provided file paths
+    // Always generate the path server-side using authenticated user ID
+    // Store original filename separately in database if needed for UX
+    const uniqueId = uuidv4()
+    const fileName = `${req.user.id}/${uniqueId}.pdf`
     
-    // Generate secure filename with fixed .pdf extension to prevent path traversal
-    const fileName = customFileName || `${req.user.id}/${uuidv4()}.pdf`
+    // Note: If you need to preserve original filename for display purposes,
+    // store it in the database metadata, not in the actual storage path
 
     // Validate file type
     if (uploadedFile.mimetype !== 'application/pdf') {
@@ -85,7 +88,8 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
     res.status(200).json({
       success: true,
       path: uploadData.path,
-      fileName: fileName
+      fileName: fileName,
+      originalFileName: uploadedFile.originalFilename || 'document.pdf'
     })
 
   } catch (error) {

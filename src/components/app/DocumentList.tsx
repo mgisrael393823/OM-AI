@@ -30,6 +30,7 @@ interface DocumentListProps {
   documents: Document[]
   selectedDocument: string | null
   onSelectDocument: (id: string | null) => void
+  onDeleteDocument?: (id: string) => void
   compact?: boolean
 }
 
@@ -37,6 +38,7 @@ export function DocumentList({
   documents, 
   selectedDocument, 
   onSelectDocument,
+  onDeleteDocument,
   compact = false 
 }: DocumentListProps) {
   const formatDate = (dateString: string) => {
@@ -74,6 +76,12 @@ export function DocumentList({
         return <Badge variant="secondary" className="text-xs text-green-700 bg-green-100">Ready</Badge>
       case "error":
         return <Badge variant="destructive" className="text-xs">Error</Badge>
+    }
+  }
+
+  const handleDelete = (documentId: string, documentName: string) => {
+    if (onDeleteDocument && confirm(`Are you sure you want to delete "${documentName}"? This action cannot be undone.`)) {
+      onDeleteDocument(documentId)
     }
   }
 
@@ -149,7 +157,13 @@ export function DocumentList({
                             <Download className="h-4 w-4 mr-2" />
                             Download
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-600">
+                          <DropdownMenuItem 
+                            className="text-red-600"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDelete(document.id, document.name)
+                            }}
+                          >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Delete
                           </DropdownMenuItem>

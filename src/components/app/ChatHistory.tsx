@@ -328,39 +328,24 @@ export function ChatHistory({
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerHeight, setContainerHeight] = useState(400)
 
-  // Update container height on resize and force virtual list refresh
+  // Update container height on resize - measure the actual list container
   useEffect(() => {
     const updateHeight = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect()
-        const availableHeight = window.innerHeight - rect.top - 20 // 20px buffer
-        setContainerHeight(Math.max(300, Math.min(600, availableHeight)))
-        
-        // Force virtual list to recalculate item heights on resize
-        if (listRef.current) {
-          listRef.current.resetAfterIndex(0, true)
-        }
+        const availableHeight = Math.max(100, rect.height) // Use actual available height
+        setContainerHeight(availableHeight)
       }
     }
 
     updateHeight()
-    const debouncedUpdate = debounce(updateHeight, 100)
-    window.addEventListener('resize', debouncedUpdate)
-    return () => window.removeEventListener('resize', debouncedUpdate)
-  }, [])
-
-  // Simple debounce function for resize handling
-  function debounce(func: (...args: any[]) => void, wait: number) {
-    let timeout: NodeJS.Timeout
-    return function executedFunction(...args: any[]) {
-      const later = () => {
-        clearTimeout(timeout)
-        func(...args)
-      }
-      clearTimeout(timeout)
-      timeout = setTimeout(later, wait)
+    const resizeObserver = new ResizeObserver(updateHeight)
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current)
     }
-  }
+    
+    return () => resizeObserver.disconnect()
+  }, [])
 
   // Handle expanding/collapsing sessions
   const handleToggleExpanded = useCallback((sessionId: string) => {
@@ -483,7 +468,7 @@ export function ChatHistory({
   }
 
   return (
-    <div className="flex flex-col h-full" ref={containerRef}>
+    <div className="flex flex-col h-full">
       {/* Header Section - Hidden when collapsed */}
       {!isCollapsed && (
         <div className="grid grid-rows-1 border-b border-transparent">
@@ -508,17 +493,9 @@ export function ChatHistory({
         </div>
       )}
 
-      {/* Chats Label - Only show when there are conversations */}
-      {!isCollapsed && virtualListItems.length > 0 && (
-        <div className="px-3 pt-1.5 pb-0.5">
-          <h3 className={componentTypography.sidebar.sectionLabel}>
-            Chats
-          </h3>
-        </div>
-      )}
 
       {/* Chat Sessions List */}
-      <div className="flex-1 min-h-0" role="navigation" aria-label="Conversation history">
+      <div className="flex-1 min-h-0" role="navigation" aria-label="Conversation history" ref={containerRef}>
         {isCollapsed ? (
           /* Collapsed: Hide all chat sessions to match ChatGPT behavior */
           <div className="flex-1" />
@@ -532,7 +509,7 @@ export function ChatHistory({
         ) : (
           <List
             ref={listRef}
-            height={containerHeight - (isCollapsed ? 0 : virtualListItems.length > 0 ? 64 : 40)} // Account for ChatGPT-aligned spacing
+            height={containerHeight}
             width="100%"
             itemCount={virtualListItems.length}
             itemSize={getItemHeight}

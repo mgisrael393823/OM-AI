@@ -54,3 +54,6 @@ next-dev.config.js
 scripts/dev-setup.js
 README-dev-caching.md
 DESIGN_PRINCIPLES.md
+
+# Operations reports directory
+ops/

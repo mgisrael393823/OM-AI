@@ -205,6 +205,64 @@ export interface Database {
           created_at?: string
         }
       }
+      document_chunks: {
+        Row: {
+          chunk_id: string
+          document_id: string
+          content: string
+          page_number: number
+          chunk_type: string
+          metadata: Record<string, any>
+          created_at: string
+        }
+        Insert: {
+          chunk_id?: string
+          document_id: string
+          content: string
+          page_number: number
+          chunk_type: string
+          metadata?: Record<string, any>
+          created_at?: string
+        }
+        Update: {
+          chunk_id?: string
+          document_id?: string
+          content?: string
+          page_number?: number
+          chunk_type?: string
+          metadata?: Record<string, any>
+          created_at?: string
+        }
+      }
+      document_tables: {
+        Row: {
+          id: string
+          document_id: string
+          page_number: number
+          table_data: Record<string, any>
+          table_index: number
+          metadata: Record<string, any>
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          document_id: string
+          page_number: number
+          table_data: Record<string, any>
+          table_index: number
+          metadata?: Record<string, any>
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          document_id?: string
+          page_number?: number
+          table_data?: Record<string, any>
+          table_index?: number
+          metadata?: Record<string, any>
+          created_at?: string
+        }
+      }
     }
   }
 }

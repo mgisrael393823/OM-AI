@@ -185,7 +185,7 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
               'Authorization': `Bearer ${session.access_token}`,
             },
             body: JSON.stringify({
-              fileName,
+              fileName: uploadData.fileName || uploadData.path || fileName,
               originalFileName: file.name,
               fileSize: file.size,
               userId,
