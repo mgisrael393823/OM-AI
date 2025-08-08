@@ -55,7 +55,7 @@ export class PDFParserAgent implements IPDFParserAgent {
 
       // Create text chunks for embedding/search
       const fullText = allText.join('\n\n');
-      const chunks = this.chunkText(fullText, config.chunkSize);
+      const chunks = this.chunkText(fullText, config.chunkSize, pages);
 
       const processingTime = Date.now() - startTime;
 
@@ -330,19 +330,57 @@ export class PDFParserAgent implements IPDFParserAgent {
     }
   }
 
-  chunkText(text: string, chunkSize: number): TextChunk[] {
+  chunkText(text: string, chunkSize: number, pages: ParsedPage[] = []): TextChunk[] {
     // Use the enhanced text processor for semantic chunking
     const semanticChunks = TextProcessor.createSemanticChunks(text, chunkSize);
     
-    return semanticChunks.map(chunk => ({
-      id: uuidv4(),
-      text: chunk.text,
-      page: 1, // TODO: Track actual page numbers from parsing
-      startY: 0,
-      endY: 0,
-      tokens: chunk.tokens,
-      type: chunk.type
-    }));
+    return semanticChunks.map(chunk => {
+      const actualPage = this.calculatePageFromPosition(chunk.text, pages);
+      
+      return {
+        id: uuidv4(),
+        text: chunk.text,
+        content: chunk.text, // Add content field for compatibility
+        page: actualPage,
+        page_number: actualPage, // Add page_number field for database compatibility
+        startY: 0,
+        endY: 0,
+        tokens: chunk.tokens,
+        type: chunk.type
+      };
+    });
+  }
+
+  /**
+   * Calculate the page number for a chunk based on text matching
+   */
+  private calculatePageFromPosition(text: string, pages: ParsedPage[] = []): number {
+    // If no pages provided, default to 1
+    if (!pages || pages.length === 0) {
+      return 1;
+    }
+
+    // Try to match the chunk text with page content
+    // Use first 80 characters for matching to avoid partial matches
+    const searchText = text.slice(0, 80).trim();
+    
+    for (const page of pages) {
+      // Check if this page's text contains the chunk's beginning
+      if (page.text && page.text.includes(searchText)) {
+        return page.pageNumber || 1;
+      }
+    }
+    
+    // If no match found, try a more lenient search with first 40 chars
+    const shortSearchText = text.slice(0, 40).trim();
+    for (const page of pages) {
+      if (page.text && page.text.includes(shortSearchText)) {
+        return page.pageNumber || 1;
+      }
+    }
+    
+    // Default to first page's number or 1
+    return pages[0]?.pageNumber || 1;
   }
 
   /**

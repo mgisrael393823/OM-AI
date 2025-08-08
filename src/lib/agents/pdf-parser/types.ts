@@ -92,5 +92,5 @@ export interface IPDFParserAgent {
   parseBuffer(buffer: Buffer, options?: Partial<ParseOptions>): Promise<ParseResult>;
   extractTables(items: ParsedText[]): ParsedTable[];
   performOCR(buffer: Buffer, pageNumber: number): Promise<string>;
-  chunkText(text: string, chunkSize: number): TextChunk[];
+  chunkText(text: string, chunkSize: number, pages?: ParsedPage[]): TextChunk[];
 }
