@@ -3,6 +3,25 @@ import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 import type { Database } from '@/types/database'
 
+type DocInsert = Database["public"]["Tables"]["documents"]["Insert"]
+
+type JsonValue = string | number | boolean | null | { [k: string]: JsonValue } | JsonValue[]
+
+function toJson(value: unknown): JsonValue {
+  const seen = new WeakSet()
+  const out = JSON.stringify(value, (_k, v) => {
+    if (typeof v === "bigint") return v.toString()
+    if (v instanceof Date) return v.toISOString()
+    if (typeof v === "function" || v === undefined) return undefined
+    if (typeof v === "object" && v !== null) {
+      if (seen.has(v as object)) return undefined
+      seen.add(v as object)
+    }
+    return v
+  })
+  return out ? (JSON.parse(out) as JsonValue) : null
+}
+
 export interface ProcessDocumentResult {
   success: boolean
   document?: {
@@ -76,32 +95,47 @@ export async function processUploadedDocument(
     }
 
     // Save document metadata to database
+    const safeMetadata = toJson({
+      validation: validationResult,
+      parsing: parseResult ? {
+        success: parseResult.success,
+        pages: parseResult.pages.length,
+        tables: parseResult.tables.length,
+        chunks: parseResult.chunks.length,
+        processingTime: parseResult.processingTime,
+        error: parseResult.error
+      } : null,
+      processingError: processingError ?? null
+    })
+
+    // Optional: trim oversized metadata (>200KB)
+    const metaStr = JSON.stringify(safeMetadata)
+    const metadata = metaStr && Buffer.byteLength(metaStr, "utf8") > 200_000
+      ? toJson({ 
+          validation: { isValid: validationResult?.isValid ?? null }, 
+          parsing: null, 
+          processingError: processingError ?? null 
+        })
+      : safeMetadata
+
+    const payload: DocInsert = {
+      user_id: userId,
+      filename: fileName,
+      original_filename: originalFileName,
+      storage_path: storagePath,
+      file_size: fileSize,
+      file_type: 'application/pdf',
+      status: parseResult?.success ? 'completed' : 'processing',
+      extracted_text: null,
+      metadata
+    }
+
     const { data: documentData, error: dbError } = await supabase
       .from('documents')
-      .insert({
-        user_id: userId,
-        filename: fileName,
-        original_filename: originalFileName,
-        storage_path: storagePath,
-        file_size: fileSize,
-        file_type: 'application/pdf',
-        status: parseResult?.success ? 'completed' : 'processing',
-        metadata: {
-          validation: validationResult,
-          parsing: parseResult ? {
-            success: parseResult.success,
-            pages: parseResult.pages.length,
-            tables: parseResult.tables.length,
-            chunks: parseResult.chunks.length,
-            processingTime: parseResult.processingTime,
-            error: parseResult.error
-          } : null,
-          processingError
-        }
-      })
+      .insert(payload)
       .select()
       .single()
-
+    
     if (dbError) {
       console.error('Database error:', dbError)
       // Try to clean up uploaded file
@@ -111,26 +145,32 @@ export async function processUploadedDocument(
 
     // Store parsed chunks if successful
     if (parseResult?.success && parseResult.chunks.length > 0) {
-      const { error: chunksError } = await supabase
-        .from('document_chunks')
-        .insert(
-          parseResult.chunks.map(chunk => ({
-            document_id: documentData.id,
-            user_id: userId,
-            chunk_id: chunk.id,
-            content: chunk.text,
-            page_number: chunk.page,
-            chunk_type: chunk.type,
-            tokens: chunk.tokens,
-            metadata: {
-              startY: chunk.startY,
-              endY: chunk.endY
-            }
-          }))
+      const validChunks = parseResult.chunks
+        .filter((chunk): chunk is typeof chunk & { text: string; page: number } => 
+          Boolean(chunk.text) && chunk.page !== undefined
         )
+        .map(chunk => ({
+          document_id: documentData.id,
+          user_id: userId,
+          chunk_id: chunk.id,
+          content: chunk.text,
+          page_number: chunk.page,
+          chunk_type: chunk.type,
+          tokens: chunk.tokens || 0,
+          metadata: toJson({
+            startY: chunk.startY,
+            endY: chunk.endY
+          }) as Database["public"]["Tables"]["document_chunks"]["Insert"]["metadata"]
+        }))
 
-      if (chunksError) {
-        console.error('Failed to store document chunks:', chunksError)
+      if (validChunks.length > 0) {
+        const { error: chunksError } = await supabase
+          .from('document_chunks')
+          .insert(validChunks)
+
+        if (chunksError) {
+          console.error('Failed to store document chunks:', chunksError)
+        }
       }
 
       // Store extracted tables
@@ -142,14 +182,14 @@ export async function processUploadedDocument(
               document_id: documentData.id,
               user_id: userId,
               page_number: table.page,
-              table_data: table.rows,
-              headers: table.headers,
-              position: {
+              table_data: toJson(table.rows),
+              headers: toJson(table.headers),
+              position: toJson({
                 x: table.x,
                 y: table.y,
                 width: table.width,
                 height: table.height
-              }
+              })
             }))
           )
 

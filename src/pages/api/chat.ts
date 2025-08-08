@@ -14,6 +14,13 @@ import omSummarySchema from '@/lib/validation/om-schema.json'
 import { getOpenAICostTracker } from '@/lib/openai-cost-tracker'
 import type { Database } from '@/types/database'
 
+type ChunkWithDoc = {
+  content: string
+  page_number: number  
+  chunk_type: string
+  documents: { original_filename: string }
+}
+
 // Unified request type supporting both simple and complex formats
 interface UnifiedChatRequest {
   // Simple format (chat-enhanced compatibility)
@@ -183,13 +190,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           'key metrics', 'financial highlights', 'investment highlights', 'deal points'
         ]
         
-        const { data: allChunks, error: allChunksError } = await supabase
+        const { data: rawChunks, error: allChunksError } = await supabase
           .from('document_chunks')
           .select(`
             content,
             page_number,
             chunk_type,
-            documents!inner(original_filename)
+            documents:documents(original_filename)
           `)
           .eq('user_id', req.user.id)
           .in('document_id', documentIds)
@@ -199,6 +206,22 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         if (allChunksError) {
           console.error('Error retrieving document chunks:', allChunksError)
         }
+
+        // Runtime guard to ensure documents is properly typed
+        const allChunks: ChunkWithDoc[] = (rawChunks ?? [])
+          .filter((r): r is ChunkWithDoc => 
+            !!r && 
+            typeof r.content === 'string' &&
+            typeof r.page_number === 'number' &&
+            typeof r.chunk_type === 'string' &&
+            !!(r as any).documents?.original_filename
+          )
+          .map(r => ({
+            content: String(r.content),
+            page_number: Number(r.page_number),
+            chunk_type: String(r.chunk_type),
+            documents: { original_filename: String((r as any).documents.original_filename) }
+          }))
         
         // Now try with text search if we have chunks and a query
         let relevantChunks = allChunks
@@ -214,7 +237,21 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               p_limit: 20
             })
           
-          searchChunks = data
+          // Convert search results to proper type with runtime guard
+          searchChunks = (data ?? [])
+            .filter((r): r is ChunkWithDoc => 
+              !!r && 
+              typeof (r as any).content === 'string' &&
+              typeof (r as any).page_number === 'number' &&
+              typeof (r as any).chunk_type === 'string' &&
+              !!(r as any).documents?.original_filename
+            )
+            .map(r => ({
+              content: String((r as any).content),
+              page_number: Number((r as any).page_number),
+              chunk_type: String((r as any).chunk_type),
+              documents: { original_filename: String((r as any).documents.original_filename) }
+            }))
           
           if (searchError) {
             console.error('Error in document text search:', searchError)

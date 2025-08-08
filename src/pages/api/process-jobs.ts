@@ -2,7 +2,25 @@ import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { getConfig } from '@/lib/config'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
-import type { Database } from '@/types/database'
+import type { Database, Json } from '@/types/database'
+
+type ChunkInsert = Database["public"]["Tables"]["document_chunks"]["Insert"]
+type DocumentUpdate = Database["public"]["Tables"]["documents"]["Update"]
+
+function toJson(value: unknown): Json {
+  const seen = new WeakSet()
+  const out = JSON.stringify(value, (_k, v) => {
+    if (typeof v === "bigint") return v.toString()
+    if (v instanceof Date) return v.toISOString()
+    if (typeof v === "function" || v === undefined) return undefined
+    if (typeof v === "object" && v !== null) {
+      if (seen.has(v as object)) return undefined
+      seen.add(v as object)
+    }
+    return v
+  })
+  return out ? (JSON.parse(out) as Json) : null
+}
 
 interface ProcessingJob {
   id: string
@@ -103,26 +121,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Store chunks
         if (parseResult.chunks.length > 0) {
-          const { error: chunksError } = await supabase
-            .from('document_chunks')
-            .insert(
-              parseResult.chunks.map(chunk => ({
+          const validChunks = parseResult.chunks
+            .filter((chunk): chunk is typeof chunk & { text: string; page: number } => 
+              Boolean(chunk.content || chunk.text) && 
+              (chunk.page_number !== undefined || chunk.page !== undefined)
+            )
+            .map(chunk => {
+              const payload: ChunkInsert = {
                 document_id: document.id,
                 user_id: document.user_id,
                 chunk_id: chunk.id,
                 content: chunk.content || chunk.text,
                 page_number: chunk.page_number || chunk.page,
                 chunk_type: chunk.type,
-                tokens: chunk.tokens,
-                metadata: {
+                tokens: chunk.tokens || null,
+                metadata: toJson({
                   startY: chunk.startY || 0,
                   endY: chunk.endY || 0
-                }
-              }))
-            )
+                })
+              }
+              return payload
+            })
 
-          if (chunksError) {
-            throw new Error(`Failed to store chunks: ${chunksError.message}`)
+          if (validChunks.length > 0) {
+            const { error: chunksError } = await supabase
+              .from('document_chunks')
+              .insert(validChunks)
+
+            if (chunksError) {
+              throw new Error(`Failed to store chunks: ${chunksError.message}`)
+            }
           }
         }
 
@@ -152,24 +180,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         // Update document status
-        const { error: updateError } = await supabase
-          .from('documents')
-          .update({
-            status: 'completed',
-            processed_at: new Date().toISOString(),
-            extracted_text: parseResult.fullText.slice(0, 1000), // First 1000 chars as preview
-            metadata: {
-              ...document.metadata,
-              parsing: {
-                success: true,
-                pages: parseResult.pages.length,
-                tables: parseResult.tables.length,
-                chunks: parseResult.chunks.length,
-                processingTime: parseResult.processingTime,
-                processedAt: new Date().toISOString()
-              }
+        const existingMetadata = document.metadata as Record<string, any> || {}
+        
+        const updatePayload: DocumentUpdate = {
+          status: 'completed',
+          processed_at: new Date().toISOString(),
+          extracted_text: parseResult.fullText.slice(0, 1000), // First 1000 chars as preview
+          metadata: toJson({
+            ...existingMetadata,
+            parsing: {
+              success: true,
+              pages: parseResult.pages.length,
+              tables: parseResult.tables.length,
+              chunks: parseResult.chunks.length,
+              processingTime: parseResult.processingTime,
+              processedAt: new Date().toISOString()
             }
           })
+        }
+
+        const { error: updateError } = await supabase
+          .from('documents')
+          .update(updatePayload)
           .eq('id', document.id)
 
         if (updateError) {
@@ -179,8 +211,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Mark job as completed
         await supabase.rpc('complete_processing_job', {
           p_job_id: job.id,
-          p_success: true,
-          p_error_message: null
+          p_success: true
         })
 
         // Clean up parser resources
