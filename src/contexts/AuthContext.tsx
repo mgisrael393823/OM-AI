@@ -38,6 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileLoading, setProfileLoading] = useState(false)
 
   useEffect(() => {
     // Development: Check for stale tokens and clear if found
@@ -62,7 +63,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (session?.user) {
         console.log('👤 Fetching user profile for:', session.user.email)
+        setProfileLoading(true)
         await fetchUserProfile(session.user.id, session.user)
+        setProfileLoading(false)
         console.log('✅ Profile fetch completed')
       } else {
         setProfile(null)
@@ -78,8 +81,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🔄 Auth state change:', event, session?.user?.email || 'No user')
       
-      // Reset loading state for auth changes
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+      // Don't show loading for token refresh to prevent flash
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
         setLoading(true)
       }
       
@@ -88,7 +91,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (session?.user) {
         console.log('👤 Fetching user profile for:', session.user.email)
+        setProfileLoading(true)
         await fetchUserProfile(session.user.id, session.user)
+        setProfileLoading(false)
         console.log('✅ Profile fetch completed')
       } else {
         setProfile(null)
@@ -98,13 +103,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       
-      console.log('🏁 Setting loading to false')
-      setLoading(false)
+      // Only set loading to false immediately if no user
+      if (!session?.user) {
+        console.log('🏁 Setting loading to false - no user')
+        setLoading(false)
+      }
+      // For users with sessions, let the profile useEffect handle loading state
     })
 
     return () => subscription.unsubscribe()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Handle loading state when profile changes
+  useEffect(() => {
+    // If we have a user but were waiting for profile, and now we have profile, stop loading
+    if (user && profile && loading && !profileLoading) {
+      console.log('🏁 Setting loading to false - profile ready')
+      setLoading(false)
+    }
+  }, [user, profile, loading, profileLoading])
 
   const fetchUserProfile = async (userId: string, currentUser?: User | null) => {
     try {

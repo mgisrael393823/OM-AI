@@ -101,14 +101,14 @@ export default function AppPage() {
   }, [sidebarOpen, setSidebarOpen])
 
 
-  // Show loading until authenticated
+  // Show loading until authenticated and profile loaded
   if (loading || !user) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
           <p className="text-sm text-gray-500">
-            {loading ? 'Loading...' : 'Authenticating...'}
+            {loading ? 'Loading your workspace...' : 'Authenticating...'}
           </p>
         </div>
       </div>
