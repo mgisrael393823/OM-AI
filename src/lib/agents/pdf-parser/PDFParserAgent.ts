@@ -1,15 +1,16 @@
 import { PdfReader, PdfReaderItem } from 'pdfreader';
 import { v4 as uuidv4 } from 'uuid';
 import { createRequire } from 'module';
-import { 
-  ParsedText, 
-  ParsedTable, 
-  ParsedPage, 
-  PDFMetadata, 
-  ParseOptions, 
-  ParseResult, 
-  TextChunk, 
-  IPDFParserAgent 
+const require = createRequire(import.meta.url);
+import {
+  ParsedText,
+  ParsedTable,
+  ParsedPage,
+  PDFMetadata,
+  ParseOptions,
+  ParseResult,
+  TextChunk,
+  IPDFParserAgent
 } from './types';
 import { OCRProcessor, PDFAnalyzer, TextProcessor } from './utils';
 
@@ -34,6 +35,24 @@ class NodeCanvasFactory {
     canvasAndContext.canvas.width = 0;
     canvasAndContext.canvas.height = 0;
   }
+}
+
+export async function renderPageToImage(page: any, scale: number = 2.0): Promise<Buffer> {
+  const viewport = page.getViewport({ scale });
+  const canvasFactory = new NodeCanvasFactory();
+  const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+
+  const renderContext = {
+    canvasContext: canvasAndContext.context,
+    viewport,
+    canvasFactory,
+  };
+
+  await page.render(renderContext).promise;
+
+  const buffer = canvasAndContext.canvas.toBuffer('image/png');
+  canvasFactory.destroy(canvasAndContext);
+  return buffer;
 }
 
 export class PDFParserAgent implements IPDFParserAgent {
@@ -61,8 +80,6 @@ export class PDFParserAgent implements IPDFParserAgent {
         : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
       
       // Load PDF with pdfjs-dist
-      const require = createRequire(import.meta.url || __filename);
-      
       let pdfjsLib: any;
       try {
         pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
@@ -474,42 +491,21 @@ export class PDFParserAgent implements IPDFParserAgent {
     }
   }
   
-  /**
-   * Render PDF page to image using Node Canvas
-   */
-  async renderPageToImage(page: any, scale: number = 2.0): Promise<Buffer> {
-    const viewport = page.getViewport({ scale });
-    const canvasFactory = new NodeCanvasFactory();
-    const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
-    
-    const renderContext = {
-      canvasContext: canvasAndContext.context,
-      viewport: viewport,
-      canvasFactory: canvasFactory
-    };
-    
-    await page.render(renderContext).promise;
-    
-    // Get PNG buffer from canvas
-    const buffer = canvasAndContext.canvas.toBuffer('image/png');
-    canvasFactory.destroy(canvasAndContext);
-    
-    return buffer;
-  }
 
   chunkText(text: string, chunkSize: number, pages: ParsedPage[] = []): TextChunk[] {
     // Use the enhanced text processor for semantic chunking
     const semanticChunks = TextProcessor.createSemanticChunks(text, chunkSize);
     
-    return semanticChunks.map(chunk => {
+    return semanticChunks.map((chunk, index) => {
       const actualPage = this.calculatePageFromPosition(chunk.text, pages);
-      
+
       return {
         id: uuidv4(),
         text: chunk.text,
         content: chunk.text, // Add content field for compatibility
         page: actualPage,
         page_number: actualPage, // Add page_number field for database compatibility
+        chunk_index: index,
         startY: 0,
         endY: 0,
         tokens: chunk.tokens,
