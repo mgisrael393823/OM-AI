@@ -8,6 +8,7 @@ const __dirname = dirname(__filename);
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  serverExternalPackages: ['canvas'],
   
   // Headers for cache busting
   headers: async () => {

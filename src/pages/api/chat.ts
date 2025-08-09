@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth, withRateLimit, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { ERROR_CODES, createApiError } from '@/lib/constants/errors'
 import { openai, isOpenAIConfigured } from '@/lib/openai-client'
@@ -136,18 +137,6 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   }
 
   const config = getConfig()
-  
-  // Create admin client for document chunks queries (bypass RLS)
-  const supabaseAdmin = createClient<Database>(
-    config.supabase.url,
-    config.supabase.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    }
-  )
   
   // Regular client for user-specific operations
   const supabase = createClient<Database>(

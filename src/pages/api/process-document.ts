@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth, apiError, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { processUploadedDocument } from '@/lib/document-processor'
 import { getConfig } from '@/lib/config'
@@ -138,6 +139,34 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
         processingTimeMs: processingTime
       })
       return apiError(res, 500, 'Document processing failed', 'PROCESSING_ERROR', processingResult.error)
+    }
+
+    // Verify chunks were created
+    if (processingResult.document?.id) {
+      const { count } = await supabaseAdmin
+        .from('document_chunks')
+        .select('id', { count: 'exact', head: true })
+        .eq('document_id', processingResult.document.id)
+      
+      console.log('[OM-AI] ingest done', { 
+        documentId: processingResult.document.id, 
+        chunkCount: count ?? 0 
+      })
+      
+      if ((count ?? 0) < 5) {
+        console.error(`[${requestId}] Process Document API: Ingest produced too few chunks`, {
+          documentId: processingResult.document.id,
+          chunks: count ?? 0,
+          originalFileName
+        })
+        return res.status(500).json({ 
+          ok: false, 
+          code: 'INGEST_EMPTY', 
+          documentId: processingResult.document.id, 
+          chunks: count ?? 0,
+          message: `Document processing produced only ${count ?? 0} chunks. OCR may have failed.`
+        })
+      }
     }
 
     const totalTime = Date.now() - startTime

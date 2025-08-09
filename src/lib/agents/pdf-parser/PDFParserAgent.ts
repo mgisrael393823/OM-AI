@@ -55,18 +55,52 @@ export class PDFParserAgent implements IPDFParserAgent {
     const config = { ...this.defaultOptions, ...options };
     
     try {
-      // Extract basic PDF structure
+      // Convert Buffer to Uint8Array for pdfjs-dist
+      const data = buffer instanceof Uint8Array
+        ? buffer
+        : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+      
+      // Load PDF with pdfjs-dist
+      const require = createRequire(import.meta.url || __filename);
+      
+      let pdfjsLib: any;
+      try {
+        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
+      } catch {
+        pdfjsLib = await import('pdfjs-dist/build/pdf.js');
+      }
+      
+      // Set worker
+      try {
+        let workerSrc: string | undefined;
+        try { 
+          workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js'); 
+        } catch {}
+        if (!workerSrc) {
+          workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.js');
+        }
+        if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+        }
+      } catch {}
+      
+      const loadingTask = pdfjsLib.getDocument({ data });
+      const pdfDocument = await loadingTask.promise;
+      console.log('[OM-AI] pdf pages:', pdfDocument.numPages);
+      
+      // Extract basic PDF structure for metadata
       const { items, metadata } = await this.extractPDFItems(buffer);
+      metadata.pages = pdfDocument.numPages;
       
-      // Group items by page
-      const pageGroups = this.groupItemsByPage(items);
-      
-      // Process each page
+      // Process ALL pages
       const pages: ParsedPage[] = [];
-      for (const [pageNum, pageItems] of pageGroups.entries()) {
-        const page = await this.processPage(pageNum + 1, pageItems, buffer, config);
+      for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
+        const page = await this.processPageUnified(pdfDocument, pageNumber, config);
         pages.push(page);
       }
+      
+      // Cleanup
+      await pdfDocument.destroy();
 
       // Extract all tables across pages
       const allTables: ParsedTable[] = [];
@@ -161,6 +195,44 @@ export class PDFParserAgent implements IPDFParserAgent {
     return pageGroups;
   }
 
+  private async processPageUnified(
+    pdfDocument: any,
+    pageNumber: number,
+    config: ParseOptions
+  ): Promise<ParsedPage> {
+    try {
+      const page = await pdfDocument.getPage(pageNumber);
+      
+      // Always use unified extractor
+      const { extractPageText } = await import('@/lib/pdf/extractPageText');
+      const pageText = await extractPageText(page);
+      
+      // For structured text and table extraction, we'll use a simple approach
+      const structuredText: ParsedText[] = [];
+      const tables: ParsedTable[] = [];
+      
+      return {
+        pageNumber,
+        text: pageText,
+        structuredText,
+        tables,
+        isImageBased: false,
+        ocrText: undefined
+      };
+    } catch (error) {
+      console.warn(`Failed to extract page ${pageNumber}:`, error);
+      return {
+        pageNumber,
+        text: '',
+        structuredText: [],
+        tables: [],
+        isImageBased: true,
+        ocrText: undefined
+      };
+    }
+  }
+  
+  // Keep original processPage for backward compatibility
   private async processPage(
     pageNumber: number, 
     items: PdfReaderItem[], 
@@ -345,14 +417,29 @@ export class PDFParserAgent implements IPDFParserAgent {
       try {
         const { extractPageText } = await import('@/lib/pdf/extractPageText');
         
-        // Use Node-safe PDF.js import with createRequire
+        // Hardened PDF.js import with fallback
         const require = createRequire(import.meta.url || __filename);
-        const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
         
-        // Set worker if not already configured
-        if (!pdfjsLib.GlobalWorkerOptions?.workerSrc) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
+        let pdfjsLib: any;
+        try {
+          pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
+        } catch {
+          pdfjsLib = await import('pdfjs-dist/build/pdf.js'); // fallback
         }
+        
+        // Hardened worker resolution with fallback
+        try {
+          let workerSrc: string | undefined;
+          try { 
+            workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js'); 
+          } catch {}
+          if (!workerSrc) {
+            workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.js');
+          }
+          if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+          }
+        } catch {}
         
         // Load the PDF document
         const loadingTask = pdfjsLib.getDocument({ data: buffer });

@@ -3,7 +3,8 @@
  * Handles both text-rich and image-heavy pages
  */
 
-import type { PDFPageProxy } from 'pdfjs-dist';
+// Remove type import to avoid dependency issues
+// import type { PDFPageProxy } from 'pdfjs-dist';
 
 interface ExtractionOptions {
   dpi?: number;
@@ -14,7 +15,7 @@ interface ExtractionOptions {
 /**
  * Extract text from PDF page with pdfjs-dist
  */
-async function extractWithPdfjs(page: PDFPageProxy): Promise<string> {
+async function extractWithPdfjs(page: any): Promise<string> {
   try {
     const textContent = await page.getTextContent();
     const textItems = textContent.items
@@ -31,14 +32,20 @@ async function extractWithPdfjs(page: PDFPageProxy): Promise<string> {
 /**
  * Render PDF page to image for OCR processing using Node Canvas
  */
-async function renderPageToImage(page: PDFPageProxy, options: { dpi: number }): Promise<Buffer> {
+export async function renderPageToImage(page: any, options: { dpi: number } = { dpi: 300 }): Promise<Buffer> {
   try {
     // Calculate scale based on DPI (default PDF is 72 DPI)
     const scale = options.dpi / 72;
     const viewport = page.getViewport({ scale });
     
-    // Use Node Canvas for server-side rendering
-    const Canvas = require('canvas');
+    // Try to use Node Canvas for server-side rendering
+    let Canvas: any;
+    try {
+      Canvas = require('canvas');
+    } catch (e) {
+      throw new Error('Canvas not available for OCR');
+    }
+    
     const canvas = Canvas.createCanvas(viewport.width, viewport.height);
     const context = canvas.getContext('2d');
     
@@ -68,8 +75,8 @@ async function renderPageToImage(page: PDFPageProxy, options: { dpi: number }): 
     
     // Convert to PNG buffer
     return canvas.toBuffer('image/png');
-  } catch (error) {
-    console.error('[OM-AI] Error rendering page to image:', error);
+  } catch (error: any) {
+    console.warn('[OM-AI] Canvas render failed:', error?.message || error);
     throw error;
   }
 }
@@ -134,7 +141,7 @@ function normalizeOcr(text: string): string {
  * Uses pdfjs for text extraction, falls back to OCR for low-text pages
  */
 export async function extractPageText(
-  page: PDFPageProxy,
+  page: any,
   options: ExtractionOptions = {}
 ): Promise<string> {
   const { 
@@ -147,24 +154,32 @@ export async function extractPageText(
   const pdfjsText = await extractWithPdfjs(page);
   
   // Check if we have enough alphanumeric content
-  const alpha = pdfjsText.replace(/[^A-Za-z0-9$%.,:()/\- \n]+/g, '');
+  const alpha = pdfjsText.replace(/[^A-Za-z0-9$€£.,:%&()/\- \n]+/g, '');
   
   // Calculate digit ratio for table detection
   const digits = pdfjsText.replace(/[^0-9]/g, '').length;
-  const digitRatio = pdfjsText.length > 0 ? digits / pdfjsText.length : 0;
+  const digitRatio = alpha.length > 0 ? digits / alpha.length : 0;
   
   // If enough text content AND not number-heavy, return it
-  if (alpha.length >= ocrThreshold && digitRatio < 0.35) {
+  const needsOCR = alpha.length < ocrThreshold || digitRatio >= 0.35;
+  
+  if (!needsOCR) {
     return pdfjsText;
   }
   
-  // Low text content or number-heavy - likely an image-heavy page or table, use OCR
+  // Low text content or number-heavy - try OCR if Canvas is available
   const reason = digitRatio >= 0.35 ? 'digit-heavy table' : 'low text content';
   
+  let imageBuffer: Buffer | undefined;
   try {
-    // Render page to high-res image
-    const imageBuffer = await renderPageToImage(page, { dpi });
-    
+    // Try to render page to image - will fail if Canvas not available
+    imageBuffer = await renderPageToImage(page, { dpi });
+  } catch (e: any) {
+    console.warn(`[OM-AI] Canvas not available for page ${pageNumber}, skipping OCR:`, e?.message);
+    return pdfjsText; // Fall back to pdfjs text without OCR
+  }
+  
+  try {
     // Perform OCR with optimized settings for financial documents
     const ocrResult = await tesseractRecognize(imageBuffer, {
       lang: 'eng',
@@ -175,15 +190,14 @@ export async function extractPageText(
     
     // Combine pdfjs text (if any) with OCR results
     const normalizedOcr = normalizeOcr(ocrResult.data.text);
-    const combinedText = pdfjsText.trim() + '\n' + normalizedOcr;
+    const combinedText = (pdfjsText.trim() + '\n' + normalizedOcr).trim();
     
     // Log OCR usage with preview
-    const preview = combinedText.substring(0, 80).replace(/\n/g, ' ');
-    console.log(`[OM-AI] OCR used for page ${pageNumber} (${reason}): "${preview}..."`);
+    console.log(`[OM-AI] OCR used for page ${pageNumber} (${reason})`);
     
-    return combinedText.trim();
-  } catch (ocrError) {
-    console.error(`[OM-AI] OCR failed for page ${pageNumber}:`, ocrError);
+    return combinedText;
+  } catch (ocrError: any) {
+    console.warn(`[OM-AI] OCR failed for page ${pageNumber}:`, ocrError?.message || ocrError);
     // Return whatever text we got from pdfjs
     return pdfjsText;
   }
