@@ -150,18 +150,19 @@ async function reprocessMissingDocs() {
             console.log(`  Chunk ${i + 1}:`)
             console.log(`    - Page: ${chunk.page_number || chunk.page}`)
             console.log(`    - Type: ${chunk.type}`)
-            console.log(`    - Text preview: "${(chunk.text || chunk.content || '').slice(0, 50)}..."`)
+            console.log(`    - Text preview: "${(chunk.content || '').slice(0, 50)}..."`)
           })
 
           const { error: chunksError, count } = await supabase
             .from('document_chunks')
             .insert(
-              parseResult.chunks.map(chunk => ({
+              parseResult.chunks.map((chunk, index) => ({
                 document_id: doc.id,
                 user_id: doc.user_id,
                 chunk_id: chunk.id,
-                content: chunk.content || chunk.text,
+                content: chunk.content,
                 page_number: chunk.page_number || chunk.page,
+                chunk_index: index,
                 chunk_type: chunk.type,
                 tokens: chunk.tokens,
                 metadata: {

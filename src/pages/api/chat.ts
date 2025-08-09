@@ -1,6 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth, withRateLimit, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { ERROR_CODES, createApiError } from '@/lib/constants/errors'
 import { openai, isOpenAIConfigured } from '@/lib/openai-client'
@@ -17,6 +16,12 @@ import { getOpenAICostTracker } from '@/lib/openai-cost-tracker'
 import { estimateTokens } from '@/lib/tokenizer'
 import { pickModel } from '@/lib/services/openai'
 import type { Database } from '@/types/database'
+
+const supabaseAdmin = createClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+)
 
 type Chunk = {
   content: string
@@ -355,20 +360,18 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           // Get primer pages with high-signal content
           const { data: primerPages } = await supabaseAdmin
             .from('document_chunks')
-            .select('content, page_number, document_id, chunk_type, documents:documents(original_filename)')
+            .select('content,page_number,document_id')
             .in('document_id', documentIds)
             .or("content.ilike.%executive%,content.ilike.%summary%,content.ilike.%overview%,content.ilike.%assumptions%,content.ilike.%unit%,content.ilike.%mix%,content.ilike.%sources%,content.ilike.%uses%")
             .order('page_number', { ascending: true })
             .limit(12)
-          
+
           const primerChunks: Chunk[] = (primerPages ?? [])
             .filter((r: any) => r?.content && r?.document_id)
             .map((r: any) => ({
               content: String(r.content),
               page_number: Number(r.page_number),
-              document_id: String(r.document_id),
-              chunk_type: r.chunk_type,
-              documents: r.documents
+              document_id: String(r.document_id)
             }))
           
           // If no primer chunks, get first pages as fallback
@@ -376,19 +379,17 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           if (primerChunks.length === 0) {
             const { data: firstPages } = await supabaseAdmin
               .from('document_chunks')
-              .select('content, page_number, document_id, chunk_type, documents:documents(original_filename)')
+              .select('content,page_number,document_id')
               .in('document_id', documentIds)
               .order('page_number', { ascending: true })
               .limit(6)
-            
+
             firstPageChunks = (firstPages ?? [])
               .filter((r: any) => r?.content && r?.document_id)
               .map((r: any) => ({
                 content: String(r.content),
                 page_number: Number(r.page_number),
-                document_id: String(r.document_id),
-                chunk_type: r.chunk_type,
-                documents: r.documents
+                document_id: String(r.document_id)
               }))
           }
           

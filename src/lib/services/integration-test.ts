@@ -94,15 +94,15 @@ export async function testMVPFlow(
         if (docError) throw docError;
 
         // Store document chunks
-        const chunksToInsert = parseResult.chunks.map((chunk: any) => ({
+        const chunksToInsert = parseResult.chunks.map((chunk: any, index: number) => ({
           document_id: document.id,
           user_id: testUserId,
-          content: chunk.content || chunk.text, // Handle both enhanced parser and original parser output
+          content: chunk.content,
           page_number: chunk.page_number || chunk.page,
-          chunk_index: chunk.chunk_index || 0,
+          chunk_index: index,
           chunk_type: chunk.type,
-          word_count: chunk.word_count || Math.ceil(chunk.text?.length / 5) || 0,
-          char_count: chunk.char_count || chunk.text?.length || 0
+          word_count: chunk.word_count || Math.ceil((chunk.content?.length || 0) / 5) || 0,
+          char_count: chunk.char_count || chunk.content?.length || 0
         }));
 
         const { error: chunksError } = await supabase

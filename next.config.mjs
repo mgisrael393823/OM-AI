@@ -8,8 +8,8 @@ const __dirname = dirname(__filename);
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ['canvas'],
-  
+  transpilePackages: ['pdfjs-dist'],
+
   // Headers for cache busting
   headers: async () => {
     const headers = [
@@ -122,6 +122,7 @@ const nextConfig = {
   experimental: {
     // Disable Turbopack in development for better HMR stability
     // turbo: {},
+    serverComponentsExternalPackages: ['canvas']
   },
   
   images: {
