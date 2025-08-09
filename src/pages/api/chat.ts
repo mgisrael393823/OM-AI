@@ -12,6 +12,8 @@ import { detectIntent, suggestResponseFormat, ChatIntent } from '@/lib/utils/int
 import { validateAndFilterOmResponse, createEmptyOMResponse } from '@/lib/validation/om-response'
 import omSummarySchema from '@/lib/validation/om-schema.json'
 import { getOpenAICostTracker } from '@/lib/openai-cost-tracker'
+import { estimateTokens } from '@/lib/tokenizer'
+import { pickModel } from '@/lib/services/openai'
 import type { Database } from '@/types/database'
 
 type ChunkWithDoc = {
@@ -398,6 +400,126 @@ ${chunk.content.substring(0, 1500)}${chunk.content.length > 1500 ? '...' : ''}`;
   .join('\n')}
 
 Please reference this document context in your response when relevant.`
+        } else {
+          // No chunks found - implement primer fallback
+          console.warn('[OM-AI] No relevant chunks found, attempting primer fallback', {
+            documentIds,
+            allChunksLength: allChunks?.length || 0,
+            searchChunksLength: searchChunks?.length || 0,
+            userQuery: userQuery?.substring(0, 100)
+          })
+          
+          // Try to get primer pages (executive summary, overview, etc.)
+          const primerPattern = /executive|summary|overview|assumptions|unit\s*mix|sources|uses/i
+          const { data: primerChunks, error: primerError } = await supabase
+            .from('document_chunks')
+            .select(`
+              content,
+              page_number,
+              chunk_type,
+              documents:documents(original_filename)
+            `)
+            .eq('user_id', req.user.id)
+            .in('document_id', documentIds)
+            .order('page_number', { ascending: true })
+            .limit(12)
+          
+          let finalChunks: ChunkWithDoc[] = []
+          
+          if (!primerError && primerChunks && primerChunks.length > 0) {
+            // Filter primer chunks for those matching key sections
+            const matchingPrimers = (primerChunks as any[])
+              .filter((chunk: any) => 
+                chunk && chunk.content && 
+                primerPattern.test(chunk.content)
+              )
+              .map(r => ({
+                content: String(r.content),
+                page_number: Number(r.page_number),
+                chunk_type: String(r.chunk_type),
+                documents: { original_filename: String(r.documents?.original_filename || 'Unknown') }
+              }))
+            
+            if (matchingPrimers.length > 0) {
+              finalChunks = matchingPrimers
+              console.log('[OM-AI] Found primer chunks:', {
+                primerCount: matchingPrimers.length,
+                pages: matchingPrimers.map(c => c.page_number).slice(0, 5)
+              })
+            }
+          }
+          
+          // If no primer chunks or not enough, get first pages
+          if (finalChunks.length < 6) {
+            const { data: firstPages, error: firstPagesError } = await supabase
+              .from('document_chunks')
+              .select(`
+                content,
+                page_number,
+                chunk_type,
+                documents:documents(original_filename)
+              `)
+              .eq('user_id', req.user.id)
+              .in('document_id', documentIds)
+              .lte('page_number', 6)
+              .order('page_number', { ascending: true })
+              .limit(6)
+            
+            if (!firstPagesError && firstPages && firstPages.length > 0) {
+              const firstPageChunks = (firstPages as any[])
+                .filter((chunk: any) => chunk && chunk.content)
+                .map(r => ({
+                  content: String(r.content),
+                  page_number: Number(r.page_number),
+                  chunk_type: String(r.chunk_type),
+                  documents: { original_filename: String(r.documents?.original_filename || 'Unknown') }
+                }))
+              
+              // Deduplicate by page_number
+              const existingPages = new Set(finalChunks.map(c => c.page_number))
+              const newChunks = firstPageChunks.filter(c => !existingPages.has(c.page_number))
+              finalChunks = [...finalChunks, ...newChunks]
+              
+              console.warn('[OM-AI] No relevant chunks; injected primer pages', {
+                primerCount: matchingPrimers?.length || 0,
+                firstPagesCount: newChunks.length,
+                documentIds,
+                totalChunks: finalChunks.length
+              })
+            }
+          }
+          
+          if (finalChunks.length > 0) {
+            relevantChunks = finalChunks
+            contextualInformation = `
+
+DOCUMENT CONTEXT:
+The following information is from the user's uploaded documents:
+
+${finalChunks
+  .map((chunk: any, index: number) => {
+    const docName = chunk.documents?.original_filename ?? 'Unknown';
+    return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
+${chunk.content.substring(0, 1500)}${chunk.content.length > 1500 ? '...' : ''}`;
+  })
+  .join('\n')}
+
+Please reference this document context in your response when relevant.`
+          } else {
+            // Complete failure - no chunks even after fallback
+            console.error('[OM-AI] Document retrieval failed completely', {
+              documentIds,
+              attemptedHeuristics: ['vector_search', 'keyword_filter', 'primer_injection', 'first_pages']
+            })
+            
+            // Return error response immediately
+            return res.status(400).json({
+              success: false,
+              message: 'Document content not retrieved. The PDF may be image-only without OCR, not fully processed, or indexing failed.',
+              documentIds,
+              attemptedHeuristics: ['vector_search', 'keyword_filter', 'primer_injection', 'first_pages']
+            })
+          }
         }
       } catch (error) {
         console.error('Error retrieving document context:', error)
@@ -449,11 +571,22 @@ Please reference this document context in your response when relevant.`
       // User explicitly wants JSON
       systemPrompt = getOmPrompt(CURRENT_OM_PROMPT_VERSION);
       useJsonSchema = true;
+    } else if (documentIds.length > 0) {
+      // Force document analysis prompt when documents are attached
+      const lowerQuery = userMessage.toLowerCase();
+      if (lowerQuery.includes('key') || lowerQuery.includes('deal') || lowerQuery.includes('point') || 
+          lowerQuery.includes('metric') || lowerQuery.includes('financial') || lowerQuery.includes('summary')) {
+        // User asking for key metrics/deal points
+        systemPrompt = getOmNaturalPrompt('metrics_extraction');
+        console.log('📊 Using metrics extraction prompt for query:', userMessage.substring(0, 50));
+      } else {
+        systemPrompt = getOmNaturalPrompt('full');
+        console.log('📄 Using full document analysis prompt');
+      }
     } else if (intentAnalysis.intent === ChatIntent.DOCUMENT_ANALYSIS && hasDocContext) {
-      // Document analysis with natural language output
+      // Document analysis with natural language output (fallback)
       const lowerQuery = userMessage.toLowerCase();
       if (lowerQuery.includes('key') && (lowerQuery.includes('data') || lowerQuery.includes('metric') || lowerQuery.includes('point'))) {
-        // User specifically asking for key data points/metrics
         systemPrompt = getOmNaturalPrompt('metrics_extraction');
       } else {
         systemPrompt = getOmNaturalPrompt(intentAnalysis.analysisType || 'full');
@@ -461,6 +594,20 @@ Please reference this document context in your response when relevant.`
     } else {
       // General conversation
       systemPrompt = getConversationalPrompt(hasDocContext);
+    }
+    
+    // Log context pages before sending to model
+    if (contextualInformation && documentIds.length > 0) {
+      const contextChunks = relevantChunks || []
+      const contextPages = contextChunks
+        .slice(0, 5)
+        .map((chunk: any) => ({
+          page: chunk.page_number,
+          preview: chunk.content.substring(0, 120).replace(/\n/g, ' ')
+        }))
+      
+      console.log('[OM-AI] Context pages:', contextPages)
+      console.log('[OM-AI] Total context chunks:', contextChunks.length)
     }
     
     const systemMessage = {
@@ -475,6 +622,25 @@ Please reference this document context in your response when relevant.`
     if (!limitCheck.canProceed) {
       return createApiError(res, ERROR_CODES.RATE_LIMIT_EXCEEDED, limitCheck.reason)
     }
+
+    // Estimate input tokens for model selection
+    const inputText = [systemMessage, ...messages].map(m => m.content).join(' ')
+    const estInputTokens = await estimateTokens(inputText)
+    
+    // Determine if this requires table extraction (detect tables in context)
+    const requiresTableExtraction = !!(contextualInformation && 
+      (contextualInformation.includes('|') || contextualInformation.match(/\d+\s*\|\s*\d+/)))
+    
+    // Allow per-request model override for dev/admin users
+    const debugModel = (req.headers['x-model-name'] || req.query.model) as string | undefined
+    const allowOverride = process.env.NODE_ENV !== 'production' || req.user.role === 'admin'
+    
+    // Select model based on request characteristics or override
+    const modelName = allowOverride && debugModel ? debugModel : pickModel({
+      mode: intentAnalysis.intent === ChatIntent.DOCUMENT_ANALYSIS ? 'analysis' : 'chat',
+      estInputTokens,
+      requiresTableExtraction
+    })
 
     // Use SSE format for deprecated endpoints or when explicitly requested
     const useSSEFormat = !!deprecatedEndpoint
@@ -502,7 +668,6 @@ Please reference this document context in your response when relevant.`
 
       // Create streaming response with optional structured outputs
       let response;
-      const modelName = normalizedRequest.options?.model || "gpt-4o"
       
       if (useJsonSchema) {
         response = await openai.chat.completions.create({
@@ -615,7 +780,6 @@ Please reference this document context in your response when relevant.`
     } else {
       // Non-streaming response with optional structured outputs
       let response;
-      const modelName = normalizedRequest.options?.model || "gpt-4o"
       
       if (useJsonSchema) {
         response = await openai.chat.completions.create({

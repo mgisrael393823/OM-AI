@@ -126,6 +126,11 @@
     -moz-osx-font-smoothing: grayscale;
   }
   
+  /* FOUC prevention - hide body during auth loading */
+  body[data-auth="loading"] {
+    visibility: hidden;
+  }
+  
   /* Ensure font variables are available */
   :root {
     --font-inter: var(--font-inter);

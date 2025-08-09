@@ -69,10 +69,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('✅ Profile fetch completed')
       } else {
         setProfile(null)
+        console.log('🏁 Setting loading to false - no user')
+        setLoading(false)
       }
       
-      console.log('🏁 Setting loading to false')
-      setLoading(false)
+      // Don't set loading=false here if we have a user - let the profile effect handle it
     })
 
     // Listen for auth state changes
@@ -85,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
         setLoading(true)
       }
+      // TOKEN_REFRESHED events don't trigger loading to prevent flashes
       
       setSession(session)
       setUser(session?.user ?? null)
@@ -115,14 +117,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Handle loading state when profile changes
+  // Handle loading state when profile changes - only clear loading when both user and profile ready
   useEffect(() => {
-    // If we have a user but were waiting for profile, and now we have profile, stop loading
-    if (user && profile && loading && !profileLoading) {
-      console.log('🏁 Setting loading to false - profile ready')
+    // Only clear loading when we have both user and profile, and profile is not actively loading
+    if (user && profile && !profileLoading) {
+      console.log('🏁 Setting loading to false - both user and profile ready')
       setLoading(false)
     }
-  }, [user, profile, loading, profileLoading])
+  }, [user, profile, profileLoading])
 
   const fetchUserProfile = async (userId: string, currentUser?: User | null) => {
     try {

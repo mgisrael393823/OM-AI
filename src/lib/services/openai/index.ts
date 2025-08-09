@@ -11,6 +11,8 @@
 import OpenAI from 'openai';
 import { performance } from 'perf_hooks';
 import { v4 as uuidv4 } from 'uuid';
+import { FEATURE_FLAGS, getEnv } from '@/lib/feature-flags';
+import { estimateTokens } from '@/lib/tokenizer';
 
 // Service configuration types
 export interface OpenAIServiceConfig {
@@ -109,6 +111,36 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
     maxTokens: 16384
   }
 };
+
+/**
+ * Model routing options
+ */
+export type ModelRouteOptions = {
+  mode?: 'chat' | 'analysis';
+  estInputTokens?: number;
+  requiresTableExtraction?: boolean;
+};
+
+/**
+ * Pick the appropriate model based on request characteristics
+ */
+export function pickModel(opts: ModelRouteOptions = {}): string {
+  const defaultModel = getEnv('OPENAI_DEFAULT_MODEL', 'gpt-4o-mini');
+  const analysisModel = getEnv('OPENAI_ANALYSIS_MODEL', 'gpt-4o');
+  
+  // Kill switch: if analysis is disabled, always use default
+  if (!FEATURE_FLAGS.USE_ANALYSIS) {
+    return defaultModel;
+  }
+  
+  // Determine if this is a heavy request
+  const isHeavy = 
+    opts.mode === 'analysis' ||
+    (opts.estInputTokens ?? 0) > 12000 ||
+    !!opts.requiresTableExtraction;
+  
+  return isHeavy ? analysisModel : defaultModel;
+}
 
 export class OpenAIService {
   private client: OpenAI;
