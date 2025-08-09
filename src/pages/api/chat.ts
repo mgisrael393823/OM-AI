@@ -8,6 +8,7 @@ import { logError } from '@/lib/error-logger'
 import { getOmPrompt, CURRENT_OM_PROMPT_VERSION } from '@/lib/prompts/om-analyst'
 import { getConversationalPrompt } from '@/lib/prompts/conversational'
 import { getOmNaturalPrompt } from '@/lib/prompts/om-analyst-natural'
+import { OM_ANALYST_DEVELOPMENT_PROMPT_V1, DEV_FIELDS } from '@/lib/prompts/om-analyst-development'
 import { detectIntent, suggestResponseFormat, ChatIntent } from '@/lib/utils/intent-detection'
 import { validateAndFilterOmResponse, createEmptyOMResponse } from '@/lib/validation/om-response'
 import omSummarySchema from '@/lib/validation/om-schema.json'
@@ -16,12 +17,16 @@ import { estimateTokens } from '@/lib/tokenizer'
 import { pickModel } from '@/lib/services/openai'
 import type { Database } from '@/types/database'
 
-type ChunkWithDoc = {
+type Chunk = {
   content: string
-  page_number: number  
-  chunk_type: string
-  documents: { original_filename: string }
+  page_number: number
+  document_id: string  // REQUIRED for deduplication
+  chunk_type?: string
+  documents?: { original_filename?: string }
 }
+
+// Keep legacy type alias for compatibility
+type ChunkWithDoc = Chunk
 
 // Unified request type supporting both simple and complex formats
 interface UnifiedChatRequest {
@@ -62,6 +67,18 @@ function normalizeRequest(body: any): UnifiedChatRequest {
   }
 }
 
+// Helper: dedupe chunks by document_id + page_number
+function dedupeByDocPage(list: Chunk[]): Chunk[] {
+  const seen = new Set<string>();
+  return (list ?? []).filter(c => {
+    if (!c?.document_id || c.page_number == null) return false; // allow page 0
+    const key = `${c.document_id}:${c.page_number}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return Boolean(c.content?.trim());
+  });
+}
+
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   // Request body logging removed for production
   
@@ -87,6 +104,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   const hasMessages = 'messages' in req.body
   const hasOptions = 'options' in req.body
   const hasDocumentContext = 'documentContext' in req.body
+  
+  // Hoisted context assembly variables
+  let relevantChunks: Chunk[] = [];
+  const MIN_HITS = 3;
   
   // Simple format: has message field (with optional sessionId, documentId, options for compatibility)
   // Complex format: has messages array field
@@ -115,6 +136,20 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   }
 
   const config = getConfig()
+  
+  // Create admin client for document chunks queries (bypass RLS)
+  const supabaseAdmin = createClient<Database>(
+    config.supabase.url,
+    config.supabase.serviceRoleKey || process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    }
+  )
+  
+  // Regular client for user-specific operations
   const supabase = createClient<Database>(
     config.supabase.url,
     config.supabase.serviceRoleKey
@@ -168,6 +203,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     const documentIds = normalizedRequest.documentContext?.documentIds || 
       (normalizedRequest.documentId ? [normalizedRequest.documentId] : [])
     
+    // Initialize deal type (will be set when we have document context)
+    let dealType: 'development' | 'acquisition' = 'acquisition';
+    
     if (documentIds.length > 0) {
       try {
         const userQuery = isSimple ? normalizedRequest.message : 
@@ -192,15 +230,15 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           'key metrics', 'financial highlights', 'investment highlights', 'deal points'
         ]
         
-        const { data: rawChunks, error: allChunksError } = await supabase
+        const { data: rawChunks, error: allChunksError } = await supabaseAdmin
           .from('document_chunks')
           .select(`
             content,
             page_number,
             chunk_type,
+            document_id,
             documents:documents(original_filename)
           `)
-          .eq('user_id', req.user.id)
           .in('document_id', documentIds)
           .order('page_number', { ascending: true })
           .limit(100)
@@ -215,24 +253,26 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             !!r && 
             typeof r.content === 'string' &&
             typeof r.page_number === 'number' &&
+            typeof r.document_id === 'string' &&
             typeof r.chunk_type === 'string' &&
             !!(r as any).documents?.original_filename
           )
           .map(r => ({
             content: String(r.content),
             page_number: Number(r.page_number),
+            document_id: String(r.document_id),
             chunk_type: String(r.chunk_type),
             documents: { original_filename: String((r as any).documents.original_filename) }
           }))
         
         // Now try with text search if we have chunks and a query
-        let relevantChunks = allChunks
+        relevantChunks = allChunks || []
         let searchChunks = null
         
         if (allChunks && allChunks.length > 0 && userQuery) {
           // First try RPC call with plainto_tsquery for safe text search
-          // Fixed: Removed p_user_id parameter - function now uses auth.uid() internally for security
-          const { data, error: searchError } = await supabase
+          // Use admin client to bypass RLS
+          const { data, error: searchError } = await supabaseAdmin
             .rpc('search_document_chunks', {
               p_document_ids: documentIds,
               p_query: userQuery,
@@ -245,12 +285,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               !!r && 
               typeof (r as any).content === 'string' &&
               typeof (r as any).page_number === 'number' &&
+              typeof (r as any).document_id === 'string' &&
               typeof (r as any).chunk_type === 'string' &&
               !!(r as any).documents?.original_filename
             )
             .map(r => ({
               content: String((r as any).content),
               page_number: Number((r as any).page_number),
+              document_id: String((r as any).document_id),
               chunk_type: String((r as any).chunk_type),
               documents: { original_filename: String((r as any).documents.original_filename) }
             }))
@@ -313,6 +355,75 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             relevantChunks = searchChunks
           }
         }
+        
+        // Primer fallback when LOW HITS (not just zero)
+        if (!relevantChunks || relevantChunks.length < MIN_HITS) {
+          console.log('[OM-AI] Low hits, attempting primer injection', {
+            currentHits: relevantChunks?.length || 0,
+            threshold: MIN_HITS
+          })
+          
+          // Get primer pages with high-signal content
+          const { data: primerPages } = await supabaseAdmin
+            .from('document_chunks')
+            .select('content, page_number, document_id, chunk_type, documents:documents(original_filename)')
+            .in('document_id', documentIds)
+            .or("content.ilike.%executive%,content.ilike.%summary%,content.ilike.%overview%,content.ilike.%assumptions%,content.ilike.%unit%,content.ilike.%mix%,content.ilike.%sources%,content.ilike.%uses%")
+            .order('page_number', { ascending: true })
+            .limit(12)
+          
+          const primerChunks: Chunk[] = (primerPages ?? [])
+            .filter((r: any) => r?.content && r?.document_id)
+            .map((r: any) => ({
+              content: String(r.content),
+              page_number: Number(r.page_number),
+              document_id: String(r.document_id),
+              chunk_type: r.chunk_type,
+              documents: r.documents
+            }))
+          
+          // If no primer chunks, get first pages as fallback
+          let firstPageChunks: Chunk[] = []
+          if (primerChunks.length === 0) {
+            const { data: firstPages } = await supabaseAdmin
+              .from('document_chunks')
+              .select('content, page_number, document_id, chunk_type, documents:documents(original_filename)')
+              .in('document_id', documentIds)
+              .order('page_number', { ascending: true })
+              .limit(6)
+            
+            firstPageChunks = (firstPages ?? [])
+              .filter((r: any) => r?.content && r?.document_id)
+              .map((r: any) => ({
+                content: String(r.content),
+                page_number: Number(r.page_number),
+                document_id: String(r.document_id),
+                chunk_type: r.chunk_type,
+                documents: r.documents
+              }))
+          }
+          
+          // Merge and deduplicate
+          relevantChunks = dedupeByDocPage([
+            ...(relevantChunks ?? []),
+            ...primerChunks,
+            ...firstPageChunks
+          ])
+          
+          console.warn('[OM-AI] primer injected', {
+            docCount: documentIds.length,
+            pages: relevantChunks.map(c => ({ 
+              document_id: c.document_id, 
+              page_number: c.page_number 
+            }))
+          })
+        }
+        
+        // Detect deal type from primer text
+        const primerText = relevantChunks.slice(0, 8).map(c => c.content).join('\n').slice(0, 8000);
+        const isDev = /total (project|development) cost|TDC|sources\s*(?:&|and)\s*uses|use[s]?\s*of\s*funds|stabiliz(e|ed)\s*noi|exit\s*cap|yield on cost|construction (start|completion)|delivery|lease[\s-]*up/i.test(primerText);
+        dealType = isDev ? 'development' : 'acquisition';
+        console.log('[OM-AI] dealType:', dealType);
 
         if (relevantChunks && relevantChunks.length > 0) {
           // Enhanced financial content prioritization for key deal points queries
@@ -401,123 +512,16 @@ ${chunk.content.substring(0, 1500)}${chunk.content.length > 1500 ? '...' : ''}`;
 
 Please reference this document context in your response when relevant.`
         } else {
-          // No chunks found - implement primer fallback
-          console.warn('[OM-AI] No relevant chunks found, attempting primer fallback', {
-            documentIds,
-            allChunksLength: allChunks?.length || 0,
-            searchChunksLength: searchChunks?.length || 0,
-            userQuery: userQuery?.substring(0, 100)
-          })
-          
-          // Try to get primer pages (executive summary, overview, etc.)
-          const primerPattern = /executive|summary|overview|assumptions|unit\s*mix|sources|uses/i
-          const { data: primerChunks, error: primerError } = await supabase
-            .from('document_chunks')
-            .select(`
-              content,
-              page_number,
-              chunk_type,
-              documents:documents(original_filename)
-            `)
-            .eq('user_id', req.user.id)
-            .in('document_id', documentIds)
-            .order('page_number', { ascending: true })
-            .limit(12)
-          
-          let finalChunks: ChunkWithDoc[] = []
-          
-          if (!primerError && primerChunks && primerChunks.length > 0) {
-            // Filter primer chunks for those matching key sections
-            const matchingPrimers = (primerChunks as any[])
-              .filter((chunk: any) => 
-                chunk && chunk.content && 
-                primerPattern.test(chunk.content)
-              )
-              .map(r => ({
-                content: String(r.content),
-                page_number: Number(r.page_number),
-                chunk_type: String(r.chunk_type),
-                documents: { original_filename: String(r.documents?.original_filename || 'Unknown') }
-              }))
-            
-            if (matchingPrimers.length > 0) {
-              finalChunks = matchingPrimers
-              console.log('[OM-AI] Found primer chunks:', {
-                primerCount: matchingPrimers.length,
-                pages: matchingPrimers.map(c => c.page_number).slice(0, 5)
-              })
-            }
-          }
-          
-          // If no primer chunks or not enough, get first pages
-          if (finalChunks.length < 6) {
-            const { data: firstPages, error: firstPagesError } = await supabase
-              .from('document_chunks')
-              .select(`
-                content,
-                page_number,
-                chunk_type,
-                documents:documents(original_filename)
-              `)
-              .eq('user_id', req.user.id)
-              .in('document_id', documentIds)
-              .lte('page_number', 6)
-              .order('page_number', { ascending: true })
-              .limit(6)
-            
-            if (!firstPagesError && firstPages && firstPages.length > 0) {
-              const firstPageChunks = (firstPages as any[])
-                .filter((chunk: any) => chunk && chunk.content)
-                .map(r => ({
-                  content: String(r.content),
-                  page_number: Number(r.page_number),
-                  chunk_type: String(r.chunk_type),
-                  documents: { original_filename: String(r.documents?.original_filename || 'Unknown') }
-                }))
-              
-              // Deduplicate by page_number
-              const existingPages = new Set(finalChunks.map(c => c.page_number))
-              const newChunks = firstPageChunks.filter(c => !existingPages.has(c.page_number))
-              finalChunks = [...finalChunks, ...newChunks]
-              
-              console.warn('[OM-AI] No relevant chunks; injected primer pages', {
-                primerCount: matchingPrimers?.length || 0,
-                firstPagesCount: newChunks.length,
-                documentIds,
-                totalChunks: finalChunks.length
-              })
-            }
-          }
-          
-          if (finalChunks.length > 0) {
-            relevantChunks = finalChunks
-            contextualInformation = `
-
-DOCUMENT CONTEXT:
-The following information is from the user's uploaded documents:
-
-${finalChunks
-  .map((chunk: any, index: number) => {
-    const docName = chunk.documents?.original_filename ?? 'Unknown';
-    return `[${index + 1}] From "${docName}" (Page ${chunk.page_number}):
-${chunk.content.substring(0, 1500)}${chunk.content.length > 1500 ? '...' : ''}`;
-  })
-  .join('\n')}
-
-Please reference this document context in your response when relevant.`
-          } else {
-            // Complete failure - no chunks even after fallback
-            console.error('[OM-AI] Document retrieval failed completely', {
+          // No chunks found after all attempts - return error if documents are attached
+          if (Array.isArray(documentIds) && documentIds.length > 0) {
+            console.error('[OM-AI] No context available despite document IDs', {
               documentIds,
               attemptedHeuristics: ['vector_search', 'keyword_filter', 'primer_injection', 'first_pages']
             })
             
-            // Return error response immediately
             return res.status(400).json({
-              success: false,
-              message: 'Document content not retrieved. The PDF may be image-only without OCR, not fully processed, or indexing failed.',
-              documentIds,
-              attemptedHeuristics: ['vector_search', 'keyword_filter', 'primer_injection', 'first_pages']
+              error: 'No document context available. Re-ingest with OCR or try again.',
+              code: 'NO_CONTEXT'
             })
           }
         }
@@ -576,9 +580,14 @@ Please reference this document context in your response when relevant.`
       const lowerQuery = userMessage.toLowerCase();
       if (lowerQuery.includes('key') || lowerQuery.includes('deal') || lowerQuery.includes('point') || 
           lowerQuery.includes('metric') || lowerQuery.includes('financial') || lowerQuery.includes('summary')) {
-        // User asking for key metrics/deal points
-        systemPrompt = getOmNaturalPrompt('metrics_extraction');
-        console.log('📊 Using metrics extraction prompt for query:', userMessage.substring(0, 50));
+        // User asking for key metrics/deal points - use deal-type-specific prompt
+        if (dealType === 'development') {
+          systemPrompt = OM_ANALYST_DEVELOPMENT_PROMPT_V1;
+          console.log('📊 Using development metrics extraction prompt');
+        } else {
+          systemPrompt = getOmNaturalPrompt('metrics_extraction');
+          console.log('📊 Using acquisition metrics extraction prompt');
+        }
       } else {
         systemPrompt = getOmNaturalPrompt('full');
         console.log('📄 Using full document analysis prompt');
@@ -597,22 +606,20 @@ Please reference this document context in your response when relevant.`
     }
     
     // Log context pages before sending to model
-    if (contextualInformation && documentIds.length > 0) {
-      const contextChunks = relevantChunks || []
-      const contextPages = contextChunks
-        .slice(0, 5)
-        .map((chunk: any) => ({
-          page: chunk.page_number,
-          preview: chunk.content.substring(0, 120).replace(/\n/g, ' ')
-        }))
-      
-      console.log('[OM-AI] Context pages:', contextPages)
-      console.log('[OM-AI] Total context chunks:', contextChunks.length)
+    if (relevantChunks?.length) {
+      const preview = relevantChunks.slice(0, 5).map(c => ({
+        document_id: c.document_id,
+        page_number: c.page_number,
+        preview: (c.content ?? '').slice(0, 80).replace(/\n/g, ' ')
+      }))
+      console.log('[OM-AI] context preview', { total: relevantChunks.length, preview })
     }
     
     const systemMessage = {
       role: "system" as const,
-      content: contextualInformation ? `${systemPrompt}\n\nDOCUMENT CONTEXT:\n${contextualInformation}` : systemPrompt
+      content: contextualInformation ? 
+        `${systemPrompt}\n\nDEAL TYPE: ${dealType}\n\nDOCUMENT CONTEXT:\n${contextualInformation}` : 
+        systemPrompt
     }
 
     // SECURITY: Check OpenAI cost limits before making the call
@@ -871,19 +878,26 @@ Please reference this document context in your response when relevant.`
     }
 
   } catch (error) {
-    logError(error, {
-      endpoint: '/api/chat',
-      userId: req.user.id,
-      errorType: 'CHAT_ERROR'
-    })
+    const msg = error instanceof Error ? error.message : String(error ?? 'unknown')
+    const code =
+      msg.includes('NO_CONTEXT') ? 'NO_CONTEXT' :
+      /openai|timeout|rate limit|quota/i.test(msg) ? 'OPENAI_ERROR' :
+      'CONTEXT_ASSEMBLY_ERROR'
+    
+    console.error('[OM-AI]/api/chat error:', { code, msg })
     
     if (!res.headersSent) {
-      return createApiError(res, ERROR_CODES.OPENAI_ERROR,
-        error instanceof Error ? error.message : "Unknown error")
+      return res.status(500).json({
+        error: 'Request failed',
+        code,
+        timestamp: new Date().toISOString(),
+        details: process.env.NODE_ENV === 'development' ? msg : undefined
+      })
     } else {
       if (deprecatedEndpoint === 'chat-enhanced' || deprecatedEndpoint === 'chat') {
         res.write(`data: ${JSON.stringify({ 
-          error: error instanceof Error ? error.message : "Unknown error" 
+          error: msg,
+          code 
         })}\n\n`)
       }
       res.end()

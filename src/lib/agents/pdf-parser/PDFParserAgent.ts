@@ -1,5 +1,6 @@
 import { PdfReader, PdfReaderItem } from 'pdfreader';
 import { v4 as uuidv4 } from 'uuid';
+import { createRequire } from 'module';
 import { 
   ParsedText, 
   ParsedTable, 
@@ -11,6 +12,29 @@ import {
   IPDFParserAgent 
 } from './types';
 import { OCRProcessor, PDFAnalyzer, TextProcessor } from './utils';
+
+// Node Canvas Factory for server-side PDF rendering
+class NodeCanvasFactory {
+  create(width: number, height: number) {
+    const Canvas = require('canvas');
+    const canvas = Canvas.createCanvas(width, height);
+    const context = canvas.getContext('2d');
+    return {
+      canvas,
+      context
+    };
+  }
+
+  reset(canvasAndContext: any, width: number, height: number) {
+    canvasAndContext.canvas.width = width;
+    canvasAndContext.canvas.height = height;
+  }
+
+  destroy(canvasAndContext: any) {
+    canvasAndContext.canvas.width = 0;
+    canvasAndContext.canvas.height = 0;
+  }
+}
 
 export class PDFParserAgent implements IPDFParserAgent {
   private ocrProcessor: OCRProcessor | null = null;
@@ -317,17 +341,73 @@ export class PDFParserAgent implements IPDFParserAgent {
     }
 
     try {
-      await this.ocrProcessor.initialize();
-      
-      // Note: In a complete implementation, you would convert the specific PDF page
-      // to an image using a library like pdf2pic. For now, we'll process the entire buffer.
-      const result = await this.ocrProcessor.processImage(buffer, this.defaultOptions.ocrConfidenceThreshold);
-      
-      return TextProcessor.cleanText(result.text);
+      // Try to use pdfjs-dist for better page extraction if available
+      try {
+        const { extractPageText } = await import('@/lib/pdf/extractPageText');
+        
+        // Use Node-safe PDF.js import with createRequire
+        const require = createRequire(import.meta.url || __filename);
+        const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
+        
+        // Set worker if not already configured
+        if (!pdfjsLib.GlobalWorkerOptions?.workerSrc) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
+        }
+        
+        // Load the PDF document
+        const loadingTask = pdfjsLib.getDocument({ data: buffer });
+        const pdfDocument = await loadingTask.promise;
+        
+        // Get the specific page
+        const page = await pdfDocument.getPage(pageNumber);
+        
+        // Extract with OCR fallback
+        const text = await extractPageText(page, {
+          pageNumber,
+          dpi: 300,
+          ocrThreshold: 400
+        });
+        
+        // Cleanup
+        await pdfDocument.destroy();
+        
+        return TextProcessor.cleanText(text);
+      } catch (pdfjsError) {
+        // Fallback to basic OCR on entire buffer
+        console.warn(`[OM-AI] Using basic OCR for page ${pageNumber} (pdfjs error):`, pdfjsError);
+        await this.ocrProcessor.initialize();
+        
+        const result = await this.ocrProcessor.processImage(buffer, this.defaultOptions.ocrConfidenceThreshold);
+        
+        return TextProcessor.cleanText(result.text);
+      }
     } catch (error) {
-      console.error(`OCR failed for page ${pageNumber}:`, error);
+      console.error(`[OM-AI] OCR failed for page ${pageNumber}:`, error);
       throw error;
     }
+  }
+  
+  /**
+   * Render PDF page to image using Node Canvas
+   */
+  async renderPageToImage(page: any, scale: number = 2.0): Promise<Buffer> {
+    const viewport = page.getViewport({ scale });
+    const canvasFactory = new NodeCanvasFactory();
+    const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+    
+    const renderContext = {
+      canvasContext: canvasAndContext.context,
+      viewport: viewport,
+      canvasFactory: canvasFactory
+    };
+    
+    await page.render(renderContext).promise;
+    
+    // Get PNG buffer from canvas
+    const buffer = canvasAndContext.canvas.toBuffer('image/png');
+    canvasFactory.destroy(canvasAndContext);
+    
+    return buffer;
   }
 
   chunkText(text: string, chunkSize: number, pages: ParsedPage[] = []): TextChunk[] {
