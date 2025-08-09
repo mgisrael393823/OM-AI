@@ -122,17 +122,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Store chunks
         if (parseResult.chunks.length > 0) {
           const validChunks = parseResult.chunks
-            .filter((chunk): chunk is typeof chunk & { text: string; page: number } => 
-              Boolean(chunk.content || chunk.text) && 
-              (chunk.page_number !== undefined || chunk.page !== undefined)
+            .filter((chunk): chunk is typeof chunk & { content: string; page_number: number } =>
+              Boolean(chunk.content) && (chunk.page_number !== undefined || chunk.page !== undefined)
             )
             .map(chunk => {
               const payload: ChunkInsert = {
                 document_id: document.id,
                 user_id: document.user_id,
                 chunk_id: chunk.id,
-                content: chunk.content || chunk.text,
-                page_number: chunk.page_number || chunk.page,
+                content: chunk.content,
+                page_number: chunk.page_number ?? chunk.page,
+                chunk_index: chunk.chunk_index ?? 0,
                 chunk_type: chunk.type,
                 tokens: chunk.tokens || null,
                 metadata: toJson({

@@ -146,15 +146,16 @@ export async function processUploadedDocument(
     // Store parsed chunks if successful
     if (parseResult?.success && parseResult.chunks.length > 0) {
       const validChunks = parseResult.chunks
-        .filter((chunk): chunk is typeof chunk & { text: string; page: number } => 
-          Boolean(chunk.text) && chunk.page !== undefined
+        .filter((chunk): chunk is typeof chunk & { content: string; page_number: number } =>
+          Boolean(chunk.content) && (chunk.page_number !== undefined || chunk.page !== undefined)
         )
         .map(chunk => ({
           document_id: documentData.id,
           user_id: userId,
           chunk_id: chunk.id,
-          content: chunk.text,
-          page_number: chunk.page,
+          content: chunk.content,
+          page_number: chunk.page_number ?? chunk.page,
+          chunk_index: chunk.chunk_index ?? 0,
           chunk_type: chunk.type,
           tokens: chunk.tokens || 0,
           metadata: toJson({

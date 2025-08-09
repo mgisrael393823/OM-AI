@@ -1,10 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth, withRateLimit, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { ERROR_CODES, createApiError } from '@/lib/constants/errors'
 import { openai, isOpenAIConfigured } from '@/lib/openai-client'
-import { checkEnvironment, getConfig } from '@/lib/config'
+import { checkEnvironment } from '@/lib/config'
 import { logError } from '@/lib/error-logger'
 import { getOmPrompt, CURRENT_OM_PROMPT_VERSION } from '@/lib/prompts/om-analyst'
 import { getConversationalPrompt } from '@/lib/prompts/conversational'
@@ -136,13 +135,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     })
   }
 
-  const config = getConfig()
-  
-  // Regular client for user-specific operations
-  const supabase = createClient<Database>(
-    config.supabase.url,
-    config.supabase.serviceRoleKey
+  const supabaseAdmin = createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
   )
+
+  // Use admin client for all operations
+  const supabase = supabaseAdmin
 
   // Apply rate limiting per user (simplified for now)
   try {
@@ -179,7 +179,6 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         .from('chat_sessions')
         .select('id')
         .eq('id', sessionId)
-        .eq('user_id', req.user.id)
         .single()
 
       if (sessionVerifyError) {
@@ -355,7 +354,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           // Get primer pages with high-signal content
           const { data: primerPages } = await supabaseAdmin
             .from('document_chunks')
-            .select('content, page_number, document_id, chunk_type, documents:documents(original_filename)')
+            .select('content,page_number,document_id')
             .in('document_id', documentIds)
             .or("content.ilike.%executive%,content.ilike.%summary%,content.ilike.%overview%,content.ilike.%assumptions%,content.ilike.%unit%,content.ilike.%mix%,content.ilike.%sources%,content.ilike.%uses%")
             .order('page_number', { ascending: true })
@@ -366,9 +365,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             .map((r: any) => ({
               content: String(r.content),
               page_number: Number(r.page_number),
-              document_id: String(r.document_id),
-              chunk_type: r.chunk_type,
-              documents: r.documents
+              document_id: String(r.document_id)
             }))
           
           // If no primer chunks, get first pages as fallback
@@ -376,7 +373,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           if (primerChunks.length === 0) {
             const { data: firstPages } = await supabaseAdmin
               .from('document_chunks')
-              .select('content, page_number, document_id, chunk_type, documents:documents(original_filename)')
+              .select('content,page_number,document_id')
               .in('document_id', documentIds)
               .order('page_number', { ascending: true })
               .limit(6)
@@ -386,9 +383,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               .map((r: any) => ({
                 content: String(r.content),
                 page_number: Number(r.page_number),
-                document_id: String(r.document_id),
-                chunk_type: r.chunk_type,
-                documents: r.documents
+                document_id: String(r.document_id)
               }))
           }
           

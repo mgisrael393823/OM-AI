@@ -8,7 +8,12 @@ const __dirname = dirname(__filename);
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  serverExternalPackages: ['canvas'],
+  transpilePackages: ['pdfjs-dist'],
+  experimental: {
+    serverComponentsExternalPackages: ['canvas'],
+    // Disable Turbopack in development for better HMR stability
+    // turbo: {},
+  },
   
   // Headers for cache busting
   headers: async () => {
@@ -119,11 +124,6 @@ const nextConfig = {
   },
   
   // Optimize build performance
-  experimental: {
-    // Disable Turbopack in development for better HMR stability
-    // turbo: {},
-  },
-  
   images: {
     remotePatterns: [
       {
