@@ -36,6 +36,25 @@ class NodeCanvasFactory {
   }
 }
 
+// Exported helper for rendering pages to images without requiring class instance
+export async function renderPageToImage(page: any, scale: number = 2.0): Promise<Buffer> {
+  const viewport = page.getViewport({ scale });
+  const canvasFactory = new NodeCanvasFactory();
+  const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+
+  const renderContext = {
+    canvasContext: canvasAndContext.context,
+    viewport,
+    canvasFactory,
+  };
+
+  await page.render(renderContext).promise;
+
+  const buffer = canvasAndContext.canvas.toBuffer('image/png');
+  canvasFactory.destroy(canvasAndContext);
+  return buffer;
+}
+
 export class PDFParserAgent implements IPDFParserAgent {
   private ocrProcessor: OCRProcessor | null = null;
   private defaultOptions: ParseOptions = {
@@ -56,12 +75,12 @@ export class PDFParserAgent implements IPDFParserAgent {
     
     try {
       // Convert Buffer to Uint8Array for pdfjs-dist
-      const data = buffer instanceof Uint8Array
+      const data = buffer instanceof Uint8Array && !(buffer instanceof Buffer)
         ? buffer
         : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
       
       // Load PDF with pdfjs-dist
-      const require = createRequire(import.meta.url || __filename);
+      const require = createRequire(import.meta.url);
       
       let pdfjsLib: any;
       try {
@@ -418,7 +437,7 @@ export class PDFParserAgent implements IPDFParserAgent {
         const { extractPageText } = await import('@/lib/pdf/extractPageText');
         
         // Hardened PDF.js import with fallback
-        const require = createRequire(import.meta.url || __filename);
+        const require = createRequire(import.meta.url);
         
         let pdfjsLib: any;
         try {
@@ -442,18 +461,17 @@ export class PDFParserAgent implements IPDFParserAgent {
         } catch {}
         
         // Load the PDF document
-        const loadingTask = pdfjsLib.getDocument({ data: buffer });
+        const data = buffer instanceof Uint8Array && !(buffer instanceof Buffer)
+          ? buffer
+          : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        const loadingTask = pdfjsLib.getDocument({ data });
         const pdfDocument = await loadingTask.promise;
         
         // Get the specific page
         const page = await pdfDocument.getPage(pageNumber);
         
         // Extract with OCR fallback
-        const text = await extractPageText(page, {
-          pageNumber,
-          dpi: 300,
-          ocrThreshold: 400
-        });
+        const text = await extractPageText(page);
         
         // Cleanup
         await pdfDocument.destroy();
@@ -474,29 +492,6 @@ export class PDFParserAgent implements IPDFParserAgent {
     }
   }
   
-  /**
-   * Render PDF page to image using Node Canvas
-   */
-  async renderPageToImage(page: any, scale: number = 2.0): Promise<Buffer> {
-    const viewport = page.getViewport({ scale });
-    const canvasFactory = new NodeCanvasFactory();
-    const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
-    
-    const renderContext = {
-      canvasContext: canvasAndContext.context,
-      viewport: viewport,
-      canvasFactory: canvasFactory
-    };
-    
-    await page.render(renderContext).promise;
-    
-    // Get PNG buffer from canvas
-    const buffer = canvasAndContext.canvas.toBuffer('image/png');
-    canvasFactory.destroy(canvasAndContext);
-    
-    return buffer;
-  }
-
   chunkText(text: string, chunkSize: number, pages: ParsedPage[] = []): TextChunk[] {
     // Use the enhanced text processor for semantic chunking
     const semanticChunks = TextProcessor.createSemanticChunks(text, chunkSize);
