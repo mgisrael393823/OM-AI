@@ -47,6 +47,13 @@ async function checkRateLimit(userId: string): Promise<boolean> {
 }
 
 async function settingsHandler(req: AuthenticatedRequest, res: NextApiResponse) {
+  // Check feature flag first
+  if (!isFeatureEnabled('SETTINGS_API')) {
+    return res.status(404).json({ 
+      error: 'Feature not available',
+      code: 'FEATURE_DISABLED'
+    });
+  }
   const { method } = req;
   const { user } = req;
 
@@ -210,15 +217,4 @@ async function handleUpdateSettings(
   return res.status(200).json(response);
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Check feature flag first
-  if (!isFeatureEnabled('SETTINGS_API')) {
-    return res.status(404).json({ 
-      error: 'Feature not available',
-      code: 'FEATURE_DISABLED'
-    });
-  }
-  
-  // Apply authentication and call settings handler
-  return withAuth(req, res, settingsHandler);
-}
+export default withAuth(settingsHandler)

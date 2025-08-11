@@ -134,10 +134,10 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     const { count } = await supabaseAdmin
       .from('document_chunks')
       .select('id', { count: 'exact', head: true })
-      .eq('document_id', processingResult.document.id)
+      .eq('document_id', processingResult.document?.id!)
     
     console.log('[OM-AI] ingest done', { 
-      documentId: processingResult.document.id, 
+      documentId: processingResult.document?.id, 
       chunkCount: count ?? 0 
     })
     
@@ -193,6 +193,4 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
   }
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, processDocumentHandler)
-}
+export default withAuth(processDocumentHandler)

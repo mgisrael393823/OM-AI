@@ -151,9 +151,7 @@ export class EnhancedPDFParser {
         
         // Use our enhanced extraction with OCR fallback
         const pageText = await extractPageText(page, {
-          pageNumber: pageNum,
-          dpi: 300,
-          ocrThreshold: 400
+          pageNumber: pageNum
         });
         
         if (pageText) {

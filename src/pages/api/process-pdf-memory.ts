@@ -39,6 +39,4 @@ async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiRespo
   }
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req as any, res, processMemoryHandler)
-}
+export default withAuth(processMemoryHandler)

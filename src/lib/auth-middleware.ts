@@ -5,6 +5,7 @@ import { ERROR_CODES, createApiError } from '@/lib/constants/errors'
 
 export interface AuthenticatedRequest extends NextApiRequest {
   user: User
+  userId: string
 }
 
 export interface ApiError {
@@ -22,8 +23,8 @@ export function apiError(res: NextApiResponse, statusCode: number, message: stri
   res.status(statusCode).json(errorResponse)
 }
 
-function parseCookieHeader(header?: string) {
-  const out: Record<string,string> = {}
+function parseCookieHeader(header?: string): Record<string, string> {
+  const out: Record<string, string> = {}
   if (!header) return out
   for (const part of header.split(';')) {
     const [k, ...rest] = part.trim().split('=')
@@ -33,104 +34,136 @@ function parseCookieHeader(header?: string) {
   return out
 }
 
-export async function withAuth(
-  req: NextApiRequest,
-  res: NextApiResponse,
+/**
+ * Authentication middleware that returns a (req, res) => Promise<void> function
+ * @param handler - The handler that requires authentication
+ * @returns A function that handles the request
+ */
+export function withAuth(
   handler: (req: AuthenticatedRequest, res: NextApiResponse) => Promise<void> | void
-) {
-  // Parse cookies from header if req.cookies is undefined
-  const headerCookies = parseCookieHeader(req.headers?.cookie)
-  const cookieMap = (req as any).cookies ?? headerCookies
-
-  const sbAccessToken =
-    cookieMap['sb-access-token'] ||
-    cookieMap['supabase-access-token'] ||
-    cookieMap['sb.access-token']
-
-  let bearer: string | null = null
-  const authHeader = (req.headers?.authorization || req.headers?.Authorization) as string | undefined
-  if (authHeader?.startsWith('Bearer ')) bearer = authHeader.slice(7)
-
-  let token = bearer || sbAccessToken
-  
-  if (!token) {
-    if (process.env.ALLOW_DEV_NOAUTH === 'true') {
-      ;(req as any).user = { id: process.env.DEV_FALLBACK_USER_ID || '22835c1c-fd8b-4939-a9ed-adb6e98bfc2b' }
-      ;(req as any).userId = (req as any).user.id
-      return handler(req as AuthenticatedRequest, res)
-    } else {
-      return createApiError(res, ERROR_CODES.MISSING_TOKEN)
-    }
-  }
-
-  // Validate environment variables
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error("Missing required Supabase environment variables")
-  }
-
-  // Verify token with Supabase
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  )
-
-  try {
-    const { data: { user }, error } = await supabase.auth.getUser(token)
-    
-    if (error || !user) {
-      return createApiError(res, ERROR_CODES.INVALID_TOKEN, error?.message)
-    }
-
-    // Add user to request object
-    const authenticatedReq = req as AuthenticatedRequest
-    authenticatedReq.user = user
-
-    // Call the actual handler
-    return await handler(authenticatedReq, res)
-  } catch (error) {
-    console.error('Auth middleware error:', error)
-    return createApiError(res, ERROR_CODES.INTERNAL_ERROR, 
-      error instanceof Error ? error.message : 'Authentication verification failed')
-  }
-}
-
-// ---- REPLACE ONLY the withRateLimit implementation ----
-type ApiHandler = (req: NextApiRequest, res: NextApiResponse) => any;
-
-const RATE_LIMIT_TOKENS = 10;            // adjust as needed
-const RATE_LIMIT_WINDOW_MS = 60_000;     // 1 minute
-const rateLimitBuckets = new Map<string, { tokens: number; resetAt: number }>();
-
-export function withRateLimit(handler: ApiHandler): ApiHandler {
-  return async function rateLimited(req, res) {
+): (req: NextApiRequest, res: NextApiResponse) => Promise<void> {
+  return async (req: NextApiRequest, res: NextApiResponse) => {
     try {
-      const now = Date.now();
-      const userId = (req as any)?.user?.id as string | undefined;
-      const ip =
-        (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-        req.socket.remoteAddress ||
-        'unknown';
+      // Parse cookies from header if req.cookies is undefined
+      const headerCookies = parseCookieHeader(req.headers?.cookie)
+      const cookieMap = (req as any).cookies ?? headerCookies
 
-      const key = userId || `ip:${ip}`;
-      let bucket = rateLimitBuckets.get(key);
+      const sbAccessToken =
+        cookieMap['sb-access-token'] ||
+        cookieMap['supabase-access-token'] ||
+        cookieMap['sb.access-token']
 
-      if (!bucket || now > bucket.resetAt) {
-        bucket = { tokens: RATE_LIMIT_TOKENS, resetAt: now + RATE_LIMIT_WINDOW_MS };
-        rateLimitBuckets.set(key, bucket);
+      let bearer: string | null = null
+      const authHeader = (req.headers?.authorization || (req.headers as any)?.Authorization) as string | undefined
+      if (authHeader?.startsWith('Bearer ')) bearer = authHeader.slice(7)
+
+      const token = bearer || sbAccessToken
+      
+      if (!token) {
+        // Development mode bypass
+        if (process.env.ALLOW_DEV_NOAUTH === 'true') {
+          const devUserId = process.env.DEV_FALLBACK_USER_ID || '22835c1c-fd8b-4939-a9ed-adb6e98bfc2b'
+          ;(req as AuthenticatedRequest).user = { id: devUserId } as User
+          ;(req as AuthenticatedRequest).userId = devUserId
+          return handler(req as AuthenticatedRequest, res)
+        }
+        return createApiError(res, ERROR_CODES.MISSING_TOKEN)
       }
 
-      if (bucket.tokens <= 0) {
-        const retryAfter = Math.max(0, Math.ceil((bucket.resetAt - now) / 1000));
-        res.setHeader('Retry-After', String(retryAfter));
-        return res.status(429).json({ error: 'Rate limit exceeded', retryAfter });
+      // Validate environment variables
+      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        throw new Error("Missing required Supabase environment variables")
       }
 
-      bucket.tokens -= 1;
-      return handler(req, res);
-    } catch (e) {
-      console.error('[withRateLimit] wrapper error', e);
-      return res.status(500).json({ error: 'Internal Server Error' });
+      // Verify token with Supabase
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.SUPABASE_SERVICE_ROLE_KEY
+      )
+
+      const { data: { user }, error } = await supabase.auth.getUser(token)
+      
+      if (error || !user) {
+        return createApiError(res, ERROR_CODES.INVALID_TOKEN, error?.message)
+      }
+
+      // Add user to request object
+      const authenticatedReq = req as AuthenticatedRequest
+      authenticatedReq.user = user
+      authenticatedReq.userId = user.id
+
+      // Call the actual handler
+      return await handler(authenticatedReq, res)
+    } catch (error) {
+      console.error('Auth middleware error:', error)
+      return createApiError(res, ERROR_CODES.INTERNAL_ERROR, 
+        error instanceof Error ? error.message : 'Authentication verification failed')
     }
-  };
+  }
 }
-// ---- END REPLACEMENT ----
+
+// Rate limiting with token bucket
+interface RateLimitBucket {
+  tokens: number
+  resetAt: number
+}
+
+interface RateLimitOptions {
+  id?: string
+  tokens?: number
+  windowMs?: number
+}
+
+const rateLimitBuckets = new Map<string, RateLimitBucket>()
+
+/**
+ * Rate limiting middleware using token bucket algorithm
+ * @param options - Configuration for rate limiting
+ * @returns A middleware function that wraps the handler
+ */
+export function withRateLimit(options: RateLimitOptions = {}) {
+  const { 
+    id = 'default',
+    tokens = 10, 
+    windowMs = 60000 // 1 minute
+  } = options
+
+  return function(handler: (req: NextApiRequest, res: NextApiResponse) => Promise<void> | void) {
+    return async function rateLimited(req: NextApiRequest, res: NextApiResponse) {
+      try {
+        const now = Date.now()
+        const userId = (req as AuthenticatedRequest).userId || (req as any)?.user?.id
+        const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+                   req.socket.remoteAddress ||
+                   'unknown'
+
+        const key = `${id}:${userId || `ip:${ip}`}`
+        let bucket = rateLimitBuckets.get(key)
+
+        if (!bucket || now > bucket.resetAt) {
+          bucket = { tokens, resetAt: now + windowMs }
+          rateLimitBuckets.set(key, bucket)
+        }
+
+        if (bucket.tokens <= 0) {
+          const retryAfter = Math.max(0, Math.ceil((bucket.resetAt - now) / 1000))
+          res.setHeader('Retry-After', String(retryAfter))
+          return res.status(429).json({ 
+            error: 'Rate limit exceeded', 
+            retryAfter,
+            code: 'RATE_LIMIT_EXCEEDED'
+          })
+        }
+
+        bucket.tokens -= 1
+        return handler(req, res)
+      } catch (e) {
+        console.error('[withRateLimit] wrapper error', e)
+        return res.status(500).json({ error: 'Internal Server Error' })
+      }
+    }
+  }
+}
+
+// Export for backward compatibility
+export type ApiHandler = (req: NextApiRequest, res: NextApiResponse) => Promise<void> | void

@@ -193,8 +193,8 @@ export async function processUploadedDocument(
           document_id: documentData.id,
           user_id: userId,
           chunk_id: c.id,
-          content: c.content || c.text,
-          page_number: c.page_number ?? c.page,
+          content: (c.content || c.text) as string,
+          page_number: (c.page_number ?? c.page) as number,
           chunk_index: c.chunk_index ?? idx,
           chunk_type: c.type,
           tokens: c.tokens || 0,
@@ -462,14 +462,16 @@ async function storeAnalysisResults(data: {
     )
 
     const { error } = await supabase
-      .from('document_analysis')
+      .from('usage_logs')
       .insert({
         user_id: data.userId,
-        filename: data.filename,
-        page_count: data.pageCount,
-        analysis_result: data.analysis,
-        metrics: data.metrics,
-        created_at: new Date().toISOString()
+        action: 'document_analysis',
+        metadata: {
+          filename: data.filename,
+          page_count: data.pageCount,
+          analysis_result: data.analysis,
+          metrics: data.metrics
+        }
       })
 
     if (error) {

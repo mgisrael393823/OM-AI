@@ -1,0 +1,53 @@
+Findings
+	•	OpenAI call downgraded to fallback because the request included temperature. The server returned 400 Unsupported parameter: 'temperature'. Some models using the Responses API do not accept sampling controls. Use max_output_tokens and omit temperature when the model rejects it.   
+	•	Your fallback logic is masking a coding error. It treats a 4xx “bad request” as a reason to downgrade. That hides misconfigured parameters instead of failing fast.
+	•	/api/chat fails before it can call OpenAI. Both withAuth and withRateLimit report TypeError: handler is not a function. Your middleware composition is wrong for the wrapper signatures.
+	•	PDF processing works but logs Cannot find module '../build/Release/canvas.node'. node-canvas native deps are missing. Rendering fallbacks trigger warnings, but text extraction still succeeded.
+	•	Repeated webpack.hot-update.json 404 and Fast Refresh full reloads are normal in dev. No action.
+	•	punycode deprecation warning comes from a dependency. Not urgent.
+	•	Security risk: .env.local edits are visible in your change log. If .env* is tracked, your OpenAI key is compromised. Rotate if committed.
+
+Fixes
+	1.	Responses API parameters
+
+	•	Send max_output_tokens only. Do not send max_tokens. Do not send temperature to models that reject it. Detect a 400 with param: "temperature" and retry once without the field instead of falling back to another model.   
+
+	2.	Tighten fallback policy
+
+	•	Only fall back on 5xx, timeouts, or connection errors. Never on 4xx parameter errors. Log and surface 4xx to the client.
+
+	3.	Middleware composition
+
+	•	Standardize signatures: withAuth(handler) => (req,res)=>{...}. withRateLimit(opts)(handler) => (req,res)=>{...}. Export as export default withRateLimit({id:"chat", tokens: X, windowMs: Y})(withAuth(chatHandler)). Do not pass options where a handler is expected. Ensure each wrapper returns a function.
+
+	4.	PDF render warnings
+
+	•	Option A install native deps: Cairo, Pango, libpng, jpeg, giflib, pixman, librsvg. Rebuild canvas.
+	•	Option B skip rendering: remove any canvas polyfill usage and restrict to text extraction to avoid DOMMatrix and Path2D needs.
+
+	5.	Secrets hygiene
+
+	•	Verify .gitignore includes .env*. If the key was committed or pushed, rotate it and purge history for those files. Replace the local file after rotation.
+
+Quick tests
+	•	Re‑upload a PDF. Confirm no “Unsupported parameter: ‘temperature’” in logs and that the request shows max_output_tokens only.  
+	•	Hit /api/chat. Expect 200 and your handler to run. No handler is not a function.
+	•	If using render mode, open a PDF with images. No canvas.node warning after installing deps.
+
+Copy‑paste prompts for Claude Code
+
+OpenAI request builder
+
+Update the OpenAI Responses API client to send max_output_tokens and remove temperature for models that reject it. On a 400 invalid_request_error where param is temperature, retry once without temperature. Do not trigger model fallback on any 4xx. Keep fallback only for 5xx or network errors. Add logging that prints the final parameter set actually sent.
+
+Middleware
+
+Refactor withAuth to accept a handler and return an async (req,res) function. Refactor withRateLimit to be curried as withRateLimit(opts)(handler). In src/pages/api/chat.ts, export withRateLimit({ id: "chat", tokens: 10, windowMs: 10000 })(withAuth(chatHandler)). Remove any usages that call a wrapper with options where a handler is expected. Add unit tests asserting each wrapper returns a function.
+
+PDF processing
+
+If we only need text, remove any canvas or DOM polyfills in the PDF pipeline and ensure we call text extraction APIs only. If we need rendering, add a README and script to install Cairo, Pango, libpng, jpeg, giflib, pixman, librsvg on macOS, then rebuild the canvas module and verify no canvas.node warnings.
+
+Secrets
+
+Confirm .env* is ignored by Git. If any .env file is tracked, remove it from Git history, rotate the OpenAI key, and update the deployment secrets. Add a pre-commit check that greps for OPENAI_API_KEY and blocks the commit.

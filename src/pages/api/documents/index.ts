@@ -67,6 +67,4 @@ async function documentsHandler(req: AuthenticatedRequest, res: NextApiResponse)
   }
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, documentsHandler)
-}
+export default withAuth(documentsHandler)

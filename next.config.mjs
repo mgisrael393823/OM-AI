@@ -123,7 +123,7 @@ const nextConfig = {
     // Disable Turbopack in development for better HMR stability
     // turbo: {},
   },
-  serverExternalPackages: ['canvas'],
+  // Canvas external package removed - text-only PDF processing
   
   images: {
     remotePatterns: [

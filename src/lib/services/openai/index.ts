@@ -37,48 +37,87 @@ export async function createChatCompletion(args: {
     args.maxTokens ??
     Number(process.env.CHAT_MAX_TOKENS ?? 2000)
 
-  console.log('[openai] Using model:', model, 'maxOutput:', limit)
-
-  const run = () => isResponsesModel(model)
-    ? (client as any).responses.create({
+  // Build parameters based on API type - never send temperature to Responses API
+  const buildParams = (withoutTemperature = false) => {
+    if (isResponsesModel(model)) {
+      const params = {
         model,
-        // simple linearized messages for Responses
         input: args.messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n'),
-        temperature: args.temperature ?? 0.2,
-        // IMPORTANT: Responses API uses max_output_tokens
         max_output_tokens: limit
-      })
-    : client.chat.completions.create({
+      }
+      console.log('[openai] Responses API:', { apiFamily: 'responses', model, max_output_tokens: limit })
+      return params
+    } else {
+      const params: any = {
         model,
         messages: args.messages as any,
-        temperature: args.temperature ?? 0.2,
-        // Chat Completions uses max_tokens
         max_tokens: limit
+      }
+      if (!withoutTemperature) {
+        params.temperature = args.temperature ?? 0.2
+      }
+      console.log('[openai] Chat Completions:', { 
+        apiFamily: 'chat', model, max_tokens: limit, 
+        temperature: withoutTemperature ? undefined : params.temperature 
       })
+      return params
+    }
+  }
 
-  try {
-    const resp: any = await withRetry(run)
-    if (isResponsesModel(model)) {
+  const run = (withoutTemperature = false) => {
+    const params = buildParams(withoutTemperature)
+    return isResponsesModel(model)
+      ? (client as any).responses.create(params)
+      : client.chat.completions.create(params)
+  }
+
+  // Helper to normalize response format for both APIs
+  const parseResponse = (resp: any, actualModel: string) => {
+    if (isResponsesModel(actualModel)) {
       const text = resp.output_text ?? resp.content?.[0]?.text ?? ''
-      return { text: String(text).trim(), usage: resp.usage, requestId: resp.id, model }
+      return { text: String(text).trim(), usage: resp.usage, model: actualModel }
     } else {
       const text = resp.choices?.[0]?.message?.content ?? ''
-      return { text: String(text).trim(), usage: resp.usage, requestId: resp.id, model: resp.model }
+      return { text: String(text).trim(), usage: resp.usage, model: resp.model || actualModel }
     }
+  }
+
+  try {
+    const resp: any = await withRetry(() => run(false))
+    return parseResponse(resp, model)
   } catch (e: any) {
     const msg = e?.message || ''
-    if (model !== fallback && /(model.*not.*found|does not exist|unsupported)/i.test(msg)) {
-      console.warn('[openai] Downgrading model to fallback:', fallback, 'due to:', msg)
-      model = fallback
-      const resp: any = await withRetry(run)
-      if (isResponsesModel(model)) {
-        const text = resp.output_text ?? resp.content?.[0]?.text ?? ''
-        return { text: String(text).trim(), usage: resp.usage, requestId: resp.id, model }
-      } else {
-        const text = resp.choices?.[0]?.message?.content ?? ''
-        return { text: String(text).trim(), usage: resp.usage, requestId: resp.id, model: resp.model }
+    const status = e?.status || 0
+    
+    // Handle temperature parameter error for Chat Completions only
+    if (status === 400 && /temperature/i.test(msg) && !isResponsesModel(model)) {
+      console.warn('[openai] Retrying Chat Completions without temperature due to:', msg)
+      try {
+        const resp: any = await withRetry(() => run(true))
+        return parseResponse(resp, model)
+      } catch (retryError: any) {
+        console.error('[openai] Retry without temperature failed:', retryError?.message)
+        throw retryError
       }
     }
+    
+    // Fallback to different model only on server errors, timeouts, or specific model errors
+    const isServerError = status >= 500
+    const isNetworkError = /timeout|ETIMEDOUT|ECONNRESET/.test(msg)
+    const isModelError = /(model.*not.*found|does not exist|model.*unsupported)/i.test(msg)
+    
+    if (model !== fallback && (isServerError || isNetworkError || isModelError)) {
+      console.warn('[openai] Falling back to model:', fallback, 'due to error:', msg)
+      model = fallback
+      const resp: any = await withRetry(() => run(false))
+      return parseResponse(resp, model)
+    }
+    
+    // For 4xx client errors (except handled cases), fail fast
+    if (status >= 400 && status < 500) {
+      console.error('[openai] Client error (4xx) - check configuration:', { status, message: msg, model })
+    }
+    
     throw e
   }
 }

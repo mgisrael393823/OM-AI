@@ -120,6 +120,4 @@ async function analyzeHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   }
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, analyzeHandler)
-}
+export default withAuth(analyzeHandler)

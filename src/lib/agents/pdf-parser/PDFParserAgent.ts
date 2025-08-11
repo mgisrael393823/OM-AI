@@ -22,35 +22,14 @@ function toPlainUint8Array(d: ArrayBuffer | Uint8Array | Buffer): Uint8Array {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const B: any = typeof Buffer !== 'undefined' ? Buffer : null;
   if (d instanceof Uint8Array && !(B && B.isBuffer && B.isBuffer(d))) return d;
-  if (B && B.isBuffer && B.isBuffer(d)) return new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
+  if (B && B.isBuffer && B.isBuffer(d)) return new Uint8Array((d as any).buffer, (d as any).byteOffset, d.byteLength);
   if (d instanceof ArrayBuffer) return new Uint8Array(d);
   // Last resort copy
   // @ts-ignore
   return Uint8Array.from(d);
 }
 
-// Node Canvas Factory for server-side PDF rendering
-class NodeCanvasFactory {
-  create(width: number, height: number) {
-    const Canvas = require('canvas');
-    const canvas = Canvas.createCanvas(width, height);
-    const context = canvas.getContext('2d');
-    return {
-      canvas,
-      context
-    };
-  }
-
-  reset(canvasAndContext: any, width: number, height: number) {
-    canvasAndContext.canvas.width = width;
-    canvasAndContext.canvas.height = height;
-  }
-
-  destroy(canvasAndContext: any) {
-    canvasAndContext.canvas.width = 0;
-    canvasAndContext.canvas.height = 0;
-  }
-}
+// Text-only PDF processing - no Canvas dependencies required
 
 export class PDFParserAgent implements IPDFParserAgent {
   private ocrProcessor: OCRProcessor | null = null;
@@ -89,6 +68,7 @@ export class PDFParserAgent implements IPDFParserAgent {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
         console.log('[OM-AI] Loaded pdfjs-dist legacy build (worker configured)');
       } catch {
+        // @ts-ignore
         const mod = await import('pdfjs-dist/build/pdf.js');
         pdfjsLib = (mod as any).default ?? mod;
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.js';
@@ -121,9 +101,9 @@ export class PDFParserAgent implements IPDFParserAgent {
           if (!pageText && config.performOCR && ENABLE_PDF_OCR && this.ocrProcessor) {
             try {
               await this.ocrProcessor.initialize();
-              const pngBuffer = await this.renderPageToImage(page, 2);
-              const ocrResult = await this.ocrProcessor.processImage(pngBuffer, config.ocrConfidenceThreshold);
-              pageText = (ocrResult.text || '').trim();
+              // OCR not supported in text-only mode
+              console.warn(`OCR requested for page ${pageNumber} but OCR is disabled in text-only mode`);
+              // Skip OCR processing
             } catch (ocrError) {
               console.warn(`OCR failed for page ${pageNumber}:`, ocrError);
             }
@@ -477,6 +457,7 @@ export class PDFParserAgent implements IPDFParserAgent {
       try {
         pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
       } catch {
+        // @ts-ignore
         const mod = await import('pdfjs-dist/build/pdf.js');
         pdfjsLib = (mod as any).default ?? mod;
       }
@@ -503,9 +484,7 @@ export class PDFParserAgent implements IPDFParserAgent {
         
         // Extract with OCR fallback
         const text = await extractPageText(page, {
-          pageNumber,
-          dpi: 300,
-          ocrThreshold: 400
+          pageNumber
         });
         
         // Cleanup
@@ -523,27 +502,9 @@ export class PDFParserAgent implements IPDFParserAgent {
   }
   
   /**
-   * Render PDF page to image using Node Canvas
+   * Text-only PDF processing - image rendering removed for simplified deployment
    */
-  async renderPageToImage(page: any, scale: number = 2.0): Promise<Buffer> {
-    const viewport = page.getViewport({ scale });
-    const canvasFactory = new NodeCanvasFactory();
-    const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
-    
-    const renderContext = {
-      canvasContext: canvasAndContext.context,
-      viewport: viewport,
-      canvasFactory: canvasFactory
-    };
-    
-    await page.render(renderContext).promise;
-    
-    // Get PNG buffer from canvas
-    const buffer = canvasAndContext.canvas.toBuffer('image/png');
-    canvasFactory.destroy(canvasAndContext);
-    
-    return buffer;
-  }
+  // renderPageToImage method removed - text-only processing mode
 
   chunkText(text: string, chunkSize: number, pages: ParsedPage[] = []): TextChunk[] {
     // Use the enhanced text processor for semantic chunking

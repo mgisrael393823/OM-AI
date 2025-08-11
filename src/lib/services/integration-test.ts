@@ -189,7 +189,7 @@ Please reference this document context in your response when relevant.` : '';
             result.steps.aiAnalysis = {
               success: true,
               duration: Date.now() - aiStart,
-              response: aiResponse.content.substring(0, 200) + '...',
+              response: aiResponse.text.substring(0, 200) + '...',
               tokens: aiResponse.usage.totalTokens
             };
 
@@ -221,7 +221,7 @@ Please reference this document context in your response when relevant.` : '';
               result.steps.functionCalling = {
                 success: true,
                 duration: Date.now() - functionStart,
-                functionResults: functionResponse.functionCalls
+                functionResults: (functionResponse as any).functionCalls || []
               };
 
               console.log(`✅ Function calling completed`);
