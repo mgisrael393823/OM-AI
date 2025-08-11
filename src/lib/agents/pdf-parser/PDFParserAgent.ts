@@ -25,7 +25,7 @@ function toPlainUint8Array(d: ArrayBuffer | Uint8Array | Buffer): Uint8Array {
   if (B && B.isBuffer && B.isBuffer(d)) return new Uint8Array((d as any).buffer, (d as any).byteOffset, d.byteLength);
   if (d instanceof ArrayBuffer) return new Uint8Array(d);
   // Last resort copy
-  // @ts-ignore
+  // @ts-expect-error
   return Uint8Array.from(d);
 }
 
@@ -68,7 +68,7 @@ export class PDFParserAgent implements IPDFParserAgent {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
         console.log('[OM-AI] Loaded pdfjs-dist legacy build (worker configured)');
       } catch {
-        // @ts-ignore
+        // @ts-expect-error
         const mod = await import('pdfjs-dist/build/pdf.js');
         pdfjsLib = (mod as any).default ?? mod;
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.js';
@@ -457,7 +457,7 @@ export class PDFParserAgent implements IPDFParserAgent {
       try {
         pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
       } catch {
-        // @ts-ignore
+        // @ts-expect-error
         const mod = await import('pdfjs-dist/build/pdf.js');
         pdfjsLib = (mod as any).default ?? mod;
       }
