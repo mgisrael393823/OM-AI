@@ -130,43 +130,23 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       hasError: !!processingResult.error
     })
 
-    if (!processingResult.success) {
-      console.error(`[${requestId}] Process Document API: Processing failed:`, {
-        error: processingResult.error,
-        originalFileName,
-        fileName,
-        userId,
-        processingTimeMs: processingTime
+    // Strict validation - verify actual chunk count
+    const { count } = await supabaseAdmin
+      .from('document_chunks')
+      .select('id', { count: 'exact', head: true })
+      .eq('document_id', processingResult.document.id)
+    
+    console.log('[OM-AI] ingest done', { 
+      documentId: processingResult.document.id, 
+      chunkCount: count ?? 0 
+    })
+    
+    if (!count || count === 0) {
+      return res.status(422).json({
+        success: false,
+        code: 'NO_CHUNKS',
+        message: 'Document processing produced no chunks'
       })
-      return apiError(res, 500, 'Document processing failed', 'PROCESSING_ERROR', processingResult.error)
-    }
-
-    // Verify chunks were created
-    if (processingResult.document?.id) {
-      const { count } = await supabaseAdmin
-        .from('document_chunks')
-        .select('id', { count: 'exact', head: true })
-        .eq('document_id', processingResult.document.id)
-      
-      console.log('[OM-AI] ingest done', { 
-        documentId: processingResult.document.id, 
-        chunkCount: count ?? 0 
-      })
-      
-      if ((count ?? 0) < 5) {
-        console.error(`[${requestId}] Process Document API: Ingest produced too few chunks`, {
-          documentId: processingResult.document.id,
-          chunks: count ?? 0,
-          originalFileName
-        })
-        return res.status(500).json({ 
-          ok: false, 
-          code: 'INGEST_EMPTY', 
-          documentId: processingResult.document.id, 
-          chunks: count ?? 0,
-          message: `Document processing produced only ${count ?? 0} chunks. OCR may have failed.`
-        })
-      }
     }
 
     const totalTime = Date.now() - startTime
@@ -181,6 +161,7 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     res.status(200).json({
       success: true,
       document: processingResult.document,
+      chunkCount: count,
       meta: {
         requestId,
         processingTime: processingTime,
@@ -189,6 +170,14 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     })
 
   } catch (error) {
+    // Map specific errors to 422
+    if (error && typeof error === 'object' && 'code' in error) {
+      const code = (error as any).code;
+      if (code === 'NO_PDF_TEXT' || code === 'NO_CHUNKS' || code === 'PARSE_FAILED') {
+        return res.status(422).json({ success: false, code, message: String((error as any).message) });
+      }
+    }
+    
     const totalTime = Date.now() - startTime
     console.error(`[${requestId}] Process Document API: Fatal error:`, {
       error,

@@ -194,6 +194,17 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
 
 
           if (!processingResponse.ok) {
+            // Don't retry on 422 (unprocessable content)
+            if (processingResponse.status === 422) {
+              const errorData = await processingResponse.json();
+              const errorMessage = errorData.message || 'Document cannot be processed (likely image-only PDF)';
+              console.error('Supabase Upload: Unprocessable content', { errorData });
+              const e = new Error(`422: ${errorMessage}`);
+              (e as any).status = 422;
+              (e as any).code = 'UNPROCESSABLE';
+              throw e;
+            }
+            
             const errorText = await processingResponse.text()
             console.error('Supabase Upload: Processing response not ok', {
               status: processingResponse.status,
@@ -213,6 +224,12 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
           break
           
         } catch (error) {
+          // Don't retry on 422 errors
+          const status = (error as any)?.status;
+          if (status === 422 || (error instanceof Error && error.message.startsWith('422:'))) {
+            throw error; // abort retries
+          }
+          
           retryCount++
           const isLastRetry = retryCount > maxRetries
           

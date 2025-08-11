@@ -12,6 +12,7 @@ import {
   Loader2
 } from "lucide-react"
 import { useSupabaseUpload } from "@/hooks/useSupabaseUpload"
+import { useInMemoryPDFProcessor } from "@/hooks/useInMemoryPDFProcessor"
 import { toast } from "sonner"
 import { typography } from "@/lib/typography"
 
@@ -30,8 +31,13 @@ interface DocumentUploadProps {
 
 export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: DocumentUploadProps) {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
+  const [ingestMode, setIngestMode] = useState<'storage' | 'memory'>(() => {
+    // Check environment variable and default to memory mode
+    const envMode = process.env.NEXT_PUBLIC_INGEST_MODE
+    return envMode === 'memory' ? 'memory' : 'storage'
+  })
 
-  const { uploadFile, progress: globalProgress, isUploading, error: uploadError, reset } = useSupabaseUpload({
+  const { uploadFile: storageUpload, progress: storageProgress, isUploading: isStorageUploading, error: storageError, reset: resetStorage } = useSupabaseUpload({
     onProgress: (fileName: string, progress: number) => {
       // Update progress for the specific file
       setUploadFiles(prev => prev.map(f => 
@@ -46,6 +52,26 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
       ))
     }
   })
+
+  const { processFile: memoryProcess, progress: memoryProgress, isProcessing, error: memoryError, reset: resetMemory } = useInMemoryPDFProcessor({
+    onProgress: (fileName: string, progress: number) => {
+      setUploadFiles(prev => prev.map(f => 
+        f.file.name === fileName && (f.status === "uploading" || f.status === "processing")
+          ? { 
+              ...f, 
+              progress,
+              status: progress >= 60 && progress < 100 ? "processing" : f.status
+            }
+          : f
+      ))
+    }
+  })
+
+  // Use appropriate values based on mode
+  const isUploading = ingestMode === 'memory' ? isProcessing : isStorageUploading
+  const globalProgress = ingestMode === 'memory' ? memoryProgress : storageProgress
+  const uploadError = ingestMode === 'memory' ? memoryError : storageError
+  const reset = ingestMode === 'memory' ? resetMemory : resetStorage
 
   const uploadWithAuth = useCallback(async (files: File[]) => {
     try {
@@ -65,10 +91,42 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
         const uploadFileEntry = newFiles[i]
         
         try {
-          // Start upload for this file
-          console.log("Starting upload for:", file.name)
+          console.log(`Starting ${ingestMode} processing for:`, file.name)
           
-          const result = await uploadFile(file)
+          let result: any
+          
+          if (ingestMode === 'memory') {
+            // Use in-memory processing
+            result = await memoryProcess(file)
+            
+            // Transform result to match expected format and store requestId
+            const transformedResult = {
+              document: {
+                id: result.requestId,
+                name: result.document.originalFilename,
+                filename: result.document.originalFilename,
+                size: file.size,
+                type: file.type,
+                status: 'completed',
+                pageCount: result.document.pageCount,
+                chunkCount: result.document.chunkCount,
+                analysis: result.document.analysis,
+                requestId: result.requestId // Store requestId for follow-up queries
+              }
+            }
+            result = transformedResult
+            
+            // Store requestId in session storage for chat context
+            if (typeof window !== 'undefined' && result.requestId) {
+              const recentRequestIds = JSON.parse(sessionStorage.getItem('recentRequestIds') || '[]')
+              recentRequestIds.unshift(result.requestId)
+              // Keep only last 5 request IDs
+              sessionStorage.setItem('recentRequestIds', JSON.stringify(recentRequestIds.slice(0, 5)))
+            }
+          } else {
+            // Use storage-based processing
+            result = await storageUpload(file)
+          }
           
           // Update status to completed
           setUploadFiles(prev => prev.map(f => 
@@ -81,7 +139,11 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
             onUploadComplete(result.document)
           }
           
-          toast.success(`${file.name} uploaded successfully`)
+          const successMessage = ingestMode === 'memory' 
+            ? `${file.name} processed successfully (${result.document.pageCount} pages, ${result.document.chunkCount} chunks)`
+            : `${file.name} uploaded successfully`
+          
+          toast.success(successMessage)
           
           // Refresh document list
           if (onDocumentListRefresh) {
@@ -94,23 +156,23 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
           }, 10000)
           
         } catch (error) {
-          console.error(`Upload failed for ${file.name}:`, error)
+          console.error(`Processing failed for ${file.name}:`, error)
           
           // Update status to error
           setUploadFiles(prev => prev.map(f => 
             f.id === uploadFileEntry.id 
-              ? { ...f, status: "error", error: error instanceof Error ? error.message : "Upload failed" } 
+              ? { ...f, status: "error", error: error instanceof Error ? error.message : "Processing failed" } 
               : f
           ))
           
-          toast.error(`Failed to upload ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}`)
+          toast.error(`Failed to process ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}`)
         }
       }
     } catch (error) {
-      console.error("Error starting upload:", error)
-      toast.error("Failed to start upload")
+      console.error("Error starting processing:", error)
+      toast.error("Failed to start processing")
     }
-  }, [uploadFile, onUploadComplete, onDocumentListRefresh])
+  }, [ingestMode, storageUpload, memoryProcess, onUploadComplete, onDocumentListRefresh])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     uploadWithAuth(acceptedFiles)
@@ -125,7 +187,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
     accept: {
       'application/pdf': ['.pdf']
     },
-    maxSize: 16 * 1024 * 1024, // 16MB (Supabase Storage limit)
+    maxSize: ingestMode === 'memory' ? 25 * 1024 * 1024 : 16 * 1024 * 1024, // 25MB for memory, 16MB for storage
     multiple: true,
     disabled: isUploading
   })
@@ -225,7 +287,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription className={typography.helper}>
-          Supported format: PDF • Maximum file size: 16MB • 
+          Supported format: PDF • Maximum file size: {ingestMode === 'memory' ? '25MB' : '16MB'} • 
           Text will be extracted automatically for AI analysis
         </AlertDescription>
       </Alert>

@@ -7,7 +7,8 @@ import { FontDebug } from "@/components/debug/FontDebug";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { useAuth } from "@/contexts/AuthContext";
-import { useEffect, useLayoutEffect } from "react";
+import { useEffect } from "react";
+import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
 
 // Expose supabase to window for console testing
 if (typeof window !== 'undefined') {
@@ -18,7 +19,7 @@ function AppContent({ Component, pageProps }: { Component: any; pageProps: any }
   const { loading } = useAuth();
   
   // Set body data-auth attribute for FOUC prevention (runs before paint)
-  useLayoutEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     // Only apply loading state on authenticated pages (app route)
     const isAppPage = window.location.pathname.startsWith('/app');
     if (isAppPage) {
