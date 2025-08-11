@@ -25,7 +25,7 @@ function toPlainUint8Array(d: ArrayBuffer | Uint8Array | Buffer): Uint8Array {
   if (B && B.isBuffer && B.isBuffer(d)) return new Uint8Array((d as any).buffer, (d as any).byteOffset, d.byteLength);
   if (d instanceof ArrayBuffer) return new Uint8Array(d);
   // Last resort copy
-  // @ts-expect-error
+  // @ts-expect-error - allow final fallback for array-like input that TS can't type
   return Uint8Array.from(d);
 }
 
@@ -68,7 +68,7 @@ export class PDFParserAgent implements IPDFParserAgent {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
         console.log('[OM-AI] Loaded pdfjs-dist legacy build (worker configured)');
       } catch {
-        // @ts-expect-error
+        // @ts-expect-error - pdfjs legacy build types don't match runtime default export
         const mod = await import('pdfjs-dist/build/pdf.js');
         pdfjsLib = (mod as any).default ?? mod;
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.js';
@@ -128,7 +128,7 @@ export class PDFParserAgent implements IPDFParserAgent {
       // Check if we got any text at all
       if (!hasAnyText) {
         const err = new Error('No extractable text in PDF (image-only).');
-        // @ts-ignore
+        // @ts-expect-error - intentional runtime mismatch; see pdfjs import note
         err.code = 'NO_PDF_TEXT';
         throw err;
       }
@@ -148,7 +148,7 @@ export class PDFParserAgent implements IPDFParserAgent {
 
       if (chunks.length === 0) {
         const err = new Error('Document processing produced no chunks.');
-        // @ts-ignore  
+        // @ts-expect-error - intentional runtime mismatch; see pdfjs import note
         err.code = 'NO_CHUNKS';
         throw err;
       }
@@ -457,7 +457,7 @@ export class PDFParserAgent implements IPDFParserAgent {
       try {
         pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
       } catch {
-        // @ts-expect-error
+        // @ts-expect-error - pdfjs legacy build types don't match runtime default export
         const mod = await import('pdfjs-dist/build/pdf.js');
         pdfjsLib = (mod as any).default ?? mod;
       }

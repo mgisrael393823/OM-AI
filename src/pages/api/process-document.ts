@@ -130,11 +130,20 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       hasError: !!processingResult.error
     })
 
+    const documentId = processingResult.document?.id
+    if (!documentId) {
+      return res.status(500).json({
+        success: false,
+        code: 'NO_DOCUMENT',
+        message: 'Document missing after processing'
+      })
+    }
+
     // Strict validation - verify actual chunk count
     const { count } = await supabaseAdmin
       .from('document_chunks')
       .select('id', { count: 'exact', head: true })
-      .eq('document_id', processingResult.document?.id!)
+      .eq('document_id', documentId)
     
     console.log('[OM-AI] ingest done', { 
       documentId: processingResult.document?.id, 
