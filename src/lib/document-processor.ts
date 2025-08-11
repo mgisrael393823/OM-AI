@@ -4,6 +4,7 @@ import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 import { openAIService } from '@/lib/services/openai'
 import { transientStore } from '@/lib/transient-store'
 import type { Database } from '@/types/database'
+import path from 'path'
 
 type DocInsert = Database["public"]["Tables"]["documents"]["Insert"]
 
@@ -287,10 +288,13 @@ export async function processInMemory(
   opts: { userId: string; originalFilename: string }
 ) {
   const { userId } = opts
-  const safeOriginalFilename = 
+  const rawName =
     (opts as any)?.originalFilename ||
     (opts as any)?.name ||
     'upload.pdf'
+  const safeOriginalFilename = path
+    .basename(String(rawName))
+    .replace(/[^a-zA-Z0-9._-]/g, '_') || 'upload.pdf'
 
   const fileBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
   

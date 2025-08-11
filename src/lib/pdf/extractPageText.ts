@@ -42,10 +42,11 @@ export async function renderPageToImage(page: any, options: { dpi: number } = { 
     let Canvas: any;
     try {
       Canvas = require('canvas');
-    } catch (e) {
-      throw new Error('Canvas not available for OCR');
+    } catch (e: any) {
+      console.warn('[OM-AI] canvas package not found, skipping render');
+      return Buffer.alloc(0);
     }
-    
+
     const canvas = Canvas.createCanvas(viewport.width, viewport.height);
     const context = canvas.getContext('2d');
     
@@ -77,7 +78,7 @@ export async function renderPageToImage(page: any, options: { dpi: number } = { 
     return canvas.toBuffer('image/png');
   } catch (error: any) {
     console.warn('[OM-AI] Canvas render failed:', error?.message || error);
-    throw error;
+    return Buffer.alloc(0);
   }
 }
 

@@ -32,13 +32,23 @@ function toPlainUint8Array(d: ArrayBuffer | Uint8Array | Buffer): Uint8Array {
 // Node Canvas Factory for server-side PDF rendering
 class NodeCanvasFactory {
   create(width: number, height: number) {
-    const Canvas = require('canvas');
-    const canvas = Canvas.createCanvas(width, height);
-    const context = canvas.getContext('2d');
-    return {
-      canvas,
-      context
-    };
+    try {
+      const Canvas = require('canvas');
+      const canvas = Canvas.createCanvas(width, height);
+      const context = canvas.getContext('2d');
+      return { canvas, context };
+    } catch (e: any) {
+      console.warn('[OM-AI] canvas bindings missing, using polyfill');
+      const stubCtx = {
+        fillStyle: null,
+        drawImage: () => {},
+        fillRect: () => {},
+        getImageData: () => ({ data: new Uint8ClampedArray(width * height * 4) }),
+        putImageData: () => {}
+      } as any;
+      const canvas = { width, height, getContext: () => stubCtx } as any;
+      return { canvas, context: stubCtx };
+    }
   }
 
   reset(canvasAndContext: any, width: number, height: number) {

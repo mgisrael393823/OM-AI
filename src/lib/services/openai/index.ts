@@ -1,9 +1,12 @@
 import OpenAI from 'openai'
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! })
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+  timeout: Number(process.env.OPENAI_TIMEOUT_MS || 20_000)
+})
 
-const RESPONSES_MODEL = /^(gpt-5($|-)|gpt-4\.1($|-)|o4|o3)/i
-const isResponsesModel = (m: string) => RESPONSES_MODEL.test(m)
+const RESPONSES_FAMILY = /^(gpt-5|gpt-4\.1|o)/i
+const isResponsesModel = (m: string) => RESPONSES_FAMILY.test(m)
 
 async function withRetry<T>(fn: () => Promise<T>, tries = 2) {
   let last: any
@@ -27,8 +30,8 @@ export async function createChatCompletion(args: {
   maxTokens?: number
 }) {
   const desired = (args.model || process.env.OPENAI_MODEL || '').trim()
-  const fallback = (process.env.OPENAI_FALLBACK_MODEL || 'gpt-4.1').trim()
-  let model = desired || fallback
+  const fallback = (process.env.OPENAI_FALLBACK_MODEL || '').trim()
+  const initialModel = desired || fallback
 
   // Unify token limit env -> default 2000
   const limit =
@@ -37,47 +40,53 @@ export async function createChatCompletion(args: {
     args.maxTokens ??
     Number(process.env.CHAT_MAX_TOKENS ?? 2000)
 
-  console.log('[openai] Using model:', model, 'maxOutput:', limit)
+  async function exec(model: string) {
+    const useResponses = isResponsesModel(model)
+    const includeTemp = args.temperature !== undefined && !/^gpt-4\.1/i.test(model)
 
-  const run = () => isResponsesModel(model)
-    ? (client as any).responses.create({
-        model,
-        // simple linearized messages for Responses
-        input: args.messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n'),
-        temperature: args.temperature ?? 0.2,
-        // IMPORTANT: Responses API uses max_output_tokens
-        max_output_tokens: limit
-      })
-    : client.chat.completions.create({
-        model,
-        messages: args.messages as any,
-        temperature: args.temperature ?? 0.2,
-        // Chat Completions uses max_tokens
-        max_tokens: limit
-      })
+    const run = () => useResponses
+      ? (client as any).responses.create({
+          model,
+          input: args.messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n'),
+          max_output_tokens: limit,
+          ...(includeTemp ? { temperature: args.temperature } : {})
+        })
+      : client.chat.completions.create({
+          model,
+          messages: args.messages as any,
+          max_tokens: limit,
+          ...(includeTemp ? { temperature: args.temperature } : {})
+        })
+
+    const resp: any = await withRetry(run)
+    const text = useResponses
+      ? (resp.output_text ?? resp.content?.[0]?.text ?? '')
+      : (resp.choices?.[0]?.message?.content ?? '')
+
+    console.log(
+      `[openai] model=${model} api=${useResponses ? 'responses' : 'chat'} max=${limit} temp=${includeTemp ? 'set' : 'omitted'} id=${resp.id}`
+    )
+
+    return {
+      text: String(text).trim(),
+      usage: resp.usage,
+      requestId: resp.id,
+      model: useResponses ? model : resp.model
+    }
+  }
 
   try {
-    const resp: any = await withRetry(run)
-    if (isResponsesModel(model)) {
-      const text = resp.output_text ?? resp.content?.[0]?.text ?? ''
-      return { text: String(text).trim(), usage: resp.usage, requestId: resp.id, model }
-    } else {
-      const text = resp.choices?.[0]?.message?.content ?? ''
-      return { text: String(text).trim(), usage: resp.usage, requestId: resp.id, model: resp.model }
-    }
+    return await exec(initialModel)
   } catch (e: any) {
     const msg = e?.message || ''
-    if (model !== fallback && /(model.*not.*found|does not exist|unsupported)/i.test(msg)) {
-      console.warn('[openai] Downgrading model to fallback:', fallback, 'due to:', msg)
-      model = fallback
-      const resp: any = await withRetry(run)
-      if (isResponsesModel(model)) {
-        const text = resp.output_text ?? resp.content?.[0]?.text ?? ''
-        return { text: String(text).trim(), usage: resp.usage, requestId: resp.id, model }
-      } else {
-        const text = resp.choices?.[0]?.message?.content ?? ''
-        return { text: String(text).trim(), usage: resp.usage, requestId: resp.id, model: resp.model }
-      }
+    const status = e?.status
+    if (
+      fallback &&
+      initialModel !== fallback &&
+      (status === 400 || /model.*not.*found|does not exist|unsupported/i.test(msg))
+    ) {
+      console.warn('[openai] falling back to', fallback, 'due to:', msg)
+      return await exec(fallback)
     }
     throw e
   }
