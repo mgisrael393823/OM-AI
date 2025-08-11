@@ -124,6 +124,4 @@ async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiRespon
   return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, chatSessionsHandler)
-}
+export default withAuth(chatSessionsHandler)

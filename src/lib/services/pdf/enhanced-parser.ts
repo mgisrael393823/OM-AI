@@ -13,6 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 // Fallback parser (existing pdfreader)
 import { PDFParserAgent } from '@/lib/agents/pdf-parser/PDFParserAgent';
 import { ParseOptions, ParseResult, TextChunk, PDFMetadata } from '@/lib/agents/pdf-parser/types';
+import { extractPageText } from '@/lib/pdf/extractPageText';
 
 // Configure PDF.js for Node.js environment
 if (typeof globalThis === 'undefined') {
@@ -147,13 +148,11 @@ export class EnhancedPDFParser {
       // Process each page
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
         const page = await pdfDocument.getPage(pageNum);
-        const textContent = await page.getTextContent();
         
-        // Extract text items
-        const pageText = textContent.items
-          .map((item: any) => item.str)
-          .join(' ')
-          .trim();
+        // Use our enhanced extraction with OCR fallback
+        const pageText = await extractPageText(page, {
+          pageNumber: pageNum
+        });
         
         if (pageText) {
           allText.push(pageText);
@@ -269,7 +268,7 @@ export class EnhancedPDFParser {
     if (currentChunk.trim()) {
       chunks.push({
         id: uuidv4(),
-        content: currentChunk.trim(),
+        content: currentChunk.trim(),  // Keep 'content' for DB compatibility
         page_number: pageNumber,
         chunk_index: chunkIndex,
         type: this.classifyChunkType(currentChunk),

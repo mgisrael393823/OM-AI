@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth, apiError, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { processUploadedDocument } from '@/lib/document-processor'
 import { getConfig } from '@/lib/config'
@@ -129,15 +130,23 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       hasError: !!processingResult.error
     })
 
-    if (!processingResult.success) {
-      console.error(`[${requestId}] Process Document API: Processing failed:`, {
-        error: processingResult.error,
-        originalFileName,
-        fileName,
-        userId,
-        processingTimeMs: processingTime
+    // Strict validation - verify actual chunk count
+    const { count } = await supabaseAdmin
+      .from('document_chunks')
+      .select('id', { count: 'exact', head: true })
+      .eq('document_id', processingResult.document?.id!)
+    
+    console.log('[OM-AI] ingest done', { 
+      documentId: processingResult.document?.id, 
+      chunkCount: count ?? 0 
+    })
+    
+    if (!count || count === 0) {
+      return res.status(422).json({
+        success: false,
+        code: 'NO_CHUNKS',
+        message: 'Document processing produced no chunks'
       })
-      return apiError(res, 500, 'Document processing failed', 'PROCESSING_ERROR', processingResult.error)
     }
 
     const totalTime = Date.now() - startTime
@@ -152,6 +161,7 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     res.status(200).json({
       success: true,
       document: processingResult.document,
+      chunkCount: count,
       meta: {
         requestId,
         processingTime: processingTime,
@@ -160,6 +170,14 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     })
 
   } catch (error) {
+    // Map specific errors to 422
+    if (error && typeof error === 'object' && 'code' in error) {
+      const code = (error as any).code;
+      if (code === 'NO_PDF_TEXT' || code === 'NO_CHUNKS' || code === 'PARSE_FAILED') {
+        return res.status(422).json({ success: false, code, message: String((error as any).message) });
+      }
+    }
+    
     const totalTime = Date.now() - startTime
     console.error(`[${requestId}] Process Document API: Fatal error:`, {
       error,
@@ -175,6 +193,4 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
   }
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, processDocumentHandler)
-}
+export default withAuth(processDocumentHandler)

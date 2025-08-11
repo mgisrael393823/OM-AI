@@ -109,6 +109,4 @@ async function supabaseUploadHandler(req: AuthenticatedRequest, res: NextApiResp
   }
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, supabaseUploadHandler)
-}
+export default withAuth(supabaseUploadHandler)

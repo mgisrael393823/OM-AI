@@ -8,6 +8,8 @@
 export const FEATURE_FLAGS = {
   // Settings API - Controls new user preferences system
   SETTINGS_API: process.env.NEXT_FEATURE_SETTINGS === 'true',
+  // OpenAI Analysis Model - Controls whether to use analysis model for complex queries
+  USE_ANALYSIS: (process.env.OPENAI_USE_ANALYSIS || 'false').toLowerCase() === 'true',
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURE_FLAGS;
@@ -44,4 +46,12 @@ export function requireFeature(flag: FeatureFlag) {
       return handler(...args);
     };
   };
+}
+
+/**
+ * Get environment variable with fallback
+ */
+export function getEnv(name: string, fallback: string = ''): string {
+  const value = process.env[name];
+  return (value === undefined || value === null || value === '') ? fallback : value;
 }

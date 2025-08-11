@@ -285,7 +285,7 @@ export class TextProcessor {
   /**
    * Split text into semantic chunks with overlap for better processing
    */
-  static createSemanticChunks(text: string, maxChunkSize = 4000, overlap = 800): Array<{
+  static createSemanticChunks(text: string, maxChunkSize = 800, overlap = 200): Array<{
     text: string;
     type: 'paragraph' | 'list' | 'table' | 'header';
     tokens: number;

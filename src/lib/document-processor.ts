@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
+import { openAIService } from '@/lib/services/openai'
+import { transientStore } from '@/lib/transient-store'
 import type { Database } from '@/types/database'
 
 type DocInsert = Database["public"]["Tables"]["documents"]["Insert"]
@@ -32,6 +34,26 @@ export interface ProcessDocumentResult {
     status: 'completed' | 'processing' | 'error'
   }
   error?: string
+}
+
+export interface InMemoryProcessResult {
+  success: boolean
+  pageCount?: number
+  chunkCount?: number
+  analysis?: any
+  metrics?: any
+  stored?: boolean
+  requestId?: string
+  error?: string
+}
+
+export interface InMemoryProcessParams {
+  buffer: Buffer
+  originalFilename: string
+  userId: string
+  requestId: string
+  maxPages?: number
+  storeAnalysis?: boolean
 }
 
 /**
@@ -87,9 +109,29 @@ export async function processUploadedDocument(
         chunkSize: 4000,
         preserveFormatting: true
       })
+      
+      // Validate immediately after parsing
+      if (!parseResult?.success) {
+        const err: any = new Error(parseResult?.error || 'PDF parsing failed')
+        err.code = 'PARSE_FAILED'
+        throw err
+      }
+      
+      if (!parseResult.fullText?.trim()) {
+        const err: any = new Error('No extractable text in PDF')
+        err.code = 'NO_PDF_TEXT'
+        throw err
+      }
+      
+      if (!parseResult.chunks || parseResult.chunks.length === 0) {
+        const err: any = new Error('Document produced no chunks')
+        err.code = 'NO_CHUNKS'
+        throw err
+      }
     } catch (error) {
-      console.error('PDF parsing error:', error)
-      processingError = error instanceof Error ? error.message : 'Unknown parsing error'
+      await pdfParser.cleanup()
+      // Re-throw to bubble up
+      throw error
     } finally {
       await pdfParser.cleanup()
     }
@@ -146,24 +188,26 @@ export async function processUploadedDocument(
     // Store parsed chunks if successful
     if (parseResult?.success && parseResult.chunks.length > 0) {
       const validChunks = parseResult.chunks
-        .filter((chunk): chunk is typeof chunk & { text: string; page: number } => 
-          Boolean(chunk.text) && chunk.page !== undefined
-        )
-        .map(chunk => ({
+        .filter(c => Boolean(c.content || c.text) && (c.page_number !== undefined || c.page !== undefined))
+        .map((c, idx) => ({
           document_id: documentData.id,
           user_id: userId,
-          chunk_id: chunk.id,
-          content: chunk.text,
-          page_number: chunk.page,
-          chunk_type: chunk.type,
-          tokens: chunk.tokens || 0,
+          chunk_id: c.id,
+          content: (c.content || c.text) as string,
+          page_number: (c.page_number ?? c.page) as number,
+          chunk_index: c.chunk_index ?? idx,
+          chunk_type: c.type,
+          tokens: c.tokens || 0,
           metadata: toJson({
-            startY: chunk.startY,
-            endY: chunk.endY
+            startY: c.startY,
+            endY: c.endY
           }) as Database["public"]["Tables"]["document_chunks"]["Insert"]["metadata"]
         }))
 
       if (validChunks.length > 0) {
+        console.log('[DEBUG] chunk row keys:', Object.keys(validChunks[0]));
+        console.log('[DEBUG] sample chunk:', validChunks[0]);
+        
         const { error: chunksError } = await supabase
           .from('document_chunks')
           .insert(validChunks)
@@ -230,6 +274,240 @@ export async function processUploadedDocument(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown processing error"
+    }
+  }
+}
+
+/**
+ * Process PDF entirely in memory without persistent storage
+ * Optimized for speed and immediate analysis
+ */
+export async function processInMemory(
+  buffer: Buffer,
+  opts: { userId: string; originalFilename: string }
+) {
+  const { userId } = opts
+  const safeOriginalFilename = 
+    (opts as any)?.originalFilename ||
+    (opts as any)?.name ||
+    'upload.pdf'
+
+  const fileBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
+  
+  // Quick validation
+  const quickValidation = PDFValidator.quickValidate(fileBuffer, safeOriginalFilename)
+  if (!quickValidation.isValid) {
+    throw new Error(quickValidation.error || 'Invalid PDF file')
+  }
+
+  const validationResult = await PDFValidator.validatePDF(fileBuffer, safeOriginalFilename)
+  if (!validationResult.isValid) {
+    throw new Error(`PDF validation failed: ${validationResult.errors.join('; ')}`)
+  }
+
+  // Check page count limit
+  const estimatedPages = validationResult.metadata.pageCount || 1
+  const pageLimit = Number(process.env.DOC_MAX_PAGES || '80')
+  if (estimatedPages > pageLimit) {
+    throw new Error(`Document has ${estimatedPages} pages, exceeds limit of ${pageLimit}`)
+  }
+
+  // Initialize PDF parser
+  const pdfParser = new PDFParserAgent()
+  let parseResult = null
+
+  try {
+    parseResult = await pdfParser.parseBuffer(fileBuffer, {
+      extractTables: true,
+      performOCR: validationResult.metadata.isEncrypted || !validationResult.metadata.hasText,
+      ocrConfidenceThreshold: 70,
+      chunkSize: 4000,
+      preserveFormatting: true,
+      maxPages: pageLimit
+    })
+    
+    if (!parseResult?.success) {
+      throw new Error(parseResult?.error || 'PDF parsing failed')
+    }
+    
+    if (!parseResult.fullText?.trim()) {
+      throw new Error('No extractable text in PDF')
+    }
+    
+    if (!parseResult.chunks || parseResult.chunks.length === 0) {
+      throw new Error('Document produced no chunks')
+    }
+
+  } catch (error) {
+    await pdfParser.cleanup()
+    throw error
+  } finally {
+    await pdfParser.cleanup()
+  }
+
+  // your existing heuristic filter
+  const chunksForAnalysis = filterFinancialContent(parseResult.chunks)
+
+  let analysis = ''
+  try {
+    const analysisResult = await analyzeWithOpenAI({
+      chunks: chunksForAnalysis,
+      model: process.env.OPENAI_MODEL
+    });
+    analysis = analysisResult.content || '[WARN] Analysis not available';
+  } catch (e: any) {
+    analysis = `[WARN] OpenAI analysis unavailable: ${e?.message || 'unknown error'}`
+  }
+
+  return {
+    requestId: `mem-${Date.now().toString(36)}`,
+    document: {
+      originalFilename: safeOriginalFilename,
+      pageCount: parseResult.pages.length,
+      chunkCount: parseResult.chunks.length,
+      analysis
+    },
+    metadata: {
+      originalFilename: safeOriginalFilename,
+      pageCount: parseResult.pages.length,
+      chunkCount: parseResult.chunks.length,
+      userId
+    }
+  }
+}
+
+/**
+ * Filter chunks to focus on financial and table content
+ */
+function filterFinancialContent(chunks: any[]): any[] {
+  const financialKeywords = [
+    'income', 'revenue', 'expense', 'profit', 'loss', 'cash flow', 'noi',
+    'cap rate', 'irr', 'npv', 'debt', 'equity', 'mortgage', 'loan',
+    'lease', 'rent', 'occupancy', 'vacancy', 'market', 'value',
+    'appraisal', 'assessment', 'tax', 'insurance', 'maintenance',
+    'utilities', 'management', 'fees', 'commission', 'closing',
+    'acquisition', 'disposition', 'refinancing', '$', '%'
+  ]
+  
+  return chunks.filter(chunk => {
+    const content = (chunk.content || chunk.text || '').toLowerCase()
+    
+    // Include if contains financial keywords
+    const hasFinancialContent = financialKeywords.some(keyword => 
+      content.includes(keyword)
+    )
+    
+    // Include if appears to be tabular data (contains multiple numbers)
+    const numberMatches = content.match(/\d+/g) || []
+    const hasTabularData = numberMatches.length >= 3
+    
+    // Include if chunk type indicates structured data
+    const isStructuredData = chunk.type === 'table' || chunk.type === 'financial'
+    
+    return hasFinancialContent || hasTabularData || isStructuredData
+  })
+}
+
+/**
+ * Analyze filtered content with OpenAI
+ */
+function toStructured(resp: any) {
+  const content = resp?.content ?? (typeof resp === 'string' ? resp : '');
+  return {
+    content,
+    usage: resp?.usage ?? null,
+    metadata: resp?.metadata ?? null
+  };
+}
+
+async function analyzeWithOpenAI(input: { chunks: any[]; model?: string }) {
+  const model = input.model || process.env.OPENAI_MODEL || 'gpt-4o-mini-2024-07-18';
+  
+  // Prepare context from chunks
+  const context = input.chunks.map((chunk, idx) => 
+    `[Chunk ${idx + 1}]\n${chunk.content || chunk.text || ''}`
+  ).join('\n\n')
+
+  const resp = await openAIService.createChatCompletion({
+    model,
+    messages: [
+      { role: 'system', content: 'You are a financial extraction agent.' },
+      { role: 'user', content: context }
+    ],
+    temperature: 0.1,
+    max_completion_tokens: 2000
+  });
+
+  return toStructured(resp);
+}
+
+/**
+ * Store minimal analysis results (optional)
+ */
+async function storeAnalysisResults(data: {
+  userId: string
+  filename: string
+  pageCount: number
+  analysis: any
+  metrics: any
+}): Promise<boolean> {
+  try {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return false
+    }
+    
+    const supabase = createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    )
+
+    const { error } = await supabase
+      .from('usage_logs')
+      .insert({
+        user_id: data.userId,
+        action: 'document_analysis',
+        metadata: {
+          filename: data.filename,
+          page_count: data.pageCount,
+          analysis_result: data.analysis,
+          metrics: data.metrics
+        }
+      })
+
+    if (error) {
+      console.error('Failed to store analysis results:', error)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    console.error('Error storing analysis results:', error)
+    return false
+  }
+}
+
+/**
+ * Merge two analysis results, preferring non-empty fields from the first
+ */
+function mergeAnalyses(a: any, b: any): any {
+  if (!a && !b) return null
+  if (!a) return b
+  if (!b) return a
+  
+  return {
+    ...b,
+    ...a,
+    metrics: {
+      ...(b?.metrics || {}),
+      ...(a?.metrics || {})
+    },
+    usage: {
+      ...(b?.usage || {}),
+      ...(a?.usage || {}),
+      promptTokens: (a?.usage?.promptTokens || 0) + (b?.usage?.promptTokens || 0),
+      completionTokens: (a?.usage?.completionTokens || 0) + (b?.usage?.completionTokens || 0),
+      totalTokens: (a?.usage?.totalTokens || 0) + (b?.usage?.totalTokens || 0),
+      estimatedCost: (a?.usage?.estimatedCost || 0) + (b?.usage?.estimatedCost || 0)
     }
   }
 }

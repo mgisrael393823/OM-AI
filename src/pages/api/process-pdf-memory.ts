@@ -1,0 +1,42 @@
+import type { NextApiRequest, NextApiResponse } from 'next'
+import formidable from 'formidable'
+import { promises as fs } from 'fs'
+import { withAuth, type AuthenticatedRequest } from '@/lib/auth-middleware'
+import { processInMemory } from '@/lib/document-processor'
+
+export const config = { api: { bodyParser: false } }
+
+async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    return res.status(405).json({ error: 'Method Not Allowed' })
+  }
+
+  try {
+    const form = formidable({ multiples: false, maxFileSize: 25 * 1024 * 1024 })
+    const { files } = await new Promise<{ files: formidable.Files }>((resolve, reject) => {
+      form.parse(req, (err, _fields, files) => (err ? reject(err) : resolve({ files })))
+    })
+
+    const anyFile = (files.file || files.document || Object.values(files)[0]) as formidable.File | formidable.File[] | undefined
+    if (!anyFile) return res.status(400).json({ error: 'No file uploaded' })
+
+    const file = Array.isArray(anyFile) ? anyFile[0] : anyFile
+    const filepath = (file as any).filepath || (file as any).path
+    const buffer = await fs.readFile(filepath)
+    const originalFilename = (file as any).originalFilename || (file as any).newFilename || 'document.pdf'
+
+    const result = await processInMemory(buffer, {
+      userId: req.user.id,
+      originalFilename
+    })
+
+    return res.status(200).json(result)
+  } catch (err: any) {
+    const msg = err?.message || 'Processing failed'
+    const code = /timeout/i.test(msg) ? 504 : 500
+    return res.status(code).json({ error: msg })
+  }
+}
+
+export default withAuth(processMemoryHandler)

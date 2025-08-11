@@ -46,3 +46,31 @@ export async function createResponse(options: {
     functions: options.functions,
   });
 }
+
+/**
+ * Timeout wrapper for async operations
+ * Returns a structured result indicating success/failure and timeout status
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number = 8000
+): Promise<{ ok: boolean; val?: T; timeout: boolean }> {
+  let timeoutId: NodeJS.Timeout | undefined;
+  
+  try {
+    const result = await Promise.race([
+      promise.then(val => ({ ok: true, val, timeout: false })),
+      new Promise<{ ok: boolean; timeout: boolean }>(resolve => {
+        timeoutId = setTimeout(() => {
+          resolve({ ok: false, timeout: true });
+        }, ms);
+      })
+    ]);
+    
+    return result;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}

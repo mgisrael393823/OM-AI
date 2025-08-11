@@ -1,3 +1,6 @@
+// Side-effect import to ensure worker is bundled
+import 'pdfjs-dist/legacy/build/pdf.worker.js';
+
 import { PdfReader, PdfReaderItem } from 'pdfreader';
 import { v4 as uuidv4 } from 'uuid';
 import { 
@@ -11,6 +14,22 @@ import {
   IPDFParserAgent 
 } from './types';
 import { OCRProcessor, PDFAnalyzer, TextProcessor } from './utils';
+
+const ENABLE_PDF_OCR = process.env.ENABLE_PDF_OCR === 'true';
+
+// Ensures we return a plain Uint8Array (never a Node Buffer)
+function toPlainUint8Array(d: ArrayBuffer | Uint8Array | Buffer): Uint8Array {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const B: any = typeof Buffer !== 'undefined' ? Buffer : null;
+  if (d instanceof Uint8Array && !(B && B.isBuffer && B.isBuffer(d))) return d;
+  if (B && B.isBuffer && B.isBuffer(d)) return new Uint8Array((d as any).buffer, (d as any).byteOffset, d.byteLength);
+  if (d instanceof ArrayBuffer) return new Uint8Array(d);
+  // Last resort copy
+  // @ts-expect-error
+  return Uint8Array.from(d);
+}
+
+// Text-only PDF processing - no Canvas dependencies required
 
 export class PDFParserAgent implements IPDFParserAgent {
   private ocrProcessor: OCRProcessor | null = null;
@@ -30,18 +49,88 @@ export class PDFParserAgent implements IPDFParserAgent {
     const startTime = Date.now();
     const config = { ...this.defaultOptions, ...options };
     
+    console.log('[OM-AI] PDFParserAgent.parseBuffer called, buffer size:', buffer.length);
+    
     try {
-      // Extract basic PDF structure
+      // Convert to plain Uint8Array for pdfjs-dist
+      const data = toPlainUint8Array(buffer);
+      
+      // Debug logging
+      console.log('[OM-AI] Converted to Uint8Array, size:', data.length, 
+        'is Uint8Array:', data instanceof Uint8Array,
+        'Buffer.isBuffer(data):', typeof Buffer !== 'undefined' && Buffer.isBuffer ? Buffer.isBuffer(data) : false);
+      
+      // Load PDF with pdfjs-dist using dynamic import
+      let pdfjsLib: any;
+      try {
+        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
+        // Set full module path for worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
+        console.log('[OM-AI] Loaded pdfjs-dist legacy build (worker configured)');
+      } catch {
+        // @ts-expect-error
+        const mod = await import('pdfjs-dist/build/pdf.js');
+        pdfjsLib = (mod as any).default ?? mod;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.js';
+        console.log('[OM-AI] Loaded pdfjs-dist standard build (worker configured)');
+      }
+      
+      const loadingTask = pdfjsLib.getDocument({ data });
+      const pdfDocument = await loadingTask.promise;
+      console.log('[OM-AI] pdf pages:', pdfDocument.numPages);
+      
+      // Extract basic PDF structure for metadata
       const { items, metadata } = await this.extractPDFItems(buffer);
+      metadata.pages = pdfDocument.numPages;
       
-      // Group items by page
-      const pageGroups = this.groupItemsByPage(items);
-      
-      // Process each page
+      // Process ALL pages
       const pages: ParsedPage[] = [];
-      for (const [pageNum, pageItems] of pageGroups.entries()) {
-        const page = await this.processPage(pageNum + 1, pageItems, buffer, config);
-        pages.push(page);
+      let hasAnyText = false;
+      
+      try {
+        for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
+          const page = await pdfDocument.getPage(pageNumber);
+          const textContent = await page.getTextContent();
+          
+          let pageText = textContent.items
+            ?.map((item: any) => (typeof item?.str === 'string' ? item.str : ''))
+            .join(' ')
+            .trim() ?? '';
+          
+          // OCR fallback only when page text is empty
+          if (!pageText && config.performOCR && ENABLE_PDF_OCR && this.ocrProcessor) {
+            try {
+              await this.ocrProcessor.initialize();
+              // OCR not supported in text-only mode
+              console.warn(`OCR requested for page ${pageNumber} but OCR is disabled in text-only mode`);
+              // Skip OCR processing
+            } catch (ocrError) {
+              console.warn(`OCR failed for page ${pageNumber}:`, ocrError);
+            }
+          }
+          
+          if (pageText) hasAnyText = true;
+          
+          pages.push({
+            pageNumber,
+            text: pageText,
+            structuredText: [],
+            tables: [],
+            isImageBased: !pageText,
+            ocrText: undefined
+          });
+        }
+      } finally {
+        // Cleanup
+        await pdfDocument.destroy();
+      }
+      
+      // Check if we got any text at all
+      if (!hasAnyText) {
+        const err = new Error('No extractable text in PDF (image-only).');
+        // @ts-ignore
+        err.code = 'NO_PDF_TEXT';
+        throw err;
       }
 
       // Extract all tables across pages
@@ -53,9 +142,16 @@ export class PDFParserAgent implements IPDFParserAgent {
         allText.push(page.text);
       }
 
-      // Create text chunks for embedding/search
+      // Create text chunks for embedding/search with optimized size for better granularity
       const fullText = allText.join('\n\n');
-      const chunks = this.chunkText(fullText, config.chunkSize, pages);
+      const chunks = this.chunkText(fullText, 800, pages); // Use 800 tokens for better granularity instead of config.chunkSize
+
+      if (chunks.length === 0) {
+        const err = new Error('Document processing produced no chunks.');
+        // @ts-ignore  
+        err.code = 'NO_CHUNKS';
+        throw err;
+      }
 
       const processingTime = Date.now() - startTime;
 
@@ -70,6 +166,7 @@ export class PDFParserAgent implements IPDFParserAgent {
       };
 
     } catch (error) {
+      console.error('[OM-AI] PDFParserAgent.parseBuffer error:', error);
       return {
         success: false,
         metadata: {
@@ -137,6 +234,44 @@ export class PDFParserAgent implements IPDFParserAgent {
     return pageGroups;
   }
 
+  private async processPageUnified(
+    pdfDocument: any,
+    pageNumber: number,
+    config: ParseOptions
+  ): Promise<ParsedPage> {
+    try {
+      const page = await pdfDocument.getPage(pageNumber);
+      
+      // Always use unified extractor
+      const { extractPageText } = await import('@/lib/pdf/extractPageText');
+      const pageText = await extractPageText(page);
+      
+      // For structured text and table extraction, we'll use a simple approach
+      const structuredText: ParsedText[] = [];
+      const tables: ParsedTable[] = [];
+      
+      return {
+        pageNumber,
+        text: pageText,
+        structuredText,
+        tables,
+        isImageBased: false,
+        ocrText: undefined
+      };
+    } catch (error) {
+      console.warn(`Failed to extract page ${pageNumber}:`, error);
+      return {
+        pageNumber,
+        text: '',
+        structuredText: [],
+        tables: [],
+        isImageBased: true,
+        ocrText: undefined
+      };
+    }
+  }
+  
+  // Keep original processPage for backward compatibility
   private async processPage(
     pageNumber: number, 
     items: PdfReaderItem[], 
@@ -317,24 +452,65 @@ export class PDFParserAgent implements IPDFParserAgent {
     }
 
     try {
-      await this.ocrProcessor.initialize();
+      // Try to use pdfjs-dist for better page extraction if available
+      let pdfjsLib: any;
+      try {
+        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
+      } catch {
+        // @ts-expect-error
+        const mod = await import('pdfjs-dist/build/pdf.js');
+        pdfjsLib = (mod as any).default ?? mod;
+      }
       
-      // Note: In a complete implementation, you would convert the specific PDF page
-      // to an image using a library like pdf2pic. For now, we'll process the entire buffer.
-      const result = await this.ocrProcessor.processImage(buffer, this.defaultOptions.ocrConfidenceThreshold);
+      // Set full module path for worker
+      if (pdfjsLib.GlobalWorkerOptions) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsLib === (await import('pdfjs-dist/legacy/build/pdf.js')).default 
+          ? 'pdfjs-dist/legacy/build/pdf.worker.js'
+          : 'pdfjs-dist/build/pdf.worker.js';
+      }
       
-      return TextProcessor.cleanText(result.text);
+      try {
+        const { extractPageText } = await import('@/lib/pdf/extractPageText');
+        
+        // Convert Buffer to Uint8Array for pdfjs-dist
+        const data = toPlainUint8Array(buffer);
+        
+        // Load the PDF document
+        const loadingTask = pdfjsLib.getDocument({ data });
+        const pdfDocument = await loadingTask.promise;
+        
+        // Get the specific page
+        const page = await pdfDocument.getPage(pageNumber);
+        
+        // Extract with OCR fallback
+        const text = await extractPageText(page, {
+          pageNumber
+        });
+        
+        // Cleanup
+        await pdfDocument.destroy();
+        
+        return TextProcessor.cleanText(text);
+      } catch (pdfjsError) {
+        // Don't try buffer-level OCR, just throw - page-level OCR is correct
+        throw pdfjsError;
+      }
     } catch (error) {
-      console.error(`OCR failed for page ${pageNumber}:`, error);
+      console.error(`[OM-AI] OCR failed for page ${pageNumber}:`, error);
       throw error;
     }
   }
+  
+  /**
+   * Text-only PDF processing - image rendering removed for simplified deployment
+   */
+  // renderPageToImage method removed - text-only processing mode
 
   chunkText(text: string, chunkSize: number, pages: ParsedPage[] = []): TextChunk[] {
     // Use the enhanced text processor for semantic chunking
     const semanticChunks = TextProcessor.createSemanticChunks(text, chunkSize);
     
-    return semanticChunks.map(chunk => {
+    return semanticChunks.map((chunk, index) => {
       const actualPage = this.calculatePageFromPosition(chunk.text, pages);
       
       return {
@@ -343,6 +519,7 @@ export class PDFParserAgent implements IPDFParserAgent {
         content: chunk.text, // Add content field for compatibility
         page: actualPage,
         page_number: actualPage, // Add page_number field for database compatibility
+        chunk_index: index,
         startY: 0,
         endY: 0,
         tokens: chunk.tokens,

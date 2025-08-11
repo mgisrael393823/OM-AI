@@ -220,6 +220,4 @@ async function healthCheckHandler(req: AuthenticatedRequest, res: NextApiRespons
   }
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, healthCheckHandler)
-}
+export default withAuth(healthCheckHandler)

@@ -156,6 +156,4 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   }
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, uploadHandler)
-}
+export default withAuth(uploadHandler)

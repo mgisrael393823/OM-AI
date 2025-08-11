@@ -1,28 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { getConfig } from './config'
 import type { Database } from '@/types/database'
-
-// OpenAI pricing as of 2024 (per 1000 tokens)
-const PRICING = {
-  'gpt-4': {
-    input: 0.03,
-    output: 0.06
-  },
-  'gpt-4-turbo': {
-    input: 0.01,
-    output: 0.03
-  },
-  'gpt-4o': {
-    input: 0.005,
-    output: 0.015
-  },
-  'gpt-3.5-turbo': {
-    input: 0.0005,
-    output: 0.0015
-  }
-} as const
-
-type ModelName = keyof typeof PRICING
+import { priceFor, calculateCost as calcCost } from './constants/pricing'
+import { getEnv } from './feature-flags'
 
 interface UsageData {
   model: string
@@ -55,13 +35,11 @@ export class OpenAICostTracker {
    * Calculate cost for a given usage
    */
   calculateCost(usage: UsageData): number {
-    const modelKey = this.normalizeModelName(usage.model)
-    const pricing = PRICING[modelKey] || PRICING['gpt-3.5-turbo'] // Default to cheapest
+    // Determine price bucket based on model
+    const bucket = this.getPriceBucket(usage.model)
     
-    const inputCost = (usage.inputTokens / 1000) * pricing.input
-    const outputCost = (usage.outputTokens / 1000) * pricing.output
-    
-    return Number((inputCost + outputCost).toFixed(4))
+    // Use the new pricing function
+    return calcCost(usage.model, usage.inputTokens, usage.outputTokens, bucket)
   }
 
   /**
@@ -197,14 +175,19 @@ export class OpenAICostTracker {
   }
 
   /**
-   * Normalize model names to match our pricing keys
+   * Get price bucket for a model
    */
-  private normalizeModelName(model: string): ModelName {
-    if (model.includes('gpt-4o')) return 'gpt-4o'
-    if (model.includes('gpt-4-turbo')) return 'gpt-4-turbo'
-    if (model.includes('gpt-4')) return 'gpt-4'
-    if (model.includes('gpt-3.5')) return 'gpt-3.5-turbo'
-    return 'gpt-3.5-turbo' // Default fallback
+  private getPriceBucket(model: string): 'DEFAULT' | 'ANALYSIS' {
+    const defaultModel = getEnv('OPENAI_DEFAULT_MODEL', 'gpt-4o-mini')
+    const analysisModel = getEnv('OPENAI_ANALYSIS_MODEL', 'gpt-4o')
+    
+    // Check if it's the analysis model
+    if (model === analysisModel) {
+      return 'ANALYSIS'
+    }
+    
+    // Default bucket for everything else
+    return 'DEFAULT'
   }
 }
 

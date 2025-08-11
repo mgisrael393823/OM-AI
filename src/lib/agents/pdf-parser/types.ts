@@ -50,6 +50,7 @@ export interface ParseOptions {
   ocrConfidenceThreshold: number;
   chunkSize: number;
   preserveFormatting: boolean;
+  maxPages?: number;
 }
 
 export interface ParseResult {

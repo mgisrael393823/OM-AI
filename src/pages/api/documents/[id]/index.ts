@@ -150,6 +150,4 @@ async function documentHandler(req: AuthenticatedRequest, res: NextApiResponse) 
   return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, documentHandler)
-}
+export default withAuth(documentHandler)

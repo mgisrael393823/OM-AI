@@ -192,6 +192,4 @@ async function searchHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   }
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  return withAuth(req, res, searchHandler)
-}
+export default withAuth(searchHandler)
