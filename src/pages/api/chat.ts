@@ -4,6 +4,8 @@ import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-m
 import { createChatCompletion } from '@/lib/services/openai'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
+import { retrieveTopK } from '@/lib/rag/retriever'
+import { augmentMessagesWithContext } from '@/lib/rag/augment'
 
 // Message schema for validation
 const MessageSchema = z.object({
@@ -312,6 +314,28 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       sessionId = chatReq.sessionId
       max_output_tokens = 'max_tokens' in chatReq ? chatReq.max_tokens : undefined
       normalizedPath = 'chat-messages'
+    }
+
+    // Document context augmentation
+    if (requestBody.metadata?.documentId) {
+      const latestUser = [...messages].reverse().find(m => m.role === 'user')
+      const chunks = await retrieveTopK({
+        documentId: requestBody.metadata.documentId,
+        query: latestUser?.content || '',
+        k: 8,
+        maxCharsPerChunk: 1000
+      })
+
+      if (!chunks.length) {
+        return res.status(409).json({
+          error: 'document context not found; reprocess',
+          code: 'DOCUMENT_CONTEXT_NOT_FOUND',
+          request_id: requestId
+        })
+      }
+
+      const augmented = augmentMessagesWithContext(chunks, messages)
+      messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
     }
 
     // Log structured information about the request
