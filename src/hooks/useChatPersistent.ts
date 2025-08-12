@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import { useChatSessions, type ChatSession } from "@/hooks/useChatSessions"
 import { isChatModel, isResponsesModel } from "@/lib/services/openai/modelUtils"
+import { supabase } from "@/lib/supabase"
 
 export interface Message {
   role: "user" | "assistant"
@@ -25,23 +26,69 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     selectedDocumentIdRef.current = selectedDocumentId
   }, [selectedDocumentId])
 
-  // Get auth token for API calls
-  const getAuthToken = useCallback(() => {
-    return session?.access_token
+  // Get auth token for API calls with validation and refresh
+  const getAuthToken = useCallback(async () => {
+    if (!session?.access_token) {
+      return null
+    }
+
+    // Check if token is expired or close to expiring (5 minute buffer)
+    if (session.expires_at) {
+      const expirationTime = session.expires_at * 1000 // Convert to milliseconds
+      const now = Date.now()
+      const fiveMinutesInMs = 5 * 60 * 1000
+      
+      // If token expires within 5 minutes, refresh it
+      if (expirationTime - now < fiveMinutesInMs) {
+        console.log('🔄 Token expiring soon, refreshing session...')
+        try {
+          const { data, error } = await supabase.auth.refreshSession()
+          if (error) {
+            console.error('❌ Failed to refresh session:', error)
+            return session.access_token // Return current token as fallback
+          }
+          
+          if (data?.session?.access_token) {
+            console.log('✅ Session refreshed successfully')
+            return data.session.access_token
+          }
+        } catch (error) {
+          console.error('❌ Error refreshing session:', error)
+        }
+      }
+    }
+
+    return session.access_token
   }, [session])
 
 
-  // Load specific chat session
+  // Load specific chat session with token refresh and retry
   const loadChatSession = useCallback(async (sessionId: string) => {
     if (!user || !session) return
 
-    try {
-      const response = await fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
+    const makeRequest = async (token: string | null) => {
+      if (!token) throw new Error('No auth token available')
+      
+      return fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
         credentials: 'include',
         headers: {
-          "Authorization": `Bearer ${getAuthToken()}`
+          "Authorization": `Bearer ${token}`
         }
       })
+    }
+
+    try {
+      const token = await getAuthToken()
+      let response = await makeRequest(token)
+
+      // If we get 401, try refreshing token and retry once
+      if (response.status === 401) {
+        console.log('🔄 Got 401, refreshing token and retrying...')
+        const { data, error } = await supabase.auth.refreshSession()
+        if (!error && data?.session?.access_token) {
+          response = await makeRequest(data.session.access_token)
+        }
+      }
 
       if (response.ok) {
         const data = await response.json()
@@ -63,6 +110,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
 
   // Send message with persistence
   const sendMessage = useCallback(async (content: string, docId?: string | null) => {
+    // In-flight guard - prevent double submissions
     if (!content.trim() || isLoading || !user || !session) return
 
     const userMessage: Message = {
@@ -79,19 +127,20 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       const finalDocId = docId || selectedDocumentIdRef.current
       const model = process.env.NEXT_PUBLIC_OPENAI_MODEL || 'gpt-4o'
       
-      let payload: any = {
-        model,
-        sessionId: currentSessionId,
-        stream: true
+      // Build clean payload based on model family
+      let payload: Record<string, any> = {
+        model
       }
       
       if (isResponsesModel(model)) {
-        // Responses API format
+        // Responses API format: {model, input|messages, max_output_tokens?, stream?}
         payload.input = content.trim()
         const maxTokens = process.env.NEXT_PUBLIC_MAX_TOKENS_RESPONSES
         if (maxTokens) payload.max_output_tokens = Number(maxTokens)
+        // Only add stream for Responses API if supported
+        payload.stream = false // Disable streaming for Responses API for now
       } else {
-        // Chat Completions API format - preserve existing history + new user message
+        // Chat Completions API format: {model, messages, max_tokens?, stream?}
         const chatHistory = messages.map(msg => ({
           role: msg.role,
           content: msg.content
@@ -99,6 +148,13 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         payload.messages = [...chatHistory, {role: 'user', content: content.trim()}]
         const maxTokens = process.env.NEXT_PUBLIC_MAX_TOKENS_CHAT
         if (maxTokens) payload.max_tokens = Number(maxTokens)
+        // Add stream for Chat Completions API
+        payload.stream = true
+      }
+      
+      // Include sessionId only if it has a valid value (not null/undefined)
+      if (currentSessionId) {
+        payload.sessionId = currentSessionId
       }
       
       // Include metadata only if document ID is provided
@@ -106,26 +162,48 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         payload.metadata = { documentId: finalDocId }
       }
       
+      // Remove any null or undefined fields from payload
+      const cleanPayload = Object.fromEntries(
+        Object.entries(payload).filter(([_, value]) => value !== null && value !== undefined)
+      )
+      
       // Log payload for debugging if needed
       if (process.env.NODE_ENV === 'development') {
         console.log('📤 Sending message:', {
           apiFamily: isResponsesModel(model) ? 'responses' : 'chat',
           model,
           hasDocumentId: !!finalDocId,
-          sessionId: currentSessionId,
-          messageCount: payload.messages?.length || 0
+          sessionId: currentSessionId || 'none',
+          messageCount: cleanPayload.messages?.length || 0,
+          payloadKeys: Object.keys(cleanPayload)
         })
       }
       
-      const response = await fetch(`${window.location.origin}/api/chat`, {
-        method: "POST",
-        credentials: 'include',
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getAuthToken()}`
-        },
-        body: JSON.stringify(payload),
-      })
+      const makeRequest = async (token: string | null) => {
+        if (!token) throw new Error('No auth token available')
+        
+        return fetch(`${window.location.origin}/api/chat`, {
+          method: "POST",
+          credentials: 'include',
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify(cleanPayload),
+        })
+      }
+
+      const token = await getAuthToken()
+      let response = await makeRequest(token)
+
+      // If we get 401, try refreshing token and retry once
+      if (response.status === 401) {
+        console.log('🔄 Got 401 on chat request, refreshing token and retrying...')
+        const { data, error } = await supabase.auth.refreshSession()
+        if (!error && data?.session?.access_token) {
+          response = await makeRequest(data.session.access_token)
+        }
+      }
 
 
       if (!response.ok) {
@@ -267,14 +345,30 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
   const deleteChatSession = useCallback(async (sessionId: string) => {
     if (!user || !session) return
 
-    try {
-      const response = await fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
+    const makeRequest = async (token: string | null) => {
+      if (!token) throw new Error('No auth token available')
+      
+      return fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
         method: "DELETE",
         credentials: 'include',
         headers: {
-          "Authorization": `Bearer ${getAuthToken()}`
+          "Authorization": `Bearer ${token}`
         }
       })
+    }
+
+    try {
+      const token = await getAuthToken()
+      let response = await makeRequest(token)
+
+      // If we get 401, try refreshing token and retry once
+      if (response.status === 401) {
+        console.log('🔄 Got 401 on delete, refreshing token and retrying...')
+        const { data, error } = await supabase.auth.refreshSession()
+        if (!error && data?.session?.access_token) {
+          response = await makeRequest(data.session.access_token)
+        }
+      }
 
       if (response.ok) {
         // Refresh sessions through centralized hook
@@ -295,16 +389,32 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
   const renameChatSession = useCallback(async (sessionId: string, newTitle: string) => {
     if (!user || !session) return
 
-    try {
-      const response = await fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
+    const makeRequest = async (token: string | null) => {
+      if (!token) throw new Error('No auth token available')
+      
+      return fetch(`${window.location.origin}/api/chat-sessions/${sessionId}`, {
         method: "PATCH",
         credentials: 'include',
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${getAuthToken()}`
+          "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify({ title: newTitle })
       })
+    }
+
+    try {
+      const token = await getAuthToken()
+      let response = await makeRequest(token)
+
+      // If we get 401, try refreshing token and retry once
+      if (response.status === 401) {
+        console.log('🔄 Got 401 on rename, refreshing token and retrying...')
+        const { data, error } = await supabase.auth.refreshSession()
+        if (!error && data?.session?.access_token) {
+          response = await makeRequest(data.session.access_token)
+        }
+      }
 
       if (response.ok) {
         // Refresh sessions through centralized hook

@@ -13,7 +13,7 @@ const MessageSchema = z.object({
 
 // Base schema for shared fields
 const BaseRequestSchema = z.object({
-  sessionId: z.string().optional(),
+  sessionId: z.string().optional(), // Only string, null will be rejected
   stream: z.boolean().optional(),
   metadata: z.object({
     documentId: z.string().optional()
@@ -90,15 +90,87 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
     let requestBody = req.body ?? {}
     
-    // Normalize legacy {message} format before validation
-    if (requestBody.message && !requestBody.messages && !requestBody.input) {
-      const model = requestBody.model || process.env.OPENAI_MODEL || 'gpt-4o'
-      if (isResponsesModelUtil(model)) {
-        requestBody.input = requestBody.message
-      } else {
-        requestBody.messages = [{role: 'user', content: requestBody.message}]
-      }
-      delete requestBody.message
+    // Reject legacy {message} format - require proper schema
+    if (requestBody.message && typeof requestBody.message === 'string') {
+      return res.status(400).json({
+        error: 'Invalid request format',
+        code: 'INVALID_REQUEST_FORMAT',
+        details: {
+          message: 'Legacy {message: string} format is not supported. Use Chat Completions or Responses API format.',
+          allowed_formats: [
+            {
+              name: 'Chat Completions API',
+              required: ['messages'],
+              optional: ['model', 'max_tokens', 'sessionId', 'stream', 'metadata'],
+              example: {
+                model: 'gpt-4o',
+                messages: [{role: 'user', content: 'What is the cap rate for this property?'}],
+                sessionId: 'optional-session-id',
+                stream: true
+              }
+            },
+            {
+              name: 'Responses API', 
+              required: ['input OR messages'],
+              optional: ['model', 'max_output_tokens', 'sessionId', 'stream', 'metadata'],
+              examples: [
+                {
+                  model: 'gpt-5',
+                  input: 'What is the cap rate for this property?',
+                  sessionId: 'optional-session-id',
+                  stream: true
+                },
+                {
+                  model: 'gpt-5', 
+                  messages: [{role: 'user', content: 'What is the cap rate for this property?'}],
+                  sessionId: 'optional-session-id',
+                  stream: true
+                }
+              ]
+            }
+          ]
+        },
+        request_id: requestId
+      })
+    }
+    
+    // Explicitly reject null sessionId
+    if (requestBody.sessionId === null) {
+      return res.status(400).json({
+        error: 'Invalid request format',
+        code: 'INVALID_REQUEST_FORMAT',
+        details: {
+          message: 'sessionId cannot be null. Either omit the field or provide a valid string value.',
+          allowed_formats: [
+            {
+              name: 'Chat Completions API',
+              required: ['messages'],
+              optional: ['model', 'max_tokens', 'sessionId', 'stream', 'metadata'],
+              example: {
+                model: 'gpt-4o',
+                messages: [{role: 'user', content: 'What is the cap rate for this property?'}]
+              }
+            },
+            {
+              name: 'Responses API', 
+              required: ['input OR messages'],
+              optional: ['model', 'max_output_tokens', 'sessionId', 'stream', 'metadata'],
+              examples: [
+                {
+                  model: 'gpt-5',
+                  input: 'What is the cap rate for this property?'
+                },
+                {
+                  model: 'gpt-5', 
+                  messages: [{role: 'user', content: 'What is the cap rate for this property?'}]
+                }
+              ]
+            }
+          ],
+          note: 'Never send null values - omit fields that have no value'
+        },
+        request_id: requestId
+      })
     }
     
     // Move top-level documentId to metadata
@@ -135,20 +207,36 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         error: 'Invalid request format',
         code: 'INVALID_REQUEST_FORMAT',
         details: {
+          message: 'Request body validation failed. Please use Chat Completions or Responses API format.',
           allowed_formats: [
-            { 
-              apiFamily: 'chat', 
-              required: ['messages'], 
-              optional: ['model', 'max_tokens', 'sessionId'],
-              example: { apiFamily: 'chat', model: 'gpt-4o', messages: [{role: 'user', content: 'Hello'}] }
+            {
+              name: 'Chat Completions API',
+              required: ['messages'],
+              optional: ['model', 'max_tokens', 'sessionId', 'stream', 'metadata'],
+              example: {
+                model: 'gpt-4o',
+                messages: [{role: 'user', content: 'What is the cap rate for this property?'}],
+                sessionId: 'optional-session-id',
+                stream: true
+              }
             },
-            { 
-              apiFamily: 'responses', 
-              required: ['input OR messages'], 
-              optional: ['model', 'max_output_tokens', 'sessionId'],
+            {
+              name: 'Responses API', 
+              required: ['input OR messages'],
+              optional: ['model', 'max_output_tokens', 'sessionId', 'stream', 'metadata'],
               examples: [
-                { apiFamily: 'responses', model: 'gpt-5', input: 'Hello' },
-                { apiFamily: 'responses', model: 'gpt-5', messages: [{role: 'user', content: 'Hello'}] }
+                {
+                  model: 'gpt-5',
+                  input: 'What is the cap rate for this property?',
+                  sessionId: 'optional-session-id',
+                  stream: true
+                },
+                {
+                  model: 'gpt-5', 
+                  messages: [{role: 'user', content: 'What is the cap rate for this property?'}],
+                  sessionId: 'optional-session-id',
+                  stream: true
+                }
               ]
             }
           ],
@@ -228,12 +316,21 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
     // Log structured information about the request
     console.log(`[chat] Request ${requestId}:`, {
+      schemaMatched: apiFamily === 'chat' ? 'ChatCompletionSchema' : 'ResponsesAPISchema',
+      userId: req.user?.id || 'anonymous',
       apiFamily,
       model,
       path: normalizedPath,
       messages_count: messages.length,
       max_output_tokens: max_output_tokens || 'default',
-      sessionId: sessionId || 'none'
+      sessionId: sessionId || 'none',
+      // Sanitized fields (no sensitive content)
+      sanitized: {
+        hasDocumentId: !!(requestBody.metadata?.documentId),
+        streamEnabled: !!requestBody.stream,
+        messageRoles: messages.map(m => m.role),
+        firstMessageLength: messages[0]?.content?.length || 0
+      }
     })
 
     // Call OpenAI with proper error handling

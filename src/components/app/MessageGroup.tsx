@@ -2,13 +2,7 @@ import React from 'react'
 import { MessageBubble } from './MessageBubble'
 import { format, isToday, isYesterday } from 'date-fns'
 import { componentTypography } from '@/lib/typography'
-
-export interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: string | Date
-}
+import { Message } from './types'
 
 interface MessageGroupProps {
   messages: Message[]
