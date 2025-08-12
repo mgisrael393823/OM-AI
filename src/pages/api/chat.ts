@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
 import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { createChatCompletion } from '@/lib/services/openai'
+import { chatCompletion as buildChatCompletion, responses as buildResponses } from '@/lib/services/openai/builders'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
 import { retrieveTopK } from '@/lib/rag/retriever'
@@ -357,13 +358,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       }
     })
 
+    // Build request for selected API family
+    const payload = apiFamily === 'responses'
+      ? buildResponses({ model, messages, max_output_tokens })
+      : buildChatCompletion({ model, messages, max_tokens: max_output_tokens })
+
     // Call OpenAI with proper error handling
-    const ai = await createChatCompletion({
-      model,
-      messages,
-      temperature: 0.2,
-      max_output_tokens: max_output_tokens || Number(process.env.CHAT_MAX_TOKENS ?? 2000)
-    })
+    const ai = await createChatCompletion(payload)
 
     // Best-effort persistence (non-fatal on error)
     if (sessionId) {
@@ -371,7 +372,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         await supabaseAdmin.from('messages').insert({
           chat_session_id: sessionId,
           role: 'assistant',
-          content: ai.text,
+          content: ai.content,
           metadata: { 
             requestId, 
             usage: ai.usage, 
@@ -386,10 +387,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     }
 
     return res.status(200).json({ 
-      message: ai.text,
+      message: ai.content,
       model: ai.model,
       usage: ai.usage,
-      request_id: ai.request_id || requestId
+      request_id: requestId
     })
     
   } catch (error: any) {
