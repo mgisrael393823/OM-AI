@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { createChatCompletion } from '@/lib/services/openai'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
 
 // Message schema for validation
 const MessageSchema = z.object({
@@ -10,17 +11,25 @@ const MessageSchema = z.object({
   content: z.string()
 })
 
+// Base schema for shared fields
+const BaseRequestSchema = z.object({
+  sessionId: z.string().optional(),
+  stream: z.boolean().optional(),
+  metadata: z.object({
+    documentId: z.string().optional()
+  }).optional()
+})
+
 // Chat Completions API schema
-const ChatCompletionSchema = z.object({
+const ChatCompletionSchema = BaseRequestSchema.extend({
   apiFamily: z.literal('chat').optional(),
   model: z.string().optional(),
   messages: z.array(MessageSchema),
-  max_tokens: z.number().optional(),
-  sessionId: z.string().optional()
+  max_tokens: z.number().optional()
 })
 
 // Responses API schema with flexible input types
-const ResponsesAPISchema = z.object({
+const ResponsesAPISchema = BaseRequestSchema.extend({
   apiFamily: z.literal('responses'),
   model: z.string().optional(),
   input: z.union([
@@ -31,14 +40,13 @@ const ResponsesAPISchema = z.object({
     }))
   ]).optional(),
   messages: z.array(MessageSchema).optional(),
-  max_output_tokens: z.number().optional(),
-  sessionId: z.string().optional()
+  max_output_tokens: z.number().optional()
 }).refine(data => data.input || data.messages, {
   message: "Either 'input' or 'messages' must be provided for Responses API"
 })
 
 // Auto-detect schema (when apiFamily is not specified)
-const AutoDetectSchema = z.object({
+const AutoDetectSchema = BaseRequestSchema.extend({
   model: z.string().optional(),
   input: z.union([
     z.string(),
@@ -49,8 +57,7 @@ const AutoDetectSchema = z.object({
   ]).optional(),
   messages: z.array(MessageSchema).optional(),
   max_tokens: z.number().optional(),
-  max_output_tokens: z.number().optional(),
-  sessionId: z.string().optional()
+  max_output_tokens: z.number().optional()
 }).refine(data => data.input || data.messages, {
   message: "Either 'input' or 'messages' must be provided"
 })
@@ -81,7 +88,41 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
     }
 
-    const requestBody = req.body ?? {}
+    let requestBody = req.body ?? {}
+    
+    // Normalize legacy {message} format before validation
+    if (requestBody.message && !requestBody.messages && !requestBody.input) {
+      const model = requestBody.model || process.env.OPENAI_MODEL || 'gpt-4o'
+      if (isResponsesModelUtil(model)) {
+        requestBody.input = requestBody.message
+      } else {
+        requestBody.messages = [{role: 'user', content: requestBody.message}]
+      }
+      delete requestBody.message
+    }
+    
+    // Move top-level documentId to metadata
+    if (requestBody.documentId) {
+      requestBody.metadata = requestBody.metadata || {}
+      requestBody.metadata.documentId = requestBody.documentId
+      delete requestBody.documentId
+    }
+    
+    // Detect conflicts between messages and input
+    if (requestBody.messages && requestBody.input) {
+      return res.status(400).json({
+        error: 'Cannot specify both messages and input',
+        code: 'CONFLICTING_INPUT_FORMATS',
+        details: 'Use either messages[] for Chat Completions API or input for Responses API, not both',
+        request_id: requestId
+      })
+    }
+    
+    // Filter temperature for gpt-4.1 and Responses models
+    const requestModel = requestBody.model || process.env.OPENAI_MODEL || 'gpt-4o'
+    if ((requestModel.startsWith('gpt-4.1') || isResponsesModelUtil(requestModel)) && requestBody.temperature !== undefined) {
+      delete requestBody.temperature
+    }
     
     // Parse and validate request with Zod
     const parseResult = ChatRequestSchema.safeParse(requestBody)
@@ -131,7 +172,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     } else {
       // Auto-detect based on model or request structure
       const model = validRequest.model || process.env.OPENAI_MODEL || 'gpt-4o'
-      if (isResponsesModel(model) || 'input' in validRequest || 'max_output_tokens' in validRequest) {
+      if (isResponsesModelUtil(model) || 'input' in validRequest || 'max_output_tokens' in validRequest) {
         apiFamily = 'responses'
       } else {
         apiFamily = 'chat'

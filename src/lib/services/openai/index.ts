@@ -1,9 +1,7 @@
 import OpenAI from 'openai'
+import { isChatModel, isResponsesModel, getAPIFamily } from './modelUtils'
 
 const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! })
-
-const RESPONSES_MODEL = /^(gpt-5($|-)|gpt-4\.1($|-)|o4|o3)/i
-const isResponsesModel = (m: string) => RESPONSES_MODEL.test(m)
 
 // Enhanced retry with jitter for 429/5xx errors
 async function withRetry<T>(fn: () => Promise<T>, tries = 2) {
@@ -55,6 +53,13 @@ export async function createChatCompletion(args: {
   const desired = (args.model || process.env.OPENAI_MODEL || '').trim()
   const fallback = (process.env.OPENAI_FALLBACK_MODEL || 'gpt-4.1').trim()
   let model = desired || fallback
+
+  // Log API family and model (not user content)
+  console.log('[openai] Request:', {
+    apiFamily: getAPIFamily(model),
+    model,
+    messageCount: args.messages.length
+  })
 
   // Unify token limit env -> default 2000
   const limit =

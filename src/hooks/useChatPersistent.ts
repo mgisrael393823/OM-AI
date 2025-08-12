@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import { useChatSessions, type ChatSession } from "@/hooks/useChatSessions"
+import { isChatModel, isResponsesModel } from "@/lib/services/openai/modelUtils"
 
 export interface Message {
   role: "user" | "assistant"
@@ -61,7 +62,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
   }, [user, session, getAuthToken])
 
   // Send message with persistence
-  const sendMessage = useCallback(async (content: string, documentId?: string | null) => {
+  const sendMessage = useCallback(async (content: string, docId?: string | null) => {
     if (!content.trim() || isLoading || !user || !session) return
 
     const userMessage: Message = {
@@ -75,20 +76,44 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     setIsLoading(true)
 
     try {
-      const payload = {
-        message: content.trim(),
+      const finalDocId = docId || selectedDocumentIdRef.current
+      const model = process.env.NEXT_PUBLIC_OPENAI_MODEL || 'gpt-4o'
+      
+      let payload: any = {
+        model,
         sessionId: currentSessionId,
-        documentId: documentId || selectedDocumentIdRef.current,
-        options: {
-          stream: true
-        }
+        stream: true
+      }
+      
+      if (isResponsesModel(model)) {
+        // Responses API format
+        payload.input = content.trim()
+        const maxTokens = process.env.NEXT_PUBLIC_MAX_TOKENS_RESPONSES
+        if (maxTokens) payload.max_output_tokens = Number(maxTokens)
+      } else {
+        // Chat Completions API format - preserve existing history + new user message
+        const chatHistory = messages.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }))
+        payload.messages = [...chatHistory, {role: 'user', content: content.trim()}]
+        const maxTokens = process.env.NEXT_PUBLIC_MAX_TOKENS_CHAT
+        if (maxTokens) payload.max_tokens = Number(maxTokens)
+      }
+      
+      // Include metadata only if document ID is provided
+      if (finalDocId) {
+        payload.metadata = { documentId: finalDocId }
       }
       
       // Log payload for debugging if needed
       if (process.env.NODE_ENV === 'development') {
         console.log('📤 Sending message:', {
-          hasDocumentId: !!(documentId || selectedDocumentIdRef.current),
-          sessionId: currentSessionId
+          apiFamily: isResponsesModel(model) ? 'responses' : 'chat',
+          model,
+          hasDocumentId: !!finalDocId,
+          sessionId: currentSessionId,
+          messageCount: payload.messages?.length || 0
         })
       }
       
