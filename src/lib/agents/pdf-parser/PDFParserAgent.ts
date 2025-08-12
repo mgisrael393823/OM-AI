@@ -394,70 +394,26 @@ export class PDFParserAgent implements IPDFParserAgent {
 
   private sortItems(items: PdfReaderItem[]): PdfReaderItem[] {
     return [...items].sort((a, b) => {
-      // @ts-expect-error - PdfReaderItem type is not fully typed
       const yDiff = (a.y || 0) - (b.y || 0);
       if (Math.abs(yDiff) > 1) return yDiff;
-      // @ts-expect-error - PdfReaderItem type is not fully typed
       return (a.x || 0) - (b.x || 0);
     });
   }
 
   private extractStructuredText(items: PdfReaderItem[]): ParsedText[] {
     const structured: ParsedText[] = [];
-    let currentSection: ParsedText | null = null;
-
-    for (const item of items) {
-      if (!item.text) continue;
-
-      const isHeading = this.isHeading(item);
-      const isBullet = this.isBulletPoint(item.text);
-
-      if (isHeading) {
-        if (currentSection) {
-          structured.push(currentSection);
-        }
-        currentSection = {
-          type: 'heading',
-          content: item.text.trim(),
-          // @ts-expect-error - PdfReaderItem type is not fully typed
-          metadata: { fontSize: item.height, x: item.x, y: item.y }
-        };
-      } else if (isBullet) {
-        if (currentSection && currentSection.type === 'list') {
-          currentSection.content += '\n' + item.text.trim();
-        } else {
-          if (currentSection) {
-            structured.push(currentSection);
-          }
-          currentSection = {
-            type: 'list',
-            content: item.text.trim(),
-            // @ts-expect-error - PdfReaderItem type is not fully typed
-            metadata: { x: item.x, y: item.y }
-          };
-        }
-      } else {
-        if (currentSection && currentSection.type === 'paragraph') {
-          currentSection.content += ' ' + item.text.trim();
-        } else {
-          if (currentSection) {
-            structured.push(currentSection);
-          }
-          currentSection = {
-            type: 'paragraph',
-            content: item.text.trim(),
-            // @ts-expect-error - PdfReaderItem type is not fully typed
-            metadata: { x: item.x, y: item.y }
-          };
-        }
-      }
-    }
-
-    if (currentSection) {
-      structured.push(currentSection);
-    }
-
-    return structured;
+    
+    // Convert items to ParsedText format
+    return items
+      .filter(item => item.text) // Only include items with text
+      .map(item => ({
+        text: item.text || '',
+        x: item.x || 0,
+        y: item.y || 0,
+        width: (item as any).width || 0,
+        height: (item as any).height || 0,
+        page: item.page || 1
+      }));
   }
 
   private isHeading(item: PdfReaderItem): boolean {
@@ -484,7 +440,7 @@ export class PDFParserAgent implements IPDFParserAgent {
     const rows = this.groupItemsIntoRows(items);
     
     // Detect table-like structures
-    const tableRegions = analyzer.detectTableRegions(rows);
+    const tableRegions = (analyzer as any).detectTableRegions ? (analyzer as any).detectTableRegions(rows) : [];
     
     for (const region of tableRegions) {
       const table = this.parseTableRegion(region, pageNumber);
@@ -501,7 +457,6 @@ export class PDFParserAgent implements IPDFParserAgent {
     const threshold = 2; // Y-position threshold for same row
     
     for (const item of items) {
-      // @ts-expect-error - PdfReaderItem type is not fully typed
       const y = Math.round(item.y || 0);
       let foundRow = false;
       
@@ -531,14 +486,10 @@ export class PDFParserAgent implements IPDFParserAgent {
         page: pageNumber,
         headers,
         rows,
-        // @ts-expect-error - region type is not fully typed
-        x: region.x || 0,
-        // @ts-expect-error - region type is not fully typed
-        y: region.y || 0,
-        // @ts-expect-error - region type is not fully typed
-        width: region.width || 0,
-        // @ts-expect-error - region type is not fully typed
-        height: region.height || 0
+        x: (region as any).x || 0,
+        y: (region as any).y || 0,
+        width: (region as any).width || 0,
+        height: (region as any).height || 0
       };
     } catch (error) {
       console.warn('Failed to parse table region:', error);
@@ -563,8 +514,8 @@ export class PDFParserAgent implements IPDFParserAgent {
         page_number: actualPage, // Add page_number for compatibility
         chunk_index: index,
         type: chunk.type || 'text',
-        startY: chunk.metadata?.startY,
-        endY: chunk.metadata?.endY,
+        startY: (chunk as any).metadata?.startY,
+        endY: (chunk as any).metadata?.endY,
         tokens: chunk.tokens || Math.ceil(chunk.text.length / 4)
       };
     });
@@ -581,6 +532,40 @@ export class PDFParserAgent implements IPDFParserAgent {
     }
     
     return 1; // Default to first page if not found
+  }
+
+  /**
+   * Public interface method for extracting tables from parsed text items
+   */
+  extractTables(items: ParsedText[]): ParsedTable[] {
+    // Convert ParsedText to PdfReaderItem format for internal method
+    const pdfReaderItems = items.map(item => ({
+      text: item.text,
+      x: item.x,
+      y: item.y,
+      width: item.width,
+      height: item.height,
+      page: item.page
+    }));
+    
+    return this.extractTablesFromItems(pdfReaderItems, items[0]?.page || 1);
+  }
+
+  /**
+   * Public interface method for performing OCR on a buffer
+   */
+  async performOCR(buffer: Buffer, pageNumber: number): Promise<string> {
+    if (!this.ocrProcessor) {
+      throw new Error('OCR processor not initialized');
+    }
+
+    try {
+      const result = await this.ocrProcessor.processImage(buffer);
+      return result.text;
+    } catch (error) {
+      console.error(`OCR failed for page ${pageNumber}:`, error);
+      return '';
+    }
   }
 
   async cleanup(): Promise<void> {
