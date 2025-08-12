@@ -16,12 +16,12 @@ jest.mock('@/lib/auth-middleware', () => ({
   }
 }))
 
-// Mock Supabase
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => ({
+// Mock Supabase Admin
+jest.mock('@/lib/supabaseAdmin', () => ({
+  supabaseAdmin: {
     from: jest.fn(() => ({
       select: jest.fn().mockReturnThis(),
-      insert: jest.fn().mockReturnThis(),
+      insert: jest.fn(() => Promise.resolve({ data: { id: 'test-msg-id' }, error: null })),
       update: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),
@@ -33,23 +33,17 @@ jest.mock('@supabase/supabase-js', () => ({
       single: jest.fn(() => Promise.resolve({ data: null, error: null })),
       then: jest.fn(() => Promise.resolve({ data: [], error: null }))
     }))
-  }))
+  }
 }))
 
 // Mock OpenAI service
 jest.mock('@/lib/services/openai', () => ({
-  openAIService: {
-    createStreamingCompletion: jest.fn(() => Promise.resolve({
-      [Symbol.asyncIterator]: async function* () {
-        yield { choices: [{ delta: { content: 'Test' } }] }
-        yield { choices: [{ delta: { content: ' response' } }] }
-        yield { choices: [{ delta: {} }] }
-      }
-    })),
-    createChatCompletion: jest.fn(() => Promise.resolve({
-      choices: [{ message: { content: 'Test response' } }]
-    }))
-  }
+  createChatCompletion: jest.fn(() => Promise.resolve({
+    text: 'Test response from API',
+    model: 'gpt-4o',
+    usage: { total_tokens: 100, prompt_tokens: 50, completion_tokens: 50 },
+    request_id: 'test-req-123'
+  }))
 }))
 
 // Mock circuit breaker
@@ -87,8 +81,8 @@ describe('/api/chat (unified endpoint)', () => {
     })
   })
 
-  describe('Simple Format (chat-enhanced compatibility)', () => {
-    test('should handle simple message format', async () => {
+  describe('Request Validation', () => {
+    test('should reject legacy {message: string} format', async () => {
       const { req, res } = createMocks({
         method: 'POST',
         body: {
@@ -99,15 +93,80 @@ describe('/api/chat (unified endpoint)', () => {
 
       await handler(req, res)
 
-      expect(res._getStatusCode()).toBe(200)
+      expect(res._getStatusCode()).toBe(400)
+      const data = JSON.parse(res._getData())
+      expect(data.code).toBe('INVALID_REQUEST_FORMAT')
+      expect(data.details.allowed_formats).toHaveLength(2)
+      expect(data.details.allowed_formats[0].name).toBe('Chat Completions API')
+      expect(data.details.allowed_formats[1].name).toBe('Responses API')
     })
 
-    test('should validate message is required for simple format', async () => {
+    test('should accept Chat Completions API format', async () => {
       const { req, res } = createMocks({
         method: 'POST',
         body: {
-          sessionId: 'test-session-id'
-          // message missing
+          model: 'gpt-4o',
+          messages: [{role: 'user', content: 'What is the cap rate for this property?'}],
+          sessionId: 'test-session-id',
+          stream: true
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      const data = JSON.parse(res._getData())
+      expect(data.message).toBeDefined()
+      expect(data.request_id).toBeDefined()
+    })
+
+    test('should accept Responses API format with input string', async () => {
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          model: 'gpt-5',
+          input: 'What is the cap rate for this property?',
+          sessionId: 'test-session-id',
+          stream: true,
+          max_output_tokens: 1000
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      const data = JSON.parse(res._getData())
+      expect(data.message).toBeDefined()
+      expect(data.request_id).toBeDefined()
+    })
+
+    test('should accept Responses API format with messages', async () => {
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          model: 'gpt-5',
+          messages: [{role: 'user', content: 'What is the cap rate for this property?'}],
+          sessionId: 'test-session-id',
+          stream: true,
+          max_output_tokens: 1000
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      const data = JSON.parse(res._getData())
+      expect(data.message).toBeDefined()
+      expect(data.request_id).toBeDefined()
+    })
+
+    test('should reject null sessionId with proper error format', async () => {
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          model: 'gpt-4o',
+          sessionId: null,
+          messages: [{role: 'user', content: 'hi'}]
         }
       })
 
@@ -115,36 +174,10 @@ describe('/api/chat (unified endpoint)', () => {
 
       expect(res._getStatusCode()).toBe(400)
       const data = JSON.parse(res._getData())
-      expect(data.error).toBe('Message is required')
-      expect(data.code).toBe('MISSING_MESSAGE')
-    })
-
-    test('should auto-create session when not provided', async () => {
-      const { req, res } = createMocks({
-        method: 'POST',
-        body: {
-          message: 'Test message'
-          // sessionId not provided
-        }
-      })
-
-      await handler(req, res)
-
-      expect(res._getStatusCode()).toBe(200)
-    })
-
-    test('should handle legacy chat_session_id field', async () => {
-      const { req, res } = createMocks({
-        method: 'POST',
-        body: {
-          message: 'Test message',
-          chat_session_id: 'legacy-session-id' // legacy field name
-        }
-      })
-
-      await handler(req, res)
-
-      expect(res._getStatusCode()).toBe(200)
+      expect(data.code).toBe('INVALID_REQUEST_FORMAT')
+      expect(data.details.message).toContain('sessionId cannot be null')
+      expect(data.details.allowed_formats).toHaveLength(2)
+      expect(data.details.note).toContain('Never send null values')
     })
   })
 

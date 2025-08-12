@@ -84,7 +84,44 @@ export function withAuth(
       const { data: { user }, error } = await supabase.auth.getUser(token)
       
       if (error || !user) {
-        return createApiError(res, ERROR_CODES.INVALID_TOKEN, error?.message)
+        // Enhanced error message with debugging info
+        const tokenSource = bearer ? 'Authorization header' : 'cookie'
+        const tokenPreview = token?.substring(0, 20) + '...' + token?.substring(token.length - 4)
+        
+        console.error('🔒 Token validation failed:', {
+          error: error?.message,
+          tokenSource,
+          tokenPreview,
+          hasUser: !!user,
+          timestamp: new Date().toISOString()
+        })
+
+        // Check if token looks like it might be expired based on error message
+        const isExpiredToken = error?.message?.includes('expired') || 
+                             error?.message?.includes('invalid_token') ||
+                             error?.message?.includes('JWT')
+
+        const errorDetails = isExpiredToken 
+          ? 'Token appears to be expired. Please refresh your session and try again.'
+          : error?.message || 'Token validation failed'
+
+        return createApiError(
+          res, 
+          ERROR_CODES.INVALID_TOKEN, 
+          `${errorDetails} (Source: ${tokenSource})`
+        )
+      }
+
+      // Log successful token validation in development
+      if (process.env.NODE_ENV === 'development') {
+        const tokenSource = bearer ? 'Authorization header' : 'cookie'
+        console.log('✅ Token validated successfully:', {
+          userId: user.id,
+          email: user.email,
+          tokenSource,
+          endpoint: `${req.method} ${req.url}`,
+          timestamp: new Date().toISOString()
+        })
       }
 
       // Add user to request object

@@ -220,31 +220,47 @@ OM-AI/
 ### Core Endpoints
 
 #### POST `/api/chat`
-Unified chat endpoint supporting session persistence and advanced options.
+Unified chat endpoint supporting both Chat Completions and Responses API formats.
+
+**API Request Format**
+
+The endpoint accepts two valid request formats. **Never send null values** - omit fields that have no value.
+
+**Chat Completions Format** (for gpt-4o and similar models):
 ```json
 {
-  "message": "What are the key terms?",       // simple format
-  "sessionId": "session-uuid",               // optional
-  "documentId": "doc-uuid"                   // optional
-}
-
-// or
-
-{
-  "messages": [ { "role": "user", "content": "Analyze this lease" } ],
-  "documentContext": { "documentIds": ["doc-uuid"] },
-  "options": { "stream": true }
+  "model": "gpt-4o",
+  "messages": [
+    {"role": "user", "content": "What is the cap rate for this property?"}
+  ],
+  "sessionId": "optional-session-id",
+  "stream": true,
+  "max_tokens": 1000,
+  "metadata": {"documentId": "doc-uuid"}
 }
 ```
 
+**Responses API Format** (for gpt-5, gpt-4.1, o-series models):
+```json
+{
+  "model": "gpt-5", 
+  "input": "What is the cap rate for this property?",
+  "sessionId": "optional-session-id",
+  "stream": false,
+  "max_output_tokens": 1000,
+  "metadata": {"documentId": "doc-uuid"}
+}
+```
+
+**Important Notes:**
+- ⚠️ **Never send `null` values** - omit optional fields entirely if they have no value
+- ✅ **sessionId**: Must be a string or omitted (not `null`)
+- ✅ **Clean payloads**: Remove `undefined` fields before sending
+- ✅ **Model routing**: API automatically detects format based on model family
+
 > **Migration Notice**
 > Endpoints `/api/chat-v2` and `/api/chat-enhanced` are deprecated as of 2025-01-25 and will be removed on 2025-04-01.
-> They currently redirect to the unified `/api/chat` endpoint with full backward compatibility.
-> 
-> **Migration Guide:**
-> - Replace `/api/chat-enhanced` calls with simple format: `{ "message": "...", "sessionId": "..." }`
-> - Replace `/api/chat-v2` calls with complex format: `{ "messages": [...], "options": {...} }`
-> - All existing functionality is preserved with improved performance and reliability
+> Legacy `{message: string}` format is no longer supported. Use the formats above.
 
 #### POST `/api/upload`
 Upload a PDF document

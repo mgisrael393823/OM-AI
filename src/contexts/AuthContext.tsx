@@ -29,6 +29,9 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ user: User | null; error: AuthError | null }>
   signOut: () => Promise<{ error: AuthError | null }>
   resetPassword: (email: string) => Promise<{ error: AuthError | null }>
+  refreshSession: () => Promise<{ session: Session | null; error: AuthError | null }>
+  isTokenExpired: () => boolean
+  isTokenExpiringSoon: () => boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -116,6 +119,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Proactive token refresh - check token every 2 minutes
+  useEffect(() => {
+    if (!session?.access_token) return
+
+    const checkAndRefreshToken = async () => {
+      if (isTokenExpiringSoon()) {
+        console.log('🔄 Token expiring soon, proactively refreshing...')
+        try {
+          await refreshSession()
+        } catch (error) {
+          console.error('❌ Proactive token refresh failed:', error)
+        }
+      }
+    }
+
+    // Check immediately
+    checkAndRefreshToken()
+
+    // Then check every 2 minutes
+    const interval = setInterval(checkAndRefreshToken, 2 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [session?.access_token, session?.expires_at])
 
   // Handle loading state when profile changes - only clear loading when both user and profile ready
   useEffect(() => {
@@ -307,6 +333,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error }
   }
 
+  // Refresh current session
+  const refreshSession = async () => {
+    console.log('🔄 Manually refreshing session...')
+    const { data, error } = await supabase.auth.refreshSession()
+    if (data?.session) {
+      console.log('✅ Session refreshed successfully')
+    } else if (error) {
+      console.error('❌ Failed to refresh session:', error)
+    }
+    return { session: data?.session || null, error }
+  }
+
+  // Check if current token is expired
+  const isTokenExpired = () => {
+    if (!session?.expires_at) return false
+    const expirationTime = session.expires_at * 1000 // Convert to milliseconds
+    const now = Date.now()
+    return expirationTime <= now
+  }
+
+  // Check if token is expiring within 5 minutes
+  const isTokenExpiringSoon = () => {
+    if (!session?.expires_at) return false
+    const expirationTime = session.expires_at * 1000 // Convert to milliseconds
+    const now = Date.now()
+    const fiveMinutesInMs = 5 * 60 * 1000
+    return (expirationTime - now) < fiveMinutesInMs
+  }
+
   const value = {
     user,
     profile,
@@ -316,6 +371,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signIn,
     signOut,
     resetPassword,
+    refreshSession,
+    isTokenExpired,
+    isTokenExpiringSoon,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
