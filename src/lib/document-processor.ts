@@ -194,6 +194,7 @@ export async function processUploadedDocument(
 
     // Store parsed chunks if successful
     if (parseResult?.success && parseResult.chunks.length > 0) {
+      const VALID_CHUNK_TYPES = ['paragraph', 'table', 'header', 'footer', 'list'] as const
       const validChunks = parseResult.chunks
         .filter(c => Boolean(c.content || c.text) && (c.page_number !== undefined || c.page !== undefined))
         .map((c, idx) => ({
@@ -203,7 +204,8 @@ export async function processUploadedDocument(
           content: (c.content || c.text) as string,
           page_number: (c.page_number ?? c.page) as number,
           chunk_index: c.chunk_index ?? idx,
-          chunk_type: c.type,
+          // Ensure chunk_type matches database constraint
+          chunk_type: VALID_CHUNK_TYPES.includes((c.type as any)) ? c.type : 'paragraph',
           tokens: c.tokens || 0,
           metadata: toJson({
             startY: c.startY,
@@ -214,13 +216,14 @@ export async function processUploadedDocument(
       if (validChunks.length > 0) {
         console.log('[DEBUG] chunk row keys:', Object.keys(validChunks[0]));
         console.log('[DEBUG] sample chunk:', validChunks[0]);
-        
+
         const { error: chunksError } = await supabase
           .from('document_chunks')
           .insert(validChunks)
 
         if (chunksError) {
           console.error('Failed to store document chunks:', chunksError)
+          throw new Error(`Failed to store document chunks: ${chunksError.message}`)
         }
       }
 

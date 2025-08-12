@@ -513,7 +513,8 @@ export class PDFParserAgent implements IPDFParserAgent {
         page: actualPage,
         page_number: actualPage, // Add page_number for compatibility
         chunk_index: index,
-        type: chunk.type || 'text',
+        // Default to 'paragraph' to satisfy database constraint
+        type: chunk.type || 'paragraph',
         startY: (chunk as any).metadata?.startY,
         endY: (chunk as any).metadata?.endY,
         tokens: chunk.tokens || Math.ceil(chunk.text.length / 4)
