@@ -483,8 +483,7 @@ async function analyzeWithOpenAI(input: { chunks: any[]; model?: string }) {
       { role: 'system', content: 'You are a financial extraction agent.' },
       { role: 'user', content: context }
     ],
-    temperature: 0.1,
-    max_completion_tokens: 2000
+    max_output_tokens: 2000
   });
 
   return toStructured(resp);
