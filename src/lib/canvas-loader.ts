@@ -51,6 +51,8 @@ export async function loadCanvas(): Promise<CanvasLoaderResult> {
 
   // Try @napi-rs/canvas first (preferred for production)
   try {
+    // Resolve at runtime to avoid bundling errors when optional dep is missing
+    require.resolve('@napi-rs/canvas')
     // @ts-expect-error - Dynamic import may not be available
     const napiCanvas = await import('@napi-rs/canvas')
     
