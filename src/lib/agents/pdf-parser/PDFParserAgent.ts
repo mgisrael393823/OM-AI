@@ -25,9 +25,8 @@ function toPlainUint8Array(d: ArrayBuffer | Uint8Array | Buffer): Uint8Array {
   if (d instanceof Uint8Array && !(B && B.isBuffer && B.isBuffer(d))) return d;
   if (B && B.isBuffer && B.isBuffer(d)) return new Uint8Array((d as any).buffer, (d as any).byteOffset, d.byteLength);
   if (d instanceof ArrayBuffer) return new Uint8Array(d);
-  // Last resort copy
-  // @ts-expect-error - allow final fallback for array-like input that TS can't type
-  return Uint8Array.from(d);
+  // Last resort copy for array-like objects that TypeScript can't properly type
+  return Uint8Array.from(d as any);
 }
 
 // Text-only PDF processing - no Canvas dependencies required

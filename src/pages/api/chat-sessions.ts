@@ -112,7 +112,7 @@ async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiRespon
         })
 
         return { sessions }
-      })
+      }) as Promise<any>
 
     // Store the promise for coalescing
     inFlightRequests.set(requestKey, dbRequest)
