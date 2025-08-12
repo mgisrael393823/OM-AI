@@ -58,21 +58,16 @@ function safelyExtractMessageContent(input: any): string {
   
   // If it's an object, try to extract known content fields
   if (typeof input === 'object') {
-    // Try 'message' field first (common API format)
-    if (typeof input.message === 'string') {
-      return input.message
-    }
-    
-    // Try 'content' field (streaming format)
+    // Prefer 'content' field
     if (typeof input.content === 'string') {
       return input.content
     }
-    
-    // Try 'text' field (alternative format)
+
+    // Fallback to 'text' field
     if (typeof input.text === 'string') {
       return input.text
     }
-    
+
     // If object has error field, return error message
     if (typeof input.error === 'string') {
       return `Error: ${input.error}`
@@ -235,8 +230,9 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         payload.sessionId = currentSessionId
       }
       
-      // Include metadata only if document ID is provided
+      // Include document ID in payload and metadata if provided
       if (finalDocId) {
+        payload.documentId = finalDocId
         payload.metadata = { documentId: finalDocId }
       }
       
