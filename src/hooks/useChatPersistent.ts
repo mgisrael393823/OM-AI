@@ -11,6 +11,84 @@ export interface Message {
   timestamp: Date
 }
 
+// Debug flag for comprehensive chat logging (development only)
+const CHAT_DEBUG = process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_CHAT_DEBUG !== 'false'
+
+// Debug logging helper
+function debugLog(message: string, data?: any) {
+  if (CHAT_DEBUG) {
+    if (data !== undefined) {
+      console.log(`🐛 [Chat Debug] ${message}`, data)
+    } else {
+      console.log(`🐛 [Chat Debug] ${message}`)
+    }
+  }
+}
+
+// Helper to safely stringify data for logging (truncate large objects)
+function safeLogData(data: any, maxLength = 500): any {
+  if (typeof data === 'string' && data.length > maxLength) {
+    return data.substring(0, maxLength) + '... (truncated)'
+  }
+  if (typeof data === 'object' && data !== null) {
+    try {
+      const stringified = JSON.stringify(data, null, 2)
+      if (stringified.length > maxLength) {
+        return JSON.stringify(data) // Compact version if too long
+      }
+      return data
+    } catch (e) {
+      return '[Object - could not stringify]'
+    }
+  }
+  return data
+}
+
+// Helper function to safely extract message content from various response formats
+function safelyExtractMessageContent(input: any): string {
+  // If already a string, return it
+  if (typeof input === 'string') {
+    return input
+  }
+  
+  // If null or undefined, return empty string
+  if (input == null) {
+    return ""
+  }
+  
+  // If it's an object, try to extract known content fields
+  if (typeof input === 'object') {
+    // Try 'message' field first (common API format)
+    if (typeof input.message === 'string') {
+      return input.message
+    }
+    
+    // Try 'content' field (streaming format)
+    if (typeof input.content === 'string') {
+      return input.content
+    }
+    
+    // Try 'text' field (alternative format)
+    if (typeof input.text === 'string') {
+      return input.text
+    }
+    
+    // If object has error field, return error message
+    if (typeof input.error === 'string') {
+      return `Error: ${input.error}`
+    }
+  }
+  
+  // Log unexpected format in development
+  debugLog('Unexpected response format in safelyExtractMessageContent:', {
+    inputType: typeof input,
+    inputValue: safeLogData(input, 200)
+  })
+  
+  // Return fallback message
+  return "I apologize, but I received an unexpected response format. Please try again."
+}
+
 export function useChatPersistent(selectedDocumentId?: string | null) {
   const { user, session } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
@@ -218,6 +296,105 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         setCurrentSessionId(newSessionId)
       }
 
+      const contentType = response.headers.get('content-type') || ''
+      const isJson = contentType.includes('application/json')
+      const isSSE = contentType.includes('text/event-stream')
+      const isPlainText = contentType.includes('text/plain')
+
+      // Debug: Log response details
+      debugLog('Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        contentType: contentType,
+        sessionId: newSessionId || 'none',
+        hasBody: !!response.body
+      })
+      
+      debugLog('Format detection:', {
+        isJson,
+        isSSE,
+        isPlainText,
+        rawContentType: contentType
+      })
+
+      // Handle non-streaming JSON responses with fallbacks
+      if (isJson) {
+        let messageContent = ""
+        
+        try {
+          // Primary: Try JSON parsing
+          const jsonResponse = await response.json()
+          debugLog('Raw JSON response structure:', safeLogData(jsonResponse))
+          
+          messageContent = safelyExtractMessageContent(jsonResponse)
+          debugLog('Extracted message content:', {
+            originalStructure: {
+              hasMessage: !!jsonResponse.message,
+              hasContent: !!jsonResponse.content,
+              hasText: !!jsonResponse.text,
+              hasError: !!jsonResponse.error
+            },
+            extractedLength: messageContent.length,
+            extractedPreview: safeLogData(messageContent, 200)
+          })
+          
+        } catch (jsonError) {
+          debugLog('JSON parsing failed, trying text fallback:', jsonError)
+          
+          try {
+            // Fallback 1: Try reading as text
+            const textResponse = await response.text()
+            debugLog('Raw text response:', safeLogData(textResponse, 300))
+            
+            messageContent = safelyExtractMessageContent(textResponse)
+            debugLog('Text fallback successful:', {
+              originalLength: textResponse.length,
+              extractedLength: messageContent.length,
+              extractedPreview: safeLogData(messageContent, 200)
+            })
+            
+          } catch (textError) {
+            debugLog('Both JSON and text parsing failed:', textError)
+            
+            // Fallback 2: Use safe fallback message
+            messageContent = "I apologize, but I'm having trouble processing the response. Please try again."
+          }
+        }
+        
+        // Ensure we always have a string
+        if (!messageContent) {
+          messageContent = "I received an empty response. Please try again."
+          debugLog('Empty message content detected, using fallback')
+        }
+        
+        debugLog('Final JSON message ready:', {
+          contentLength: messageContent.length,
+          contentPreview: safeLogData(messageContent, 200)
+        })
+        
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: messageContent,
+          timestamp: new Date()
+        }
+
+        setMessages(prev => [...prev, assistantMessage])
+        return
+      }
+
+      // Handle streaming responses (SSE or plain text) with fallbacks
+      if (!isSSE && !isPlainText && !contentType.includes('text/')) {
+        debugLog(`Unsupported content type, attempting text fallback: ${contentType}`)
+        // Don't throw error, try to handle as text anyway
+      }
+      
+      debugLog('Starting streaming response processing:', {
+        isSSE,
+        isPlainText,
+        contentType
+      })
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -228,20 +405,21 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       setMessages(prev => [...prev, assistantMessage])
 
       const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-      const contentType = response.headers.get('content-type') || ''
-      const isSSEFormat = contentType.includes('text/event-stream')
+      if (!reader) {
+        throw new Error('Response body is not readable')
+      }
 
-      if (reader) {
-        let buffer = ''
-        
+      const decoder = new TextDecoder()
+      let buffer = ''
+      
+      try {
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
 
           buffer += decoder.decode(value, { stream: true })
           
-          if (isSSEFormat) {
+          if (isSSE) {
             // Process SSE format: data: {"content": "text"}\n\n
             const lines = buffer.split('\n')
             buffer = lines.pop() || '' // Keep incomplete line in buffer
@@ -252,18 +430,25 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
                 
                 try {
                   const parsed = JSON.parse(data)
+                  debugLog('SSE chunk parsed:', safeLogData(parsed, 200))
                   
-                  if (parsed.content) {
+                  // Use helper function to safely extract content
+                  const contentChunk = safelyExtractMessageContent(parsed)
+                  
+                  if (contentChunk) {
+                    debugLog('SSE content chunk extracted:', {
+                      chunkLength: contentChunk.length,
+                      chunkPreview: safeLogData(contentChunk, 100)
+                    })
+                    
                     setMessages(prev => {
-                      // Create new array and deep clone all messages
+                      // Create new array and clone all messages
                       const newMessages = prev.map((msg, index) => {
                         if (index === prev.length - 1 && msg.role === "assistant") {
-                          // For the last assistant message, append the content
+                          // For the last assistant message, append the content as plain text
                           return {
                             ...msg,
-                            content: msg.content + parsed.content,
-                            // Force new object reference with timestamp
-                            __lastUpdate: Date.now()
+                            content: msg.content + contentChunk
                           }
                         }
                         return { ...msg }
@@ -271,47 +456,135 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
                       return newMessages
                     })
                   } else if (parsed.done) {
-                    // Stream completed
+                    debugLog('SSE stream completed')
                     break
                   } else if (parsed.error) {
-                    console.error('Stream error:', parsed.error)
-                    throw new Error(parsed.error)
+                    debugLog('SSE stream error, continuing:', parsed.error)
+                    // Don't throw error, just log it and continue
                   }
-                } catch (e) {
-                  console.warn('Invalid SSE data:', data)
+                } catch (parseError) {
+                  debugLog('Invalid SSE JSON, trying as plain text:', {
+                    originalData: safeLogData(data, 100),
+                    error: parseError
+                  })
+                  
+                  // Fallback: treat the data as plain text content
+                  if (data && data.trim()) {
+                    const textContent = safelyExtractMessageContent(data)
+                    if (textContent) {
+                      debugLog('SSE fallback text content extracted:', {
+                        textLength: textContent.length,
+                        textPreview: safeLogData(textContent, 100)
+                      })
+                      
+                      setMessages(prev => {
+                        const newMessages = prev.map((msg, index) => {
+                          if (index === prev.length - 1 && msg.role === "assistant") {
+                            return {
+                              ...msg,
+                              content: msg.content + textContent
+                            }
+                          }
+                          return { ...msg }
+                        })
+                        return newMessages
+                      })
+                    }
+                  }
                 }
               }
             }
-          } else {
+          } else if (isPlainText || contentType.includes('text/')) {
             // Process plain text format: direct text chunks
             if (buffer) {
               const currentBuffer = buffer  // Capture buffer before clearing
               buffer = '' // Clear buffer BEFORE processing to avoid closure issues
               
-              // Update immediately with each chunk
-              setMessages(prev => {
-                // Force completely new array and objects to ensure React re-renders
-                const result = prev.map((msg, index) => {
-                  if (index === prev.length - 1 && msg.role === "assistant") {
+              debugLog('Plain text chunk received:', {
+                bufferLength: currentBuffer.length,
+                bufferPreview: safeLogData(currentBuffer, 100)
+              })
+              
+              // Use helper function to safely process text content
+              const textContent = safelyExtractMessageContent(currentBuffer)
+              
+              if (textContent) {
+                debugLog('Plain text content extracted:', {
+                  textLength: textContent.length,
+                  textPreview: safeLogData(textContent, 100)
+                })
+                
+                // Update immediately with each chunk
+                setMessages(prev => {
+                  // Force completely new array and objects to ensure React re-renders
+                  const result = prev.map((msg, index) => {
+                    if (index === prev.length - 1 && msg.role === "assistant") {
+                      return {
+                        id: msg.id,
+                        role: msg.role,
+                        content: (msg.content || '') + textContent,
+                        timestamp: msg.timestamp
+                      }
+                    }
                     return {
                       id: msg.id,
                       role: msg.role,
-                      content: (msg.content || '') + currentBuffer,
+                      content: msg.content,
                       timestamp: msg.timestamp
                     }
-                  }
-                  return {
-                    id: msg.id,
-                    role: msg.role,
-                    content: msg.content,
-                    timestamp: msg.timestamp
-                  }
+                  })
+                  return result
                 })
-                return result
+              }
+            }
+          } else {
+            // Fallback for completely unknown formats
+            debugLog(`Unknown streaming format, treating as text: ${contentType}`)
+            
+            if (buffer) {
+              const currentBuffer = buffer
+              buffer = ''
+              
+              debugLog('Unknown format fallback:', {
+                bufferLength: currentBuffer.length,
+                bufferPreview: safeLogData(currentBuffer, 100)
               })
+              
+              const fallbackContent = safelyExtractMessageContent(currentBuffer)
+              
+              if (fallbackContent) {
+                setMessages(prev => {
+                  const result = prev.map((msg, index) => {
+                    if (index === prev.length - 1 && msg.role === "assistant") {
+                      return {
+                        ...msg,
+                        content: (msg.content || '') + fallbackContent
+                      }
+                    }
+                    return { ...msg }
+                  })
+                  return result
+                })
+              }
             }
           }
         }
+      } catch (streamError) {
+        debugLog('Stream reading error:', streamError)
+        
+        // Instead of throwing, update the assistant message with an error message
+        setMessages(prev => {
+          const result = prev.map((msg, index) => {
+            if (index === prev.length - 1 && msg.role === "assistant" && !msg.content) {
+              return {
+                ...msg,
+                content: "I apologize, but there was an error processing the streaming response. Please try again."
+              }
+            }
+            return { ...msg }
+          })
+          return result
+        })
       }
       
 

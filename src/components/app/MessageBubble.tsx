@@ -17,6 +17,54 @@ export function MessageBubble({
   userInitials = "U"
 }: MessageBubbleProps) {
   const isUser = role === "user"
+  
+  // Safely convert content to string with fallback
+  const safeContent = React.useMemo(() => {
+    // If content is already a string, return it
+    if (typeof content === 'string') {
+      return content
+    }
+    
+    // Log warning in development for debugging
+    if (process.env.NODE_ENV === 'development' && content !== null && content !== undefined) {
+      console.warn('⚠️ MessageBubble received non-string content:', typeof content, content)
+    }
+    
+    // Handle null or undefined
+    if (content == null) {
+      return ""
+    }
+    
+    // Try to safely convert to string
+    try {
+      // If it's an object, try to extract meaningful content
+      if (typeof content === 'object') {
+        const obj = content as any // Safe cast for runtime checks
+        // Check for common content fields
+        if ('message' in obj && typeof obj.message === 'string') {
+          return obj.message
+        }
+        if ('content' in obj && typeof obj.content === 'string') {
+          return obj.content
+        }
+        if ('text' in obj && typeof obj.text === 'string') {
+          return obj.text
+        }
+        
+        // Last resort: stringify the object
+        return JSON.stringify(content, null, 2)
+      }
+      
+      // For primitives, convert to string
+      return String(content)
+    } catch (error) {
+      // Fallback for any conversion errors
+      if (process.env.NODE_ENV === 'development') {
+        console.error('❌ Error converting content to string:', error)
+      }
+      return "Error displaying message content"
+    }
+  }, [content])
 
 
   return (
@@ -39,7 +87,7 @@ export function MessageBubble({
       <div 
         className={`
           relative px-4 py-2 rounded-2xl max-w-[70%] min-w-0
-          ${isLoading && !content ? 'min-w-24' : ''}
+          ${isLoading && !safeContent ? 'min-w-24' : ''}
           ${isUser 
             ? 'chat-bubble-user rounded-br-md' 
             : 'chat-bubble-assistant rounded-bl-md'
@@ -50,7 +98,7 @@ export function MessageBubble({
       >
         <div className="grid grid-cols-1 gap-2">
           <p className={`whitespace-pre-wrap break-words ${componentTypography.chat.message}`}>
-            {content}
+            {safeContent}
           </p>
           
           {/* Loading indicator for streaming */}
