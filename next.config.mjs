@@ -182,6 +182,14 @@ const nextConfig = {
       config.optimization.removeEmptyChunks = false;
       config.optimization.splitChunks = false;
       
+      // Reduce logging noise and improve HMR performance
+      config.infrastructureLogging = { level: 'error' };
+      config.watchOptions = {
+        poll: false,
+        ignored: /node_modules/,
+        aggregateTimeout: 300, // Delay before rebuilding after first change
+      };
+      
       // Source maps handled by Sentry webpack plugin
     }
     
@@ -192,9 +200,9 @@ const nextConfig = {
   ...(process.env.NODE_ENV === 'development' && {
     onDemandEntries: {
       // Period (in ms) where the server will keep pages in the buffer
-      maxInactiveAge: 25 * 1000,
+      maxInactiveAge: 60 * 1000, // Increased from 25s to 60s for better HMR stability
       // Number of pages that should be kept simultaneously without being disposed
-      pagesBufferLength: 2,
+      pagesBufferLength: 5, // Increased from 2 to 5 for better page buffering
     },
   }),
 };
