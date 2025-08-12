@@ -7,6 +7,9 @@ import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
 const devRequestLog = new Map<string, number>()
 const DEV_LOG_WINDOW = 1000 // 1 second
 
+// In-flight request coalescing to prevent duplicate DB queries
+const inFlightRequests = new Map<string, Promise<any>>()
+
 function shouldLogRequest(userId: string): boolean {
   if (process.env.NODE_ENV !== 'development') return true
   
@@ -19,6 +22,11 @@ function shouldLogRequest(userId: string): boolean {
   }
   
   return false
+}
+
+// Generate request key for coalescing
+function getRequestKey(method: string, userId: string): string {
+  return `${method}:${userId}`
 }
 
 async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiResponse) {
@@ -47,50 +55,77 @@ async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiRespon
   )
 
   if (req.method === 'GET') {
+    const requestKey = getRequestKey('GET', req.user.id)
+    
     console.log('Chat Sessions API: Fetching sessions for user:', req.user.id)
 
-    try {
-      const { data: sessions, error } = await supabase
-        .from('chat_sessions')
-        .select(`
-          *,
-          messages (
-            id,
-            role,
-            content,
-            created_at
-          )
-        `)
-        .eq('user_id', req.user.id)
-        .order('updated_at', { ascending: false })
+    // Check if there's already an in-flight request for this user
+    const existingRequest = inFlightRequests.get(requestKey)
+    if (existingRequest) {
+      console.log('Chat Sessions API: Coalescing with existing request', {
+        userId: req.user.id,
+        requestKey
+      })
+      
+      try {
+        const result = await existingRequest
+        return res.status(200).json(result)
+      } catch (error) {
+        // The original request failed, we'll fall through to make our own
+        console.warn('Chat Sessions API: Coalesced request failed, making new request', {
+          userId: req.user.id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
+    }
 
-      if (error) {
-        console.error('Chat Sessions API: Database query error', {
-          error: error,
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint,
+    // Create new database request
+    const dbRequest = supabase
+      .from('chat_sessions')
+      .select(`
+        *,
+        messages (
+          id,
+          role,
+          content,
+          created_at
+        )
+      `)
+      .eq('user_id', req.user.id)
+      .order('updated_at', { ascending: false })
+      .then(({ data: sessions, error }) => {
+        if (error) {
+          console.error('Chat Sessions API: Database query error', {
+            error: error,
+            message: error.message,
+            code: error.code,
+            details: error.details,
+            hint: error.hint,
+            userId: req.user.id
+          })
+          throw new Error(error.message)
+        }
+
+        console.log('Chat Sessions API: Successfully fetched sessions', {
+          count: sessions?.length || 0,
           userId: req.user.id
         })
-        return apiError(res, 500, 'Failed to fetch chat sessions', 'DATABASE_ERROR', error.message)
-      }
 
-      console.log('Chat Sessions API: Successfully fetched sessions', {
-        count: sessions?.length || 0,
-        userId: req.user.id
+        return { sessions }
       })
 
-      return res.status(200).json({ sessions })
-    } catch (catchError) {
-      console.error('Chat Sessions API: Unexpected error in GET handler', {
-        error: catchError,
-        message: catchError instanceof Error ? catchError.message : 'Unknown error',
-        stack: catchError instanceof Error ? catchError.stack : undefined,
-        userId: req.user.id
-      })
-      return apiError(res, 500, 'Unexpected error fetching chat sessions', 'UNEXPECTED_ERROR', 
-        catchError instanceof Error ? catchError.message : 'Unknown error')
+    // Store the promise for coalescing
+    inFlightRequests.set(requestKey, dbRequest)
+
+    try {
+      const result = await dbRequest
+      return res.status(200).json(result)
+    } catch (dbError) {
+      return apiError(res, 500, 'Failed to fetch chat sessions', 'DATABASE_ERROR', 
+        dbError instanceof Error ? dbError.message : 'Unknown error')
+    } finally {
+      // Clean up the in-flight request
+      inFlightRequests.delete(requestKey)
     }
   }
 

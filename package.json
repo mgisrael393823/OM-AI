@@ -91,6 +91,7 @@
     "react-window-infinite-loader": "^1.0.10",
     "sonner": "^1.7.2",
     "stripe": "^17.7.0",
+    "swr": "^2.3.6",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tesseract.js": "^5.1.0",

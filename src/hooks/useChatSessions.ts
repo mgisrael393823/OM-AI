@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import useSWR from 'swr'
 import { useAuth } from "@/contexts/AuthContext"
 
 export interface ChatSession {
@@ -10,10 +10,6 @@ export interface ChatSession {
   messages?: any[]
 }
 
-// Simple in-memory cache for deduplication
-const sessionCache = new Map<string, { data: ChatSession[], timestamp: number }>()
-const CACHE_TTL = 10000 // 10 seconds deduplication interval
-
 // Dev-only debug logging
 const debugLog = (message: string, data?: any) => {
   if (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEBUG_FETCHES === 'true') {
@@ -21,112 +17,97 @@ const debugLog = (message: string, data?: any) => {
   }
 }
 
+// SWR fetcher function
+const fetcher = async ([url, accessToken]: [string, string]): Promise<ChatSession[]> => {
+  debugLog('SWR fetcher called', { url, hasToken: !!accessToken })
+  
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: {
+      "Authorization": `Bearer ${accessToken}`
+    }
+  })
+
+  if (!response.ok) {
+    const error = new Error(`HTTP ${response.status}: Failed to fetch sessions`)
+    debugLog('Fetch error', { status: response.status, url })
+    throw error
+  }
+
+  const data = await response.json()
+  const sessions = data.sessions || []
+  
+  debugLog('Fetch complete', { 
+    url, 
+    count: sessions.length 
+  })
+  
+  return sessions
+}
+
 /**
- * Centralized chat sessions hook with deduplication
- * Implements SWR-like behavior with built-in deduplication
+ * Centralized chat sessions hook with SWR deduplication
+ * Eliminates duplicate requests through proper SWR configuration
  */
 export function useChatSessions() {
   const { user, session } = useAuth()
-  const [sessions, setSessions] = useState<ChatSession[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   
   const userId = user?.id
-  const cacheKey = `chat-sessions:${userId || 'anonymous'}`
+  const accessToken = session?.access_token
+  
+  // Stable SWR key - only changes when userId changes
+  const swrKey = userId && accessToken 
+    ? ['chat-sessions', userId] as const
+    : null
 
-  const fetchSessions = async (force = false): Promise<ChatSession[]> => {
-    if (!user || !session) {
-      debugLog('No user/session, skipping fetch')
-      return []
-    }
+  debugLog('SWR key generated', { 
+    swrKey, 
+    userId: userId || 'none',
+    hasToken: !!accessToken 
+  })
 
-    // Check cache first unless force refresh
-    if (!force) {
-      const cached = sessionCache.get(cacheKey)
-      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        debugLog('Cache hit', { cacheKey, age: Date.now() - cached.timestamp })
-        return cached.data
+  const {
+    data: sessions = [],
+    error,
+    isLoading,
+    mutate: refresh
+  } = useSWR(
+    swrKey,
+    // Fetcher gets [key, userId] but needs [url, token]
+    swrKey ? () => fetcher([`${window.location.origin}/api/chat-sessions`, accessToken!]) : null,
+    {
+      // Aggressive deduplication settings
+      dedupingInterval: 2000, // 2 seconds
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      refreshInterval: 0,
+      revalidateIfStale: false,
+      errorRetryCount: 3,
+      errorRetryInterval: 1000,
+      // Keep previous data on error
+      keepPreviousData: true,
+      
+      // Debug configuration
+      onSuccess: (data) => {
+        debugLog('SWR success', { 
+          count: data.length,
+          swrKey 
+        })
+      },
+      
+      onError: (error) => {
+        debugLog('SWR error', { 
+          error: error.message,
+          swrKey 
+        })
       }
     }
-
-    debugLog('Cache miss or force refresh, fetching...', { cacheKey, force })
-    
-    try {
-      const response = await fetch(`${window.location.origin}/api/chat-sessions`, {
-        credentials: 'include',
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: Failed to fetch sessions`)
-      }
-
-      const data = await response.json()
-      const fetchedSessions = data.sessions || []
-      
-      // Update cache
-      sessionCache.set(cacheKey, {
-        data: fetchedSessions,
-        timestamp: Date.now()
-      })
-      
-      debugLog('Fetch complete', { 
-        cacheKey, 
-        count: fetchedSessions.length,
-        cacheSize: sessionCache.size 
-      })
-      
-      return fetchedSessions
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error fetching sessions'
-      debugLog('Fetch error', { cacheKey, error: errorMessage })
-      throw new Error(errorMessage)
-    }
-  }
-
-  // Main fetch function with state management
-  const loadSessions = async (force = false) => {
-    if (!user || !session) return
-
-    setIsLoading(true)
-    setError(null)
-    
-    try {
-      const fetchedSessions = await fetchSessions(force)
-      setSessions(fetchedSessions)
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load sessions'
-      setError(errorMessage)
-      console.error('[useChatSessions] Load error:', errorMessage)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Auto-load on mount and auth change
-  useEffect(() => {
-    if (user && session) {
-      debugLog('Auth state changed, loading sessions', { userId: user.id })
-      loadSessions()
-    } else {
-      // Clear state when no auth
-      setSessions([])
-      setError(null)
-    }
-  }, [user?.id, session?.access_token]) // Only depend on stable auth identifiers
-
-  // Manual refresh function
-  const refresh = () => {
-    debugLog('Manual refresh requested', { cacheKey })
-    return loadSessions(true)
-  }
+  )
 
   // Cache invalidation for external use
   const invalidateCache = () => {
-    sessionCache.delete(cacheKey)
-    debugLog('Cache invalidated', { cacheKey })
+    debugLog('Cache invalidated via mutate', { swrKey })
+    return refresh()
   }
 
   return {
@@ -136,26 +117,21 @@ export function useChatSessions() {
     refresh,
     invalidateCache,
     // Internal for debugging
-    cacheKey: process.env.NODE_ENV === 'development' ? cacheKey : undefined
+    swrKey: process.env.NODE_ENV === 'development' ? swrKey : undefined
   }
 }
 
-// Global cache management utilities
+// Global cache management utilities (now handled by SWR)
 export const chatSessionsCache = {
   clear: () => {
-    const size = sessionCache.size
-    sessionCache.clear()
-    debugLog('Global cache cleared', { previousSize: size })
+    debugLog('Global cache clear requested - handled by SWR')
+    // SWR handles its own cache, no manual clearing needed
   },
   
-  size: () => sessionCache.size,
+  size: () => 0, // SWR manages its own cache size
   
-  // Dev utility to inspect cache
+  // Dev utility - SWR has its own cache inspection
   inspect: process.env.NODE_ENV === 'development' 
-    ? () => Array.from(sessionCache.entries()).map(([key, value]) => ({
-        key,
-        age: Date.now() - value.timestamp,
-        count: value.data.length
-      }))
+    ? () => []
     : undefined
 }
