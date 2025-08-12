@@ -3,6 +3,7 @@ import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 import { openAIService } from '@/lib/services/openai'
 import { transientStore } from '@/lib/transient-store'
+import { getCanvasStatus, isCanvasAvailable } from '@/lib/canvas-loader'
 import type { Database } from '@/types/database'
 
 type DocInsert = Database["public"]["Tables"]["documents"]["Insert"]
@@ -54,6 +55,7 @@ export interface InMemoryProcessParams {
   requestId: string
   maxPages?: number
   storeAnalysis?: boolean
+  useCanvas?: boolean
 }
 
 /**
@@ -102,12 +104,17 @@ export async function processUploadedDocument(
     let processingError = null
 
     try {
+      // Check actual canvas availability for uploads
+      const requestedCanvas = process.env.USE_CANVAS !== 'false'
+      const actualCanvasUse = requestedCanvas && isCanvasAvailable()
+      
       parseResult = await pdfParser.parseBuffer(fileBuffer, {
-        extractTables: true,
-        performOCR: validationResult.metadata.isEncrypted || !validationResult.metadata.hasText,
+        extractTables: actualCanvasUse,
+        performOCR: actualCanvasUse && (validationResult.metadata.isEncrypted || !validationResult.metadata.hasText),
         ocrConfidenceThreshold: 70,
         chunkSize: 4000,
-        preserveFormatting: true
+        preserveFormatting: true,
+        useCanvas: actualCanvasUse
       })
       
       // Validate immediately after parsing
@@ -284,15 +291,47 @@ export async function processUploadedDocument(
  */
 export async function processInMemory(
   buffer: Buffer,
-  opts: { userId: string; originalFilename: string }
+  opts: { userId: string; originalFilename: string; useCanvas?: boolean }
 ) {
-  const { userId } = opts
+  const { userId, useCanvas = false } = opts
   const safeOriginalFilename = 
     (opts as any)?.originalFilename ||
     (opts as any)?.name ||
     'upload.pdf'
 
   const fileBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
+  
+  // Enhanced canvas usage logging
+  const canvasStatus = getCanvasStatus()
+  const actualCanvasUse = useCanvas && isCanvasAvailable()
+  
+  // Suppress font warnings in text-only mode
+  let originalWarn: typeof console.warn | undefined
+  if (!actualCanvasUse) {
+    originalWarn = console.warn
+    const warnFilter = /TT:|font|glyph|CMap|undefined function/i
+    console.warn = (...args) => {
+      const msg = args.join(' ')
+      if (!warnFilter.test(msg)) {
+        originalWarn!.apply(console, args)
+      }
+    }
+  }
+  
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[processInMemory] Canvas usage:', {
+      requested: useCanvas,
+      environmentEnabled: canvasStatus.enabled,
+      actuallyUsing: actualCanvasUse,
+      status: actualCanvasUse ? 'enabled' : 'disabled (text-only)',
+      reason: !useCanvas ? 'disabled by parameter' : 
+              !canvasStatus.enabled ? 'USE_CANVAS=false' :
+              !actualCanvasUse ? 'canvas package unavailable' : 'enabled'
+    })
+  } else {
+    // Production: simpler logging
+    console.log('[processInMemory] Processing mode:', actualCanvasUse ? 'enhanced (with canvas)' : 'text-only (optimized)')
+  }
   
   // Quick validation
   const quickValidation = PDFValidator.quickValidate(fileBuffer, safeOriginalFilename)
@@ -318,12 +357,13 @@ export async function processInMemory(
 
   try {
     parseResult = await pdfParser.parseBuffer(fileBuffer, {
-      extractTables: true,
-      performOCR: validationResult.metadata.isEncrypted || !validationResult.metadata.hasText,
+      extractTables: actualCanvasUse, // Only extract tables if canvas is actually available
+      performOCR: actualCanvasUse && (validationResult.metadata.isEncrypted || !validationResult.metadata.hasText),
       ocrConfidenceThreshold: 70,
       chunkSize: 4000,
       preserveFormatting: true,
-      maxPages: pageLimit
+      maxPages: pageLimit,
+      useCanvas: actualCanvasUse // Pass actual canvas availability to parser
     })
     
     if (!parseResult?.success) {
@@ -340,6 +380,10 @@ export async function processInMemory(
 
   } catch (error) {
     await pdfParser.cleanup()
+    // Restore console.warn before throwing
+    if (originalWarn) {
+      console.warn = originalWarn
+    }
     throw error
   } finally {
     await pdfParser.cleanup()
@@ -357,6 +401,11 @@ export async function processInMemory(
     analysis = analysisResult.content || '[WARN] Analysis not available';
   } catch (e: any) {
     analysis = `[WARN] OpenAI analysis unavailable: ${e?.message || 'unknown error'}`
+  }
+
+  // Restore original console.warn if it was suppressed
+  if (originalWarn) {
+    console.warn = originalWarn
   }
 
   return {

@@ -1,6 +1,11 @@
 import React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render } from '@testing-library/react'
 import { ChatHistory, ChatSession } from '../ChatHistory'
+
+// Type assertions for testing utilities
+const screen = (global as any).screen || require('@testing-library/react').screen
+const fireEvent = (global as any).fireEvent || require('@testing-library/react').fireEvent  
+const waitFor = (global as any).waitFor || require('@testing-library/react').waitFor
 
 // Mock react-window
 jest.mock('react-window', () => ({

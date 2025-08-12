@@ -1,12 +1,80 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { z } from 'zod'
 import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { createChatCompletion } from '@/lib/services/openai'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
 
-type Msg = { role: 'system' | 'user' | 'assistant'; content: string }
+// Message schema for validation
+const MessageSchema = z.object({
+  role: z.enum(['system', 'user', 'assistant']),
+  content: z.string()
+})
+
+// Base schema for shared fields
+const BaseRequestSchema = z.object({
+  sessionId: z.string().optional(),
+  stream: z.boolean().optional(),
+  metadata: z.object({
+    documentId: z.string().optional()
+  }).optional()
+})
+
+// Chat Completions API schema
+const ChatCompletionSchema = BaseRequestSchema.extend({
+  apiFamily: z.literal('chat').optional(),
+  model: z.string().optional(),
+  messages: z.array(MessageSchema),
+  max_tokens: z.number().optional()
+})
+
+// Responses API schema with flexible input types
+const ResponsesAPISchema = BaseRequestSchema.extend({
+  apiFamily: z.literal('responses'),
+  model: z.string().optional(),
+  input: z.union([
+    z.string(),
+    z.array(z.object({ 
+      text: z.string(),
+      role: z.enum(['user', 'assistant', 'system']).optional() 
+    }))
+  ]).optional(),
+  messages: z.array(MessageSchema).optional(),
+  max_output_tokens: z.number().optional()
+}).refine(data => data.input || data.messages, {
+  message: "Either 'input' or 'messages' must be provided for Responses API"
+})
+
+// Auto-detect schema (when apiFamily is not specified)
+const AutoDetectSchema = BaseRequestSchema.extend({
+  model: z.string().optional(),
+  input: z.union([
+    z.string(),
+    z.array(z.object({ 
+      text: z.string(),
+      role: z.enum(['user', 'assistant', 'system']).optional() 
+    }))
+  ]).optional(),
+  messages: z.array(MessageSchema).optional(),
+  max_tokens: z.number().optional(),
+  max_output_tokens: z.number().optional()
+}).refine(data => data.input || data.messages, {
+  message: "Either 'input' or 'messages' must be provided"
+})
+
+// Union schema for all request types
+const ChatRequestSchema = z.union([ChatCompletionSchema, ResponsesAPISchema, AutoDetectSchema])
+
+// Type definitions
+type ChatRequest = z.infer<typeof ChatRequestSchema>
+type Message = z.infer<typeof MessageSchema>
+
+// Model detection for auto-selecting API family
+const RESPONSES_MODEL_PATTERN = /^(gpt-5($|-)|gpt-4\.1($|-)|o4|o3)/i
+const isResponsesModel = (model: string) => RESPONSES_MODEL_PATTERN.test(model)
 
 /**
- * Chat endpoint handler that requires authentication
+ * Chat endpoint handler that supports both Chat Completions and Responses API
  */
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   const requestId = `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
@@ -15,28 +83,165 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     if (req.method !== 'POST') {
       return res.status(405).json({ 
         error: 'Method not allowed',
-        code: 'METHOD_NOT_ALLOWED'
+        code: 'METHOD_NOT_ALLOWED',
+        request_id: requestId
       })
     }
 
-    const { messages = [], model: clientModel, sessionId } = (req.body ?? {}) as any
+    let requestBody = req.body ?? {}
     
-    if (!Array.isArray(messages) || messages.length === 0) {
+    // Normalize legacy {message} format before validation
+    if (requestBody.message && !requestBody.messages && !requestBody.input) {
+      const model = requestBody.model || process.env.OPENAI_MODEL || 'gpt-4o'
+      if (isResponsesModelUtil(model)) {
+        requestBody.input = requestBody.message
+      } else {
+        requestBody.messages = [{role: 'user', content: requestBody.message}]
+      }
+      delete requestBody.message
+    }
+    
+    // Move top-level documentId to metadata
+    if (requestBody.documentId) {
+      requestBody.metadata = requestBody.metadata || {}
+      requestBody.metadata.documentId = requestBody.documentId
+      delete requestBody.documentId
+    }
+    
+    // Detect conflicts between messages and input
+    if (requestBody.messages && requestBody.input) {
+      return res.status(400).json({
+        error: 'Cannot specify both messages and input',
+        code: 'CONFLICTING_INPUT_FORMATS',
+        details: 'Use either messages[] for Chat Completions API or input for Responses API, not both',
+        request_id: requestId
+      })
+    }
+    
+    // Filter temperature for gpt-4.1 and Responses models
+    const requestModel = requestBody.model || process.env.OPENAI_MODEL || 'gpt-4o'
+    if ((requestModel.startsWith('gpt-4.1') || isResponsesModelUtil(requestModel)) && requestBody.temperature !== undefined) {
+      delete requestBody.temperature
+    }
+    
+    // Parse and validate request with Zod
+    const parseResult = ChatRequestSchema.safeParse(requestBody)
+    
+    if (!parseResult.success) {
+      // Extract validation errors for clear feedback
+      const errors = parseResult.error.flatten()
+      
       return res.status(400).json({ 
-        error: 'messages[] required',
-        code: 'INVALID_REQUEST'
+        error: 'Invalid request format',
+        code: 'INVALID_REQUEST_FORMAT',
+        details: {
+          allowed_formats: [
+            { 
+              apiFamily: 'chat', 
+              required: ['messages'], 
+              optional: ['model', 'max_tokens', 'sessionId'],
+              example: { apiFamily: 'chat', model: 'gpt-4o', messages: [{role: 'user', content: 'Hello'}] }
+            },
+            { 
+              apiFamily: 'responses', 
+              required: ['input OR messages'], 
+              optional: ['model', 'max_output_tokens', 'sessionId'],
+              examples: [
+                { apiFamily: 'responses', model: 'gpt-5', input: 'Hello' },
+                { apiFamily: 'responses', model: 'gpt-5', messages: [{role: 'user', content: 'Hello'}] }
+              ]
+            }
+          ],
+          validation_errors: errors.fieldErrors,
+          received: requestBody
+        },
+        request_id: requestId
       })
     }
 
-    const model = (clientModel || process.env.OPENAI_MODEL || process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o-2024-08-06').trim()
-    console.log(`[chat] Request ${requestId} using model: ${model}`)
+    const validRequest = parseResult.data
+    
+    // Determine effective API family (auto-detect if not specified)
+    let apiFamily: 'chat' | 'responses'
+    let normalizedPath: 'chat-messages' | 'input-passthrough' | 'messages-to-input' | 'input-to-messages'
+    
+    if ('apiFamily' in validRequest && validRequest.apiFamily === 'responses') {
+      apiFamily = 'responses'
+    } else if ('apiFamily' in validRequest && validRequest.apiFamily === 'chat') {
+      apiFamily = 'chat'
+    } else {
+      // Auto-detect based on model or request structure
+      const model = validRequest.model || process.env.OPENAI_MODEL || 'gpt-4o'
+      if (isResponsesModelUtil(model) || 'input' in validRequest || 'max_output_tokens' in validRequest) {
+        apiFamily = 'responses'
+      } else {
+        apiFamily = 'chat'
+      }
+    }
+
+    // Normalize request data based on API family
+    let messages: Message[] = []
+    let max_output_tokens: number | undefined
+    let model: string
+    let sessionId: string | undefined
+    
+    if (apiFamily === 'responses') {
+      const responsesReq = validRequest as z.infer<typeof ResponsesAPISchema> | z.infer<typeof AutoDetectSchema>
+      model = responsesReq.model || process.env.OPENAI_MODEL || process.env.OPENAI_FALLBACK_MODEL || 'gpt-5'
+      sessionId = responsesReq.sessionId
+      max_output_tokens = responsesReq.max_output_tokens
+      
+      if (responsesReq.messages) {
+        // Convert messages to internal format
+        messages = responsesReq.messages
+        normalizedPath = 'messages-to-input'
+      } else if (responsesReq.input) {
+        // Convert input to messages format for internal processing
+        if (typeof responsesReq.input === 'string') {
+          messages = [{ role: 'user', content: responsesReq.input }]
+          normalizedPath = 'input-to-messages'
+        } else {
+          // Array of parts - convert to messages
+          messages = responsesReq.input.map(part => ({
+            role: part.role || 'user',
+            content: part.text
+          }))
+          normalizedPath = 'input-passthrough'
+        }
+      } else {
+        // This shouldn't happen due to refine validation, but handle it defensively
+        return res.status(400).json({
+          error: 'Either input or messages required for Responses API',
+          code: 'MISSING_INPUT',
+          request_id: requestId
+        })
+      }
+    } else {
+      // Chat Completions API
+      const chatReq = validRequest as z.infer<typeof ChatCompletionSchema> | z.infer<typeof AutoDetectSchema>
+      messages = chatReq.messages!
+      model = chatReq.model || process.env.OPENAI_MODEL || process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o-2024-08-06'
+      sessionId = chatReq.sessionId
+      max_output_tokens = 'max_tokens' in chatReq ? chatReq.max_tokens : undefined
+      normalizedPath = 'chat-messages'
+    }
+
+    // Log structured information about the request
+    console.log(`[chat] Request ${requestId}:`, {
+      apiFamily,
+      model,
+      path: normalizedPath,
+      messages_count: messages.length,
+      max_output_tokens: max_output_tokens || 'default',
+      sessionId: sessionId || 'none'
+    })
 
     // Call OpenAI with proper error handling
     const ai = await createChatCompletion({
       model,
-      messages: messages as Msg[],
+      messages,
       temperature: 0.2,
-      max_output_tokens: Number(process.env.CHAT_MAX_TOKENS ?? 2000)
+      max_output_tokens: max_output_tokens || Number(process.env.CHAT_MAX_TOKENS ?? 2000)
     })
 
     // Best-effort persistence (non-fatal on error)
@@ -46,7 +251,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           chat_session_id: sessionId,
           role: 'assistant',
           content: ai.text,
-          metadata: { requestId, usage: ai.usage, model: ai.model }
+          metadata: { 
+            requestId, 
+            usage: ai.usage, 
+            model: ai.model,
+            apiFamily,
+            path: normalizedPath
+          }
         })
       } catch (persistErr) {
         console.warn(`[${requestId}] Failed to persist chat message:`, persistErr)
@@ -54,29 +265,46 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     }
 
     return res.status(200).json({ 
-      ok: true,
-      text: ai.text,
+      message: ai.text,
       model: ai.model,
       usage: ai.usage,
-      requestId
+      request_id: ai.request_id || requestId
     })
     
   } catch (error: any) {
-    console.error(`[${requestId}] Chat error:`, {
+    // Handle Zod errors that might occur during processing
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Invalid request data',
+        code: 'VALIDATION_ERROR',
+        details: error.flatten().fieldErrors,
+        request_id: requestId
+      })
+    }
+    
+    // Log upstream error once with stable tag, no stack traces in prod
+    console.error(`[chat-upstream-error] ${requestId}:`, {
       message: error?.message,
       status: error?.status,
-      stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+      code: error?.code,
+      type: error?.type,
+      ...(process.env.NODE_ENV === 'development' && { stack: error?.stack })
     })
     
-    // Return structured error response
-    const statusCode = error?.status || 500
-    const errorMessage = error?.message || 'Internal server error'
+    // Determine if this is an upstream OpenAI error (return 502) or client error (return 4xx)
+    const isUpstreamError = error?.status >= 500 || 
+                           error?.message?.includes('OpenAI') ||
+                           error?.message?.includes('timeout') ||
+                           error?.message?.includes('ETIMEDOUT')
+    
+    const statusCode = isUpstreamError ? 502 : (error?.status || 500)
+    const errorType = isUpstreamError ? 'UPSTREAM_ERROR' : (error?.code || 'CHAT_ERROR')
     
     return res.status(statusCode).json({ 
-      ok: false,
-      error: errorMessage,
-      code: error?.code || 'CHAT_ERROR',
-      requestId
+      code: errorType,
+      type: error?.type || 'api_error',
+      message: error?.message || 'Chat processing failed',
+      request_id: error?.request_id || requestId
     })
   }
 }

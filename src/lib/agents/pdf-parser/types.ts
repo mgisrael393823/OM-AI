@@ -51,6 +51,7 @@ export interface ParseOptions {
   chunkSize: number;
   preserveFormatting: boolean;
   maxPages?: number;
+  useCanvas?: boolean;
 }
 
 export interface ParseResult {

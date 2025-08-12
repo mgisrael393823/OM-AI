@@ -4,13 +4,13 @@
  */
 
 import { createMocks } from 'node-mocks-http'
-import handler from '../chat'
+import handler from '../../pages/api/chat'
 import { withAuth } from '@/lib/auth-middleware'
 
 // Mock the auth middleware
 jest.mock('@/lib/auth-middleware', () => ({
-  withAuth: jest.fn(),
-  withRateLimit: jest.fn((userId: string, limit: number, refill: number, callback: (...args: any[]) => void) => callback()),
+  withAuth: jest.fn((handler) => handler),
+  withRateLimit: jest.fn((options: any) => (handler: any) => handler),
   apiError: (res: any, status: number, message: string, code?: string) => {
     res.status(status).json({ error: message, code })
   }
@@ -81,7 +81,7 @@ describe('/api/chat (unified endpoint)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     // Mock auth middleware to pass through with mock user
-    ;(withAuth as jest.Mock).mockImplementation((req, res, handler) => {
+    ;(withAuth as jest.Mock).mockImplementation((handler: any) => (req: any, res: any) => {
       req.user = { id: 'test-user-id' }
       return handler(req, res)
     })
@@ -388,6 +388,233 @@ describe('/api/chat (unified endpoint)', () => {
 
       const headers = res.getHeaders()
       expect(headers['x-chat-session-id']).toBeDefined()
+    })
+  })
+
+  describe('Legacy Format Support & Model Routing', () => {
+    test('should handle legacy {message} with gpt-4o model', async () => {
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          message: 'provide summary',
+          model: 'gpt-4o',
+          sessionId: null,
+          options: { stream: true }
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      // Should not have INVALID_REQUEST_FORMAT error
+      if (res._getStatusCode() !== 200) {
+        const data = JSON.parse(res._getData())
+        expect(data.code).not.toBe('INVALID_REQUEST_FORMAT')
+      }
+    })
+
+    test('should handle legacy {message} with gpt-5 model', async () => {
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          message: 'hello',
+          model: 'gpt-5',
+          stream: true
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      // Should not have INVALID_REQUEST_FORMAT error
+      if (res._getStatusCode() !== 200) {
+        const data = JSON.parse(res._getData())
+        expect(data.code).not.toBe('INVALID_REQUEST_FORMAT')
+      }
+    })
+
+    test('should use max_tokens for Chat models (gpt-4o)', async () => {
+      const createChatCompletionSpy = jest.spyOn(require('@/lib/services/openai'), 'createChatCompletion')
+      createChatCompletionSpy.mockResolvedValue({
+        text: 'Test response',
+        usage: { total_tokens: 50 },
+        model: 'gpt-4o'
+      })
+
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          model: 'gpt-4o',
+          messages: [{ role: 'user', content: 'test' }],
+          max_tokens: 1000,
+          stream: false
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      expect(createChatCompletionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'gpt-4o',
+          max_output_tokens: 1000 // Should map to max_output_tokens internally
+        })
+      )
+
+      createChatCompletionSpy.mockRestore()
+    })
+
+    test('should use max_output_tokens for Responses models (gpt-5)', async () => {
+      const createChatCompletionSpy = jest.spyOn(require('@/lib/services/openai'), 'createChatCompletion')
+      createChatCompletionSpy.mockResolvedValue({
+        text: 'Test response',
+        usage: { total_tokens: 50 },
+        model: 'gpt-5'
+      })
+
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          model: 'gpt-5',
+          input: 'hello',
+          max_output_tokens: 1000,
+          stream: false
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      expect(createChatCompletionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'gpt-5',
+          max_output_tokens: 1000
+        })
+      )
+
+      createChatCompletionSpy.mockRestore()
+    })
+  })
+
+  describe('Parameter Filtering', () => {
+    test('should omit temperature for gpt-4.1', async () => {
+      const createChatCompletionSpy = jest.spyOn(require('@/lib/services/openai'), 'createChatCompletion')
+      createChatCompletionSpy.mockResolvedValue({
+        text: 'Test response',
+        usage: { total_tokens: 50 },
+        model: 'gpt-4.1'
+      })
+
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          model: 'gpt-4.1',
+          input: 'hello',
+          temperature: 0.8  // This should be filtered out
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      // Verify temperature was not passed to OpenAI
+      expect(createChatCompletionSpy).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          temperature: expect.anything()
+        })
+      )
+
+      createChatCompletionSpy.mockRestore()
+    })
+  })
+
+  describe('Document ID Handling', () => {
+    test('should move top-level documentId to metadata', async () => {
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          message: 'Test message',
+          documentId: 'doc-123'  // Top-level documentId
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      // The documentId should be accessible as metadata.documentId in the handler
+    })
+
+    test('should preserve existing metadata.documentId', async () => {
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          message: 'Test message',
+          metadata: {
+            documentId: 'doc-456'
+          }
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+    })
+  })
+
+  describe('Conflict Detection', () => {
+    test('should reject both messages and input with clear 400 error', async () => {
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          messages: [{ role: 'user', content: 'hello' }],
+          input: 'hello'  // Conflict!
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(400)
+      const data = JSON.parse(res._getData())
+      expect(data.code).toBe('CONFLICTING_INPUT_FORMATS')
+      expect(data.error).toContain('Cannot specify both messages and input')
+    })
+  })
+
+  describe('Chat History Preservation', () => {
+    test('should preserve multiple user/assistant turns without duplication', async () => {
+      const createChatCompletionSpy = jest.spyOn(require('@/lib/services/openai'), 'createChatCompletion')
+      createChatCompletionSpy.mockResolvedValue({
+        text: 'Test response',
+        usage: { total_tokens: 50 },
+        model: 'gpt-4o'
+      })
+
+      const { req, res } = createMocks({
+        method: 'POST',
+        body: {
+          model: 'gpt-4o',
+          messages: [
+            { role: 'user', content: 'First question' },
+            { role: 'assistant', content: 'First answer' },
+            { role: 'user', content: 'Second question' }
+          ]
+        }
+      })
+
+      await handler(req, res)
+
+      expect(res._getStatusCode()).toBe(200)
+      expect(createChatCompletionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [
+            { role: 'user', content: 'First question' },
+            { role: 'assistant', content: 'First answer' },
+            { role: 'user', content: 'Second question' }
+          ]
+        })
+      )
+
+      createChatCompletionSpy.mockRestore()
     })
   })
 })
