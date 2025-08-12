@@ -18,6 +18,39 @@ import { safeLoadCanvas, isCanvasAvailable } from '@/lib/canvas-loader';
 
 const ENABLE_PDF_OCR = process.env.ENABLE_PDF_OCR === 'true';
 
+// Module-level singleton for pdf.js
+let pdfjsLib: any = null;
+let workerInitialized = false;
+
+/**
+ * Initialize pdf.js once and cache it
+ */
+async function initPdfJs(): Promise<any> {
+  if (pdfjsLib && workerInitialized) {
+    return pdfjsLib;
+  }
+  
+  try {
+    pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
+    if (!workerInitialized) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
+      workerInitialized = true;
+      console.log('[PDFParserAgent] Initialized pdfjs-dist legacy build (worker configured once)');
+    }
+  } catch {
+    // @ts-expect-error - pdfjs legacy build types don't match runtime default export
+    const mod = await import('pdfjs-dist/build/pdf.js');
+    pdfjsLib = (mod as any).default ?? mod;
+    if (!workerInitialized) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.js';
+      workerInitialized = true;
+      console.log('[PDFParserAgent] Initialized pdfjs-dist standard build (worker configured once)');
+    }
+  }
+  
+  return pdfjsLib;
+}
+
 // Ensures we return a plain Uint8Array (never a Node Buffer)
 function toPlainUint8Array(d: ArrayBuffer | Uint8Array | Buffer): Uint8Array {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -49,85 +82,74 @@ export class PDFParserAgent implements IPDFParserAgent {
     const startTime = Date.now();
     const config = { ...this.defaultOptions, ...options };
     
-    console.log('[OM-AI] PDFParserAgent.parseBuffer called, buffer size:', buffer.length);
+    console.log('[PDFParserAgent] Starting parse, buffer size:', buffer.length, 'useCanvas:', config.useCanvas);
     
     try {
       // Convert to plain Uint8Array for pdfjs-dist
       const data = toPlainUint8Array(buffer);
       
-      // Debug logging
-      console.log('[OM-AI] Converted to Uint8Array, size:', data.length, 
-        'is Uint8Array:', data instanceof Uint8Array,
-        'Buffer.isBuffer(data):', typeof Buffer !== 'undefined' && Buffer.isBuffer ? Buffer.isBuffer(data) : false);
+      // Initialize pdf.js with singleton
+      const pdfjsLib = await initPdfJs();
       
-      // Load PDF with pdfjs-dist using dynamic import
-      let pdfjsLib: any;
-      try {
-        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
-        // Set full module path for worker
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
-        console.log('[OM-AI] Loaded pdfjs-dist legacy build (worker configured)');
-      } catch {
-        // @ts-expect-error - pdfjs legacy build types don't match runtime default export
-        const mod = await import('pdfjs-dist/build/pdf.js');
-        pdfjsLib = (mod as any).default ?? mod;
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.js';
-        console.log('[OM-AI] Loaded pdfjs-dist standard build (worker configured)');
-      }
+      // Configure pdf.js for text-only mode when canvas is disabled
+      const loadingOptions: any = {
+        data,
+        // Text-only optimizations when USE_CANVAS=false
+        disableFontFace: !config.useCanvas,  // Skip font loading in text-only mode
+        isEvalSupported: false,               // Disable eval for security
+        useSystemFonts: false,                // Don't use system fonts
+        useWorkerFetch: false,                // Avoid worker font fetching
+        standardFontDataUrl: null,            // Skip standard font loading
+        cMapUrl: null,                        // Skip character map loading
+        disableAutoFetch: true,               // Don't auto-fetch resources
+        disableStream: false,                 // Keep streaming for performance
+        verbosity: config.useCanvas ? 1 : 0   // Suppress warnings in text-only mode (0 = errors only)
+      };
       
-      const loadingTask = pdfjsLib.getDocument({ data });
+      console.log('[PDFParserAgent] Loading document with options:', {
+        disableFontFace: loadingOptions.disableFontFace,
+        verbosity: loadingOptions.verbosity,
+        mode: config.useCanvas ? 'enhanced' : 'text-only'
+      });
+      
+      const loadingTask = pdfjsLib.getDocument(loadingOptions);
       const pdfDocument = await loadingTask.promise;
-      console.log('[OM-AI] pdf pages:', pdfDocument.numPages);
+      console.log('[PDFParserAgent] PDF loaded, pages:', pdfDocument.numPages);
       
       // Extract basic PDF structure for metadata
       const { items, metadata } = await this.extractPDFItems(buffer);
       metadata.pages = pdfDocument.numPages;
       
-      // Process ALL pages
+      // Process pages concurrently with controlled concurrency
+      const CONCURRENT_PAGES = 5; // Safe concurrency limit
+      const numPages = Math.min(pdfDocument.numPages, config.maxPages || pdfDocument.numPages);
       const pages: ParsedPage[] = [];
       let hasAnyText = false;
       
+      console.log(`[PDFParserAgent] Processing ${numPages} pages with concurrency of ${CONCURRENT_PAGES}`);
+      
       try {
-        for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
-          const page = await pdfDocument.getPage(pageNumber);
-          const textContent = await page.getTextContent();
+        // Process pages in concurrent batches
+        for (let i = 0; i < numPages; i += CONCURRENT_PAGES) {
+          const batchStart = i;
+          const batchEnd = Math.min(i + CONCURRENT_PAGES, numPages);
+          const batchPromises: Promise<ParsedPage>[] = [];
           
-          let pageText = textContent.items
-            ?.map((item: any) => (typeof item?.str === 'string' ? item.str : ''))
-            .join(' ')
-            .trim() ?? '';
-          
-          // OCR fallback only when page text is empty and canvas is available
-          if (!pageText && config.performOCR && ENABLE_PDF_OCR && this.ocrProcessor) {
-            try {
-              // Check if canvas is available before attempting OCR
-              if (!isCanvasAvailable()) {
-                console.warn(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas disabled (USE_CANVAS=false)`);
-              } else {
-                const canvas = await safeLoadCanvas();
-                if (!canvas) {
-                  console.warn(`[PDFParserAgent] OCR requested for page ${pageNumber} but no canvas package available`);
-                } else {
-                  await this.ocrProcessor.initialize();
-                  // OCR processing would go here when fully implemented
-                  console.debug(`[PDFParserAgent] Canvas available for OCR on page ${pageNumber}`);
-                }
-              }
-            } catch (ocrError) {
-              console.warn(`OCR failed for page ${pageNumber}:`, ocrError);
-            }
+          // Create batch of page processing promises
+          for (let pageNumber = batchStart + 1; pageNumber <= batchEnd; pageNumber++) {
+            batchPromises.push(this.processPage(pdfDocument, pageNumber, config));
           }
           
-          if (pageText) hasAnyText = true;
+          // Wait for batch to complete
+          const batchResults = await Promise.all(batchPromises);
           
-          pages.push({
-            pageNumber,
-            text: pageText,
-            structuredText: [],
-            tables: [],
-            isImageBased: !pageText,
-            ocrText: undefined
-          });
+          // Add results in order
+          for (const page of batchResults) {
+            if (page.text) hasAnyText = true;
+            pages.push(page);
+          }
+          
+          console.log(`[PDFParserAgent] Processed batch ${batchStart + 1}-${batchEnd} of ${numPages}`);
         }
       } finally {
         // Cleanup
@@ -137,7 +159,7 @@ export class PDFParserAgent implements IPDFParserAgent {
       // Check if we got any text at all
       if (!hasAnyText) {
         const err = new Error('No extractable text in PDF (image-only).');
-        // @ts-expect-error - intentional runtime mismatch; see pdfjs import note
+        // @ts-expect-error - intentional runtime mismatch
         err.code = 'NO_PDF_TEXT';
         throw err;
       }
@@ -153,16 +175,17 @@ export class PDFParserAgent implements IPDFParserAgent {
 
       // Create text chunks for embedding/search with optimized size for better granularity
       const fullText = allText.join('\n\n');
-      const chunks = this.chunkText(fullText, 800, pages); // Use 800 tokens for better granularity instead of config.chunkSize
+      const chunks = this.chunkText(fullText, 800, pages); // Use 800 tokens for better granularity
 
       if (chunks.length === 0) {
         const err = new Error('Document processing produced no chunks.');
-        // @ts-expect-error - intentional runtime mismatch; see pdfjs import note
+        // @ts-expect-error - intentional runtime mismatch
         err.code = 'NO_CHUNKS';
         throw err;
       }
 
       const processingTime = Date.now() - startTime;
+      console.log(`[PDFParserAgent] Completed in ${processingTime}ms (${Math.round(processingTime / numPages)}ms per page)`);
 
       return {
         success: true,
@@ -175,7 +198,7 @@ export class PDFParserAgent implements IPDFParserAgent {
       };
 
     } catch (error) {
-      console.error('[OM-AI] PDFParserAgent.parseBuffer error:', error);
+      console.error('[PDFParserAgent] Parse error:', error);
       return {
         success: false,
         metadata: {
@@ -188,6 +211,68 @@ export class PDFParserAgent implements IPDFParserAgent {
         chunks: [],
         processingTime: Date.now() - startTime,
         error: error instanceof Error ? error.message : 'Unknown parsing error'
+      };
+    }
+  }
+
+  /**
+   * Process a single page asynchronously
+   */
+  private async processPage(
+    pdfDocument: any,
+    pageNumber: number,
+    config: ParseOptions
+  ): Promise<ParsedPage> {
+    try {
+      const page = await pdfDocument.getPage(pageNumber);
+      
+      // Optimized text content extraction options
+      const textContent = await page.getTextContent({
+        normalizeWhitespace: false,      // Keep original spacing for accuracy
+        disableCombineTextItems: false,  // Allow combining for speed
+        includeMarkedContent: false      // Skip marked content parsing
+      });
+      
+      let pageText = textContent.items
+        ?.map((item: any) => (typeof item?.str === 'string' ? item.str : ''))
+        .join(' ')
+        .trim() ?? '';
+      
+      // OCR fallback only when page text is empty and canvas is available
+      if (!pageText && config.performOCR && ENABLE_PDF_OCR && this.ocrProcessor) {
+        try {
+          if (!isCanvasAvailable()) {
+            console.debug(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas disabled`);
+          } else {
+            const canvas = await safeLoadCanvas();
+            if (canvas) {
+              await this.ocrProcessor.initialize();
+              // OCR processing would go here when fully implemented
+              console.debug(`[PDFParserAgent] Canvas available for OCR on page ${pageNumber}`);
+            }
+          }
+        } catch (ocrError) {
+          console.warn(`OCR failed for page ${pageNumber}:`, ocrError);
+        }
+      }
+      
+      return {
+        pageNumber,
+        text: pageText,
+        structuredText: [],
+        tables: [],
+        isImageBased: !pageText,
+        ocrText: undefined
+      };
+    } catch (error) {
+      console.error(`[PDFParserAgent] Error processing page ${pageNumber}:`, error);
+      return {
+        pageNumber,
+        text: '',
+        structuredText: [],
+        tables: [],
+        isImageBased: true,
+        ocrText: undefined
       };
     }
   }
@@ -249,26 +334,25 @@ export class PDFParserAgent implements IPDFParserAgent {
     config: ParseOptions
   ): Promise<ParsedPage> {
     try {
+      const { extractPageText } = await import('@/lib/pdf/extractPageText');
       const page = await pdfDocument.getPage(pageNumber);
       
-      // Always use unified extractor
-      const { extractPageText } = await import('@/lib/pdf/extractPageText');
-      const pageText = await extractPageText(page);
-      
-      // For structured text and table extraction, we'll use a simple approach
-      const structuredText: ParsedText[] = [];
-      const tables: ParsedTable[] = [];
+      // Use unified extraction (falls back to tesseract for images)
+      const text = await extractPageText(page, {
+        textThreshold: 50,
+        pageNumber
+      });
       
       return {
         pageNumber,
-        text: pageText,
-        structuredText,
-        tables,
-        isImageBased: false,
+        text,
+        structuredText: [],
+        tables: [],
+        isImageBased: !text,
         ocrText: undefined
       };
     } catch (error) {
-      console.warn(`Failed to extract page ${pageNumber}:`, error);
+      console.error(`Error processing page ${pageNumber}:`, error);
       return {
         pageNumber,
         text: '',
@@ -279,240 +363,189 @@ export class PDFParserAgent implements IPDFParserAgent {
       };
     }
   }
-  
-  // Keep original processPage for backward compatibility
-  private async processPage(
-    pageNumber: number, 
-    items: PdfReaderItem[], 
-    buffer: Buffer, 
+
+  private async processPageWithItems(
+    pageItems: PdfReaderItem[],
+    pageNumber: number,
     config: ParseOptions
   ): Promise<ParsedPage> {
-    // Convert items to structured text
-    const structuredText = this.convertToStructuredText(items, pageNumber);
-    
-    // Extract plain text
-    const text = structuredText
+    const sortedItems = this.sortItems(pageItems);
+    const text = sortedItems
+      .filter(item => item.text)
       .map(item => item.text)
-      .join(config.preserveFormatting ? ' ' : '\n');
+      .join(' ')
+      .trim();
 
-    // Extract tables from structured text
-    const tables = config.extractTables ? this.extractTables(structuredText) : [];
+    const tables = config.extractTables ? 
+      this.extractTablesFromItems(sortedItems, pageNumber) : [];
 
-    // Determine if page is image-based (low text density)
-    const isImageBased = this.isImageBasedPage(structuredText);
-
-    // Perform OCR if needed
-    let ocrText: string | undefined;
-    if (config.performOCR && isImageBased) {
-      try {
-        ocrText = await this.performOCR(buffer, pageNumber);
-      } catch (error) {
-        console.warn(`OCR failed for page ${pageNumber}:`, error);
-      }
-    }
+    const structuredText = config.preserveFormatting ?
+      this.extractStructuredText(sortedItems) : [];
 
     return {
       pageNumber,
-      text: ocrText || text,
+      text,
       structuredText,
       tables,
-      isImageBased,
-      ocrText
+      isImageBased: !text && pageItems.length > 0,
+      ocrText: undefined
     };
   }
 
-  private convertToStructuredText(items: PdfReaderItem[], pageNumber: number): ParsedText[] {
-    return items
-      .filter(item => item.text && item.x !== undefined && item.y !== undefined)
-      .map(item => ({
-        text: item.text as string,
-        x: item.x as number,
-        y: item.y as number,
-        width: item.w || 0,
-        height: item.h || 0,
-        page: pageNumber
-      }))
-      .sort((a, b) => {
-        // Sort by Y position (top to bottom), then X position (left to right)
-        if (Math.abs(a.y - b.y) < 2) { // Same line tolerance
-          return a.x - b.x;
-        }
-        return a.y - b.y;
-      });
+  private sortItems(items: PdfReaderItem[]): PdfReaderItem[] {
+    return [...items].sort((a, b) => {
+      // @ts-expect-error - PdfReaderItem type is not fully typed
+      const yDiff = (a.y || 0) - (b.y || 0);
+      if (Math.abs(yDiff) > 1) return yDiff;
+      // @ts-expect-error - PdfReaderItem type is not fully typed
+      return (a.x || 0) - (b.x || 0);
+    });
   }
 
-
-  private groupItemsByRows(items: ParsedText[]): ParsedText[][] {
-    const rows: ParsedText[][] = [];
-    let currentRow: ParsedText[] = [];
-    let lastY = -1;
-    const rowTolerance = 3; // Pixels tolerance for same row
+  private extractStructuredText(items: PdfReaderItem[]): ParsedText[] {
+    const structured: ParsedText[] = [];
+    let currentSection: ParsedText | null = null;
 
     for (const item of items) {
-      if (lastY === -1 || Math.abs(item.y - lastY) <= rowTolerance) {
-        // Same row
-        currentRow.push(item);
-      } else {
-        // New row
-        if (currentRow.length > 0) {
-          rows.push([...currentRow]);
+      if (!item.text) continue;
+
+      const isHeading = this.isHeading(item);
+      const isBullet = this.isBulletPoint(item.text);
+
+      if (isHeading) {
+        if (currentSection) {
+          structured.push(currentSection);
         }
-        currentRow = [item];
+        currentSection = {
+          type: 'heading',
+          content: item.text.trim(),
+          // @ts-expect-error - PdfReaderItem type is not fully typed
+          metadata: { fontSize: item.height, x: item.x, y: item.y }
+        };
+      } else if (isBullet) {
+        if (currentSection && currentSection.type === 'list') {
+          currentSection.content += '\n' + item.text.trim();
+        } else {
+          if (currentSection) {
+            structured.push(currentSection);
+          }
+          currentSection = {
+            type: 'list',
+            content: item.text.trim(),
+            // @ts-expect-error - PdfReaderItem type is not fully typed
+            metadata: { x: item.x, y: item.y }
+          };
+        }
+      } else {
+        if (currentSection && currentSection.type === 'paragraph') {
+          currentSection.content += ' ' + item.text.trim();
+        } else {
+          if (currentSection) {
+            structured.push(currentSection);
+          }
+          currentSection = {
+            type: 'paragraph',
+            content: item.text.trim(),
+            // @ts-expect-error - PdfReaderItem type is not fully typed
+            metadata: { x: item.x, y: item.y }
+          };
+        }
       }
-      lastY = item.y;
     }
 
-    // Add final row
-    if (currentRow.length > 0) {
-      rows.push(currentRow);
+    if (currentSection) {
+      structured.push(currentSection);
     }
 
+    return structured;
+  }
+
+  private isHeading(item: PdfReaderItem): boolean {
+    // @ts-expect-error - PdfReaderItem type is not fully typed
+    const fontSize = item.height || 0;
+    const text = item.text || '';
+    
+    return (
+      fontSize > 14 ||
+      /^[A-Z\s]{3,}$/.test(text) ||
+      /^(SECTION|ARTICLE|CHAPTER|APPENDIX)\s+/i.test(text)
+    );
+  }
+
+  private isBulletPoint(text: string): boolean {
+    return /^[•◦▪▫◘○●□■\-\*]\s+/.test(text);
+  }
+
+  private extractTablesFromItems(items: PdfReaderItem[], pageNumber: number): ParsedTable[] {
+    const tables: ParsedTable[] = [];
+    const analyzer = new PDFAnalyzer();
+    
+    // Group items by vertical position (rows)
+    const rows = this.groupItemsIntoRows(items);
+    
+    // Detect table-like structures
+    const tableRegions = analyzer.detectTableRegions(rows);
+    
+    for (const region of tableRegions) {
+      const table = this.parseTableRegion(region, pageNumber);
+      if (table && table.rows.length > 0) {
+        tables.push(table);
+      }
+    }
+    
+    return tables;
+  }
+
+  private groupItemsIntoRows(items: PdfReaderItem[]): Map<number, PdfReaderItem[]> {
+    const rows = new Map<number, PdfReaderItem[]>();
+    const threshold = 2; // Y-position threshold for same row
+    
+    for (const item of items) {
+      // @ts-expect-error - PdfReaderItem type is not fully typed
+      const y = Math.round(item.y || 0);
+      let foundRow = false;
+      
+      // Check if this item belongs to an existing row
+      for (const [rowY, rowItems] of rows) {
+        if (Math.abs(rowY - y) <= threshold) {
+          rowItems.push(item);
+          foundRow = true;
+          break;
+        }
+      }
+      
+      if (!foundRow) {
+        rows.set(y, [item]);
+      }
+    }
+    
     return rows;
   }
 
-  private identifyTableGroups(rows: ParsedText[][]): ParsedText[][][] {
-    const tableGroups: ParsedText[][][] = [];
-    let currentTable: ParsedText[][] = [];
-    
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      
-      // Check if this row could be part of a table (multiple aligned items)
-      if (row.length >= 2 && this.isTableRow(row)) {
-        currentTable.push(row);
-      } else {
-        // End current table if it has enough rows
-        if (currentTable.length >= 2) {
-          tableGroups.push([...currentTable]);
-        }
-        currentTable = [];
-      }
-    }
-
-    // Add final table
-    if (currentTable.length >= 2) {
-      tableGroups.push(currentTable);
-    }
-
-    return tableGroups;
-  }
-
-  private isTableRow(row: ParsedText[]): boolean {
-    if (row.length < 2) return false;
-    
-    // Check for consistent spacing between columns
-    const gaps: number[] = [];
-    for (let i = 1; i < row.length; i++) {
-      gaps.push(row[i].x - (row[i-1].x + row[i-1].width));
-    }
-    
-    // Tables should have relatively consistent column gaps
-    const avgGap = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
-    const variance = gaps.reduce((sum, gap) => sum + Math.pow(gap - avgGap, 2), 0) / gaps.length;
-    
-    return variance < 100; // Low variance indicates aligned columns
-  }
-
-  private buildTableFromGroup(group: ParsedText[][]): ParsedTable | null {
-    if (group.length < 2) return null;
-
-    const firstRow = group[0];
-    const page = firstRow[0]?.page || 1;
-    
-    // Calculate table bounds
-    const allItems = group.flat();
-    const minX = Math.min(...allItems.map(item => item.x));
-    const maxX = Math.max(...allItems.map(item => item.x + item.width));
-    const minY = Math.min(...allItems.map(item => item.y));
-    const maxY = Math.max(...allItems.map(item => item.y + item.height));
-
-    // Extract table data
-    const rows: string[][] = group.map(row => 
-      row.map(item => item.text.trim()).filter(text => text.length > 0)
-    );
-
-    // First row might be headers
-    const headers = rows[0];
-    const dataRows = rows.slice(1);
-
-    return {
-      page,
-      rows: dataRows,
-      headers,
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY
-    };
-  }
-
-  private isImageBasedPage(items: ParsedText[]): boolean {
-    // Use PDF analyzer to detect if page appears to be image-based
-    const totalText = items.reduce((sum, item) => sum + item.text.length, 0);
-    const avgWordsPerItem = items.length > 0 ? totalText / items.length : 0;
-    
-    // Consider image-based if very low text density or fragmented text
-    return totalText < 50 || (avgWordsPerItem < 3 && items.length > 10);
-  }
-
-  async performOCR(buffer: Buffer, pageNumber: number): Promise<string> {
-    if (!this.ocrProcessor) {
-      throw new Error('OCR processor not initialized');
-    }
-
+  private parseTableRegion(region: any, pageNumber: number): ParsedTable | null {
     try {
-      // Try to use pdfjs-dist for better page extraction if available
-      let pdfjsLib: any;
-      try {
-        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js');
-      } catch {
-        // @ts-expect-error - pdfjs legacy build types don't match runtime default export
-        const mod = await import('pdfjs-dist/build/pdf.js');
-        pdfjsLib = (mod as any).default ?? mod;
-      }
+      const headers = region.headers || [];
+      const rows = region.rows || [];
       
-      // Set full module path for worker
-      if (pdfjsLib.GlobalWorkerOptions) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsLib === (await import('pdfjs-dist/legacy/build/pdf.js')).default 
-          ? 'pdfjs-dist/legacy/build/pdf.worker.js'
-          : 'pdfjs-dist/build/pdf.worker.js';
-      }
-      
-      try {
-        const { extractPageText } = await import('@/lib/pdf/extractPageText');
-        
-        // Convert Buffer to Uint8Array for pdfjs-dist
-        const data = toPlainUint8Array(buffer);
-        
-        // Load the PDF document
-        const loadingTask = pdfjsLib.getDocument({ data });
-        const pdfDocument = await loadingTask.promise;
-        
-        // Get the specific page
-        const page = await pdfDocument.getPage(pageNumber);
-        
-        // Extract with OCR fallback
-        const text = await extractPageText(page, {
-          pageNumber
-        });
-        
-        // Cleanup
-        await pdfDocument.destroy();
-        
-        return TextProcessor.cleanText(text);
-      } catch (pdfjsError) {
-        // Don't try buffer-level OCR, just throw - page-level OCR is correct
-        throw pdfjsError;
-      }
+      return {
+        page: pageNumber,
+        headers,
+        rows,
+        // @ts-expect-error - region type is not fully typed
+        x: region.x || 0,
+        // @ts-expect-error - region type is not fully typed
+        y: region.y || 0,
+        // @ts-expect-error - region type is not fully typed
+        width: region.width || 0,
+        // @ts-expect-error - region type is not fully typed
+        height: region.height || 0
+      };
     } catch (error) {
-      console.error(`[OM-AI] OCR failed for page ${pageNumber}:`, error);
-      throw error;
+      console.warn('Failed to parse table region:', error);
+      return null;
     }
   }
-  
-  /**
-   * Text-only PDF processing - image rendering removed for simplified deployment
-   */
+
   // renderPageToImage method removed - text-only processing mode
 
   chunkText(text: string, chunkSize: number, pages: ParsedPage[] = []): TextChunk[] {
@@ -527,86 +560,32 @@ export class PDFParserAgent implements IPDFParserAgent {
         text: chunk.text,
         content: chunk.text, // Add content field for compatibility
         page: actualPage,
-        page_number: actualPage, // Add page_number field for database compatibility
+        page_number: actualPage, // Add page_number for compatibility
         chunk_index: index,
-        startY: 0,
-        endY: 0,
-        tokens: chunk.tokens,
-        type: chunk.type
+        type: chunk.type || 'text',
+        startY: chunk.metadata?.startY,
+        endY: chunk.metadata?.endY,
+        tokens: chunk.tokens || Math.ceil(chunk.text.length / 4)
       };
     });
   }
 
-  /**
-   * Calculate the page number for a chunk based on text matching
-   */
-  private calculatePageFromPosition(text: string, pages: ParsedPage[] = []): number {
-    // If no pages provided, default to 1
-    if (!pages || pages.length === 0) {
-      return 1;
-    }
-
-    // Try to match the chunk text with page content
-    // Use first 80 characters for matching to avoid partial matches
-    const searchText = text.slice(0, 80).trim();
+  private calculatePageFromPosition(text: string, pages: ParsedPage[]): number {
+    if (pages.length === 0) return 1;
     
+    // Find which page this text belongs to
     for (const page of pages) {
-      // Check if this page's text contains the chunk's beginning
-      if (page.text && page.text.includes(searchText)) {
-        return page.pageNumber || 1;
+      if (page.text && text.includes(page.text.substring(0, 100))) {
+        return page.pageNumber;
       }
     }
     
-    // If no match found, try a more lenient search with first 40 chars
-    const shortSearchText = text.slice(0, 40).trim();
-    for (const page of pages) {
-      if (page.text && page.text.includes(shortSearchText)) {
-        return page.pageNumber || 1;
-      }
-    }
-    
-    // Default to first page's number or 1
-    return pages[0]?.pageNumber || 1;
+    return 1; // Default to first page if not found
   }
 
-  /**
-   * Clean up resources
-   */
   async cleanup(): Promise<void> {
     if (this.ocrProcessor) {
-      await this.ocrProcessor.terminate();
-      this.ocrProcessor = null;
+      await this.ocrProcessor.cleanup();
     }
-  }
-
-  /**
-   * Enhanced table extraction using PDF analyzer
-   */
-  extractTables(items: ParsedText[]): ParsedTable[] {
-    // Check if items form table structure
-    if (!PDFAnalyzer.detectTableStructure(items)) {
-      return [];
-    }
-
-    return this.extractTablesFromStructure(items);
-  }
-
-  private extractTablesFromStructure(items: ParsedText[]): ParsedTable[] {
-    const tables: ParsedTable[] = [];
-    
-    // Group items by similar Y coordinates (table rows)
-    const rows = this.groupItemsByRows(items);
-    
-    // Find potential table structures
-    const tableGroups = this.identifyTableGroups(rows);
-    
-    for (const group of tableGroups) {
-      const table = this.buildTableFromGroup(group);
-      if (table && table.rows.length > 1) { // Must have at least header + 1 data row
-        tables.push(table);
-      }
-    }
-    
-    return tables;
   }
 }

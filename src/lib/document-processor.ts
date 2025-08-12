@@ -305,6 +305,19 @@ export async function processInMemory(
   const canvasStatus = getCanvasStatus()
   const actualCanvasUse = useCanvas && isCanvasAvailable()
   
+  // Suppress font warnings in text-only mode
+  let originalWarn: typeof console.warn | undefined
+  if (!actualCanvasUse) {
+    originalWarn = console.warn
+    const warnFilter = /TT:|font|glyph|CMap|undefined function/i
+    console.warn = (...args) => {
+      const msg = args.join(' ')
+      if (!warnFilter.test(msg)) {
+        originalWarn!.apply(console, args)
+      }
+    }
+  }
+  
   if (process.env.NODE_ENV === 'development') {
     console.log('[processInMemory] Canvas usage:', {
       requested: useCanvas,
@@ -317,7 +330,7 @@ export async function processInMemory(
     })
   } else {
     // Production: simpler logging
-    console.log('[processInMemory] Canvas usage:', actualCanvasUse ? 'enabled' : 'disabled (text-only)')
+    console.log('[processInMemory] Processing mode:', actualCanvasUse ? 'enhanced (with canvas)' : 'text-only (optimized)')
   }
   
   // Quick validation
@@ -367,6 +380,10 @@ export async function processInMemory(
 
   } catch (error) {
     await pdfParser.cleanup()
+    // Restore console.warn before throwing
+    if (originalWarn) {
+      console.warn = originalWarn
+    }
     throw error
   } finally {
     await pdfParser.cleanup()
@@ -384,6 +401,11 @@ export async function processInMemory(
     analysis = analysisResult.content || '[WARN] Analysis not available';
   } catch (e: any) {
     analysis = `[WARN] OpenAI analysis unavailable: ${e?.message || 'unknown error'}`
+  }
+
+  // Restore original console.warn if it was suppressed
+  if (originalWarn) {
+    console.warn = originalWarn
   }
 
   return {

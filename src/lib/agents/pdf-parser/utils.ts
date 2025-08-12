@@ -68,6 +68,10 @@ export class OCRProcessor {
       this.isInitialized = false;
     }
   }
+
+  async cleanup(): Promise<void> {
+    return this.terminate();
+  }
 }
 
 /**
