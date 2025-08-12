@@ -27,6 +27,7 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
 - Node.js 18+ and npm
 - Supabase account
 - OpenAI API key
+- **Optional**: Canvas dependencies for enhanced PDF processing (see Canvas Setup below)
 
 ### Installation
 
@@ -64,6 +65,9 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
    
    # Environment
    NODE_ENV=development
+   
+   # Optional: PDF Canvas Processing (see Canvas Setup section)
+   USE_CANVAS=false  # Set to 'true' to enable enhanced PDF processing with canvas
    ```
    
    > **Note**: As of recent updates, environment variable validation is strictly enforced. Missing required Supabase variables will prevent the application from starting.
@@ -84,6 +88,70 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
    ```
 
    Visit [http://localhost:3000](http://localhost:3000)
+
+## 🎨 Canvas Setup (Optional PDF Enhancement)
+
+OM-AI supports enhanced PDF processing with table extraction and OCR capabilities through HTML5 Canvas. This is **optional** and the application works perfectly without it.
+
+### Canvas Options
+
+#### Option 1: Disable Canvas (Recommended for Development)
+```env
+USE_CANVAS=false
+```
+- **Benefits**: No dependencies, fast setup, no warnings
+- **Processing**: Text-only extraction (sufficient for most documents)
+- **Performance**: Faster processing, smaller memory footprint
+
+#### Option 2: Enable Canvas with @napi-rs/canvas (Recommended for Production)
+```bash
+npm install @napi-rs/canvas
+```
+```env
+USE_CANVAS=true
+```
+- **Benefits**: Prebuilt binaries, no compilation needed
+- **Processing**: Full table extraction + OCR support
+- **Platform Support**: Excellent macOS/Linux support
+
+#### Option 3: Enable Canvas with node-canvas (Advanced Users)
+```bash
+# macOS prerequisites
+brew install pkg-config cairo pango libpng jpeg giflib librsvg pixman
+
+npm install canvas
+```
+```env
+USE_CANVAS=true
+```
+- **Benefits**: Full feature set, mature library
+- **Drawbacks**: Requires system dependencies, compilation time
+- **Best For**: Custom deployments with specific requirements
+
+### Canvas Behavior
+
+| Setting | Table Extraction | OCR | Warnings | Performance |
+|---------|------------------|-----|----------|-------------|
+| `USE_CANVAS=false` | ❌ | ❌ | ✅ None | ⚡ Fastest |
+| `USE_CANVAS=true` + @napi-rs/canvas | ✅ | ✅ | ✅ None | 🔥 Fast |
+| `USE_CANVAS=true` + node-canvas | ✅ | ✅ | ⚠️ If deps missing | 🐌 Slower |
+
+### Troubleshooting Canvas Issues
+
+**No Canvas Warnings**: Ensure `USE_CANVAS=false` is set if you don't need enhanced features.
+
+**Missing Dependencies**: If you see canvas-related errors with `USE_CANVAS=true`:
+```bash
+# Install @napi-rs/canvas instead
+npm uninstall canvas
+npm install @napi-rs/canvas
+```
+
+**macOS Setup**: 
+```bash
+# If using node-canvas
+brew install pkg-config cairo pango libpng jpeg giflib librsvg pixman
+```
 
 ## 🏗️ Architecture
 

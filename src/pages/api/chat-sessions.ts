@@ -3,13 +3,34 @@ import { createClient } from '@supabase/supabase-js'
 import { Database } from '@/types/database'
 import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
 
+// Dev-only rate limiting for logging (not blocking)
+const devRequestLog = new Map<string, number>()
+const DEV_LOG_WINDOW = 1000 // 1 second
+
+function shouldLogRequest(userId: string): boolean {
+  if (process.env.NODE_ENV !== 'development') return true
+  
+  const now = Date.now()
+  const lastLog = devRequestLog.get(userId)
+  
+  if (!lastLog || (now - lastLog) > DEV_LOG_WINDOW) {
+    devRequestLog.set(userId, now)
+    return true
+  }
+  
+  return false
+}
+
 async function chatSessionsHandler(req: AuthenticatedRequest, res: NextApiResponse) {
-  console.log('Chat Sessions API: Starting request', {
-    method: req.method,
-    userId: req.user.id,
-    userAgent: req.headers['user-agent'],
-    timestamp: new Date().toISOString()
-  })
+  // Rate-limited logging for development
+  if (shouldLogRequest(req.user.id)) {
+    console.log('Chat Sessions API: Starting request', {
+      method: req.method,
+      userId: req.user.id,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString()
+    })
+  }
 
   // Validate environment variables
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {

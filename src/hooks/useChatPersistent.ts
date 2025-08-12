@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { useAuth } from "@/contexts/AuthContext"
+import { useChatSessions, type ChatSession } from "@/hooks/useChatSessions"
 
 export interface Message {
   role: "user" | "assistant"
@@ -8,22 +9,14 @@ export interface Message {
   timestamp: Date
 }
 
-export interface ChatSession {
-  id: string
-  title: string | null
-  document_id: string | null
-  created_at: string
-  updated_at: string
-  messages?: Message[]
-}
-
 export function useChatPersistent(selectedDocumentId?: string | null) {
   const { user, session } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  
+  // Use centralized sessions hook
+  const { sessions: chatSessions, isLoading: isLoadingHistory, refresh: refreshSessions } = useChatSessions()
   
   // Store the selectedDocumentId in a ref to use in callbacks
   const selectedDocumentIdRef = useRef(selectedDocumentId)
@@ -36,29 +29,6 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     return session?.access_token
   }, [session])
 
-  // Load chat sessions
-  const loadChatSessions = useCallback(async () => {
-    if (!user || !session) return
-
-    setIsLoadingHistory(true)
-    try {
-      const response = await fetch(`${window.location.origin}/api/chat-sessions`, {
-        credentials: 'include',
-        headers: {
-          "Authorization": `Bearer ${getAuthToken()}`
-        }
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setChatSessions(data.sessions || [])
-      }
-    } catch (error) {
-      console.error("Error loading chat sessions:", error)
-    } finally {
-      setIsLoadingHistory(false)
-    }
-  }, [user, session, getAuthToken])
 
   // Load specific chat session
   const loadChatSession = useCallback(async (sessionId: string) => {
@@ -242,8 +212,10 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       }
       
 
-      // Reload chat sessions to update the list
-      await loadChatSessions()
+      // Refresh sessions if a new session was created
+      if (newSessionId && !currentSessionId) {
+        await refreshSessions()
+      }
     } catch (error) {
       console.error("Error sending message:", error)
       
@@ -258,7 +230,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     } finally {
       setIsLoading(false)
     }
-  }, [currentSessionId, isLoading, user, session, getAuthToken, loadChatSessions])
+  }, [currentSessionId, isLoading, user, session, getAuthToken, refreshSessions])
 
   // Create new chat session
   const createNewChat = useCallback(async () => {
@@ -280,8 +252,8 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       })
 
       if (response.ok) {
-        // Remove from local state
-        setChatSessions(prev => prev.filter(s => s.id !== sessionId))
+        // Refresh sessions through centralized hook
+        await refreshSessions()
         
         // If this was the current session, clear it
         if (currentSessionId === sessionId) {
@@ -292,7 +264,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     } catch (error) {
       console.error("Error deleting chat session:", error)
     }
-  }, [user, session, currentSessionId, getAuthToken])
+  }, [user, session, currentSessionId, getAuthToken, refreshSessions])
 
   // Rename chat session
   const renameChatSession = useCallback(async (sessionId: string, newTitle: string) => {
@@ -310,22 +282,14 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       })
 
       if (response.ok) {
-        // Update in local state
-        setChatSessions(prev => prev.map(s => 
-          s.id === sessionId ? { ...s, title: newTitle } : s
-        ))
+        // Refresh sessions through centralized hook
+        await refreshSessions()
       }
     } catch (error) {
       console.error("Error renaming chat session:", error)
     }
-  }, [user, session, getAuthToken])
+  }, [user, session, getAuthToken, refreshSessions])
 
-  // Load chat sessions on mount
-  useEffect(() => {
-    if (user && session) {
-      loadChatSessions()
-    }
-  }, [user, session, loadChatSessions])
 
   // This effect was for loading initial sessions, but we removed that functionality
   // since we're now using selectedDocumentId for document context instead
@@ -340,7 +304,6 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     createNewChat,
     loadChatSession,
     deleteChatSession,
-    renameChatSession,
-    loadChatSessions
+    renameChatSession
   }
 }

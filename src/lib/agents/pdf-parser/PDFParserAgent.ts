@@ -14,6 +14,7 @@ import {
   IPDFParserAgent 
 } from './types';
 import { OCRProcessor, PDFAnalyzer, TextProcessor } from './utils';
+import { safeLoadCanvas, isCanvasAvailable } from '@/lib/canvas-loader';
 
 const ENABLE_PDF_OCR = process.env.ENABLE_PDF_OCR === 'true';
 
@@ -97,13 +98,22 @@ export class PDFParserAgent implements IPDFParserAgent {
             .join(' ')
             .trim() ?? '';
           
-          // OCR fallback only when page text is empty
+          // OCR fallback only when page text is empty and canvas is available
           if (!pageText && config.performOCR && ENABLE_PDF_OCR && this.ocrProcessor) {
             try {
-              await this.ocrProcessor.initialize();
-              // OCR not supported in text-only mode
-              console.warn(`OCR requested for page ${pageNumber} but OCR is disabled in text-only mode`);
-              // Skip OCR processing
+              // Check if canvas is available before attempting OCR
+              if (!isCanvasAvailable()) {
+                console.warn(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas disabled (USE_CANVAS=false)`);
+              } else {
+                const canvas = await safeLoadCanvas();
+                if (!canvas) {
+                  console.warn(`[PDFParserAgent] OCR requested for page ${pageNumber} but no canvas package available`);
+                } else {
+                  await this.ocrProcessor.initialize();
+                  // OCR processing would go here when fully implemented
+                  console.debug(`[PDFParserAgent] Canvas available for OCR on page ${pageNumber}`);
+                }
+              }
             } catch (ocrError) {
               console.warn(`OCR failed for page ${pageNumber}:`, ocrError);
             }

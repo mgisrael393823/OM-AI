@@ -3,6 +3,10 @@ import formidable from 'formidable'
 import { promises as fs } from 'fs'
 import { withAuth, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { processInMemory } from '@/lib/document-processor'
+import { getCanvasStatus } from '@/lib/canvas-loader'
+
+// Check USE_CANVAS environment flag
+const USE_CANVAS = process.env.USE_CANVAS === 'true'
 
 export const config = { api: { bodyParser: false } }
 
@@ -11,6 +15,19 @@ async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiRespo
     res.setHeader('Allow', 'POST')
     return res.status(405).json({ error: 'Method Not Allowed' })
   }
+
+  // Log canvas status at request start
+  const canvasStatus = getCanvasStatus()
+  console.log('[process-pdf-memory] Starting PDF processing', {
+    userId: req.user.id,
+    canvasRequested: USE_CANVAS,
+    canvasStatus: {
+      enabled: canvasStatus.enabled,
+      available: canvasStatus.success,
+      package: canvasStatus.package,
+      mode: USE_CANVAS && canvasStatus.success ? 'enhanced' : 'text-only'
+    }
+  })
 
   try {
     const form = formidable({ multiples: false, maxFileSize: 25 * 1024 * 1024 })
@@ -28,7 +45,8 @@ async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiRespo
 
     const result = await processInMemory(buffer, {
       userId: req.user.id,
-      originalFilename
+      originalFilename,
+      useCanvas: USE_CANVAS
     })
 
     return res.status(200).json(result)
