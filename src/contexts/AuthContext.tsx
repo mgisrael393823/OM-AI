@@ -120,27 +120,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Proactive token refresh - check token every 2 minutes
+  // Silently refresh token at 50% of its lifetime
   useEffect(() => {
-    if (!session?.access_token) return
+    if (!session?.access_token || !session?.expires_at) return
 
-    const checkAndRefreshToken = async () => {
-      if (isTokenExpiringSoon()) {
-        console.log('🔄 Token expiring soon, proactively refreshing...')
-        try {
-          await refreshSession()
-        } catch (error) {
-          console.error('❌ Proactive token refresh failed:', error)
-        }
+    const now = Date.now()
+    const expirationTime = session.expires_at * 1000
+    const lifetime = expirationTime - now
+    const refreshDelay = Math.max(lifetime / 2, 0)
+
+    const timer = setTimeout(async () => {
+      try {
+        console.log('🔄 Refreshing session at 50% lifetime...')
+        await refreshSession()
+      } catch (error) {
+        console.error('❌ Silent token refresh failed:', error)
       }
-    }
+    }, refreshDelay)
 
-    // Check immediately
-    checkAndRefreshToken()
-
-    // Then check every 2 minutes
-    const interval = setInterval(checkAndRefreshToken, 2 * 60 * 1000)
-    return () => clearInterval(interval)
+    return () => clearTimeout(timer)
   }, [session?.access_token, session?.expires_at])
 
   // Handle loading state when profile changes - only clear loading when both user and profile ready
