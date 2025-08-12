@@ -342,6 +342,53 @@ npm run typecheck    # TypeScript validation
 npm run format       # Prettier formatting
 ```
 
+### Dev HMR Gotchas
+
+Hot Module Replacement (HMR) issues can occasionally cause full page reloads or 404 hot-update errors. Here are quick fixes and best practices:
+
+#### Quick Fixes
+
+```bash
+# Fresh start after HMR issues
+npm run clean && npm run dev
+
+# Use alternative port if port conflicts persist
+npm run dev:alt
+
+# Complete clean including all build artifacts
+npm run clean:full && npm run dev
+```
+
+#### Best Practices
+
+- **Avoid editing API routes during active development** - Changes to `pages/api/*` trigger server restarts that break HMR
+- **Use clean scripts after git operations** - Run `npm run dev:clean` after switching branches or merging
+- **Stop dev server before git operations** - Prevents file lock conflicts and stale cache states
+
+#### Troubleshooting
+
+| Issue | Symptoms | Solution |
+|-------|----------|----------|
+| **404 hot-update errors** | Missing `/_next/static/chunks/` requests | `npm run clean && npm run dev` |
+| **Full page reloads** | Components refresh entirely instead of hot updating | Check for recent API route edits, restart dev server |
+| **Port conflicts** | "Port 3000 is already in use" | `npm run dev:alt` or manually kill processes on port 3000 |
+| **Stale cache** | Changes not reflecting, old content showing | `npm run clean:full && npm run dev` |
+
+#### Port Management
+
+The dev server automatically frees port 3000 before starting. If you encounter persistent port issues:
+
+```bash
+# Check what's using port 3000
+lsof -ti:3000
+
+# Manual cleanup (automatic in npm run dev)
+kill -9 $(lsof -ti:3000)
+
+# Use dedicated development port
+npm run dev:alt  # Uses port 3001
+```
+
 ## 📊 Monitoring
 
 ### Health Checks
