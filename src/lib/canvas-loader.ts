@@ -197,5 +197,5 @@ export async function safeLoadCanvas(): Promise<CanvasAPI | null> {
   if (!USE_CANVAS) return NO_OP_CANVAS_API;
   
   const result = await loadCanvas();
-  return result.success ? result.api : NO_OP_CANVAS_API;
+  return result.success && result.api ? result.api : NO_OP_CANVAS_API;
 }
