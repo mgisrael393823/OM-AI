@@ -7,22 +7,42 @@ const screen = (global as any).screen || require('@testing-library/react').scree
 const fireEvent = (global as any).fireEvent || require('@testing-library/react').fireEvent  
 const waitFor = (global as any).waitFor || require('@testing-library/react').waitFor
 
-// Mock react-window
-jest.mock('react-window', () => ({
-  FixedSizeList: React.forwardRef(({ children, itemData, itemCount }: any, ref) => (
+// Mock react-window with named components to satisfy react/display-name rule
+const FixedSizeListMock = React.forwardRef<HTMLDivElement, any>(function FixedSizeListMock(
+  { children, itemData, itemCount }: any,
+  ref
+) {
+  return (
     <div data-testid="virtual-list" ref={ref}>
       {Array.from({ length: Math.min(itemCount || 0, 5) }).map((_, index) =>
-        typeof children === 'function' ? children({ index, style: {}, data: itemData }) : children
+        typeof children === 'function'
+          ? children({ index, style: {}, data: itemData })
+          : children
       )}
     </div>
-  )),
-  VariableSizeList: React.forwardRef(({ children, itemData, itemCount }: any, ref) => (
+  )
+})
+FixedSizeListMock.displayName = 'FixedSizeListMock'
+
+const VariableSizeListMock = React.forwardRef<HTMLDivElement, any>(function VariableSizeListMock(
+  { children, itemData, itemCount }: any,
+  ref
+) {
+  return (
     <div data-testid="variable-list" ref={ref}>
       {Array.from({ length: Math.min(itemCount || 0, 5) }).map((_, index) =>
-        typeof children === 'function' ? children({ index, style: {}, data: itemData }) : children
+        typeof children === 'function'
+          ? children({ index, style: {}, data: itemData })
+          : children
       )}
     </div>
-  )),
+  )
+})
+VariableSizeListMock.displayName = 'VariableSizeListMock'
+
+jest.mock('react-window', () => ({
+  FixedSizeList: FixedSizeListMock,
+  VariableSizeList: VariableSizeListMock,
 }))
 
 const mockSessions: ChatSession[] = [

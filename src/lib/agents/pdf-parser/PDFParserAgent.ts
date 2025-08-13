@@ -14,7 +14,6 @@ import {
   IPDFParserAgent 
 } from './types';
 import { OCRProcessor, PDFAnalyzer, TextProcessor } from './utils';
-import { safeLoadCanvas, isCanvasAvailable } from '@/lib/canvas-loader';
 
 const ENABLE_PDF_OCR = process.env.ENABLE_PDF_OCR === 'true';
 
@@ -240,19 +239,27 @@ export class PDFParserAgent implements IPDFParserAgent {
       
       // OCR fallback only when page text is empty and canvas is available
       if (!pageText && config.performOCR && ENABLE_PDF_OCR && this.ocrProcessor) {
-        try {
-          if (!isCanvasAvailable()) {
-            console.debug(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas disabled`);
-          } else {
-            const canvas = await safeLoadCanvas();
-            if (canvas) {
-              await this.ocrProcessor.initialize();
-              // OCR processing would go here when fully implemented
-              console.debug(`[PDFParserAgent] Canvas available for OCR on page ${pageNumber}`);
+        const USE_CANVAS = process.env.USE_CANVAS === 'true';
+        
+        if (!USE_CANVAS) {
+          console.debug(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas disabled`);
+        } else {
+          try {
+            const { isCanvasAvailable, safeLoadCanvas } = await import('@/lib/canvas-loader');
+            
+            if (!isCanvasAvailable()) {
+              console.debug(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas not available`);
+            } else {
+              const canvas = await safeLoadCanvas();
+              if (canvas) {
+                await this.ocrProcessor.initialize();
+                // OCR processing would go here when fully implemented
+                console.debug(`[PDFParserAgent] Canvas available for OCR on page ${pageNumber}`);
+              }
             }
+          } catch (error) {
+            console.warn(`[PDFParserAgent] Canvas loading failed for page ${pageNumber}:`, error);
           }
-        } catch (ocrError) {
-          console.warn(`OCR failed for page ${pageNumber}:`, ocrError);
         }
       }
       

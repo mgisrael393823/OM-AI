@@ -193,6 +193,36 @@ const nextConfig = {
       // Source maps handled by Sentry webpack plugin
     }
     
+    // Canvas package gating when disabled
+    if (process.env.USE_CANVAS !== 'true') {
+      // Server builds: Add to externals
+      if (isServer) {
+        const canvasExternals = {
+          'canvas': 'commonjs canvas',
+          '@napi-rs/canvas': 'commonjs @napi-rs/canvas'
+        };
+        
+        if (typeof config.externals === 'function') {
+          const originalExternals = config.externals;
+          config.externals = async (context, request) => {
+            if (canvasExternals[request]) return canvasExternals[request];
+            return await originalExternals(context, request);
+          };
+        } else {
+          config.externals = [...(config.externals || []), canvasExternals];
+        }
+      }
+      
+      // Client builds: Alias to false
+      if (!isServer) {
+        config.resolve.alias = {
+          ...config.resolve.alias,
+          'canvas': false,
+          '@napi-rs/canvas': false
+        };
+      }
+    }
+    
     return config;
   },
   

@@ -3,7 +3,6 @@ import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 import { openAIService } from '@/lib/services/openai'
 import { transientStore } from '@/lib/transient-store'
-import { getCanvasStatus, isCanvasAvailable } from '@/lib/canvas-loader'
 import type { Database } from '@/types/database'
 
 type DocInsert = Database["public"]["Tables"]["documents"]["Insert"]
@@ -106,7 +105,8 @@ export async function processUploadedDocument(
     try {
       // Check actual canvas availability for uploads
       const requestedCanvas = process.env.USE_CANVAS !== 'false'
-      const actualCanvasUse = requestedCanvas && isCanvasAvailable()
+      const USE_CANVAS = process.env.USE_CANVAS === 'true'
+      const actualCanvasUse = requestedCanvas && USE_CANVAS
       
       parseResult = await pdfParser.parseBuffer(fileBuffer, {
         extractTables: actualCanvasUse,
@@ -305,8 +305,23 @@ export async function processInMemory(
   const fileBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
   
   // Enhanced canvas usage logging
-  const canvasStatus = getCanvasStatus()
-  const actualCanvasUse = useCanvas && isCanvasAvailable()
+  const USE_CANVAS = process.env.USE_CANVAS === 'true'
+  let canvasStatus: any = { available: false, reason: 'Canvas disabled via USE_CANVAS environment variable' }
+  
+  if (USE_CANVAS) {
+    try {
+      const { getCanvasStatus, isCanvasAvailable } = await import('@/lib/canvas-loader')
+      canvasStatus = getCanvasStatus()
+      const actualCanvasUse = useCanvas && isCanvasAvailable()
+    } catch (error) {
+      console.warn('[document-processor] Failed to load canvas loader:', error)
+      canvasStatus = { available: false, reason: 'Canvas loader failed to import' }
+    }
+  } else {
+    console.log('[document-processor] Canvas disabled, using text-only processing')
+  }
+  
+  const actualCanvasUse = useCanvas && USE_CANVAS
   
   // Suppress font warnings in text-only mode
   let originalWarn: typeof console.warn | undefined

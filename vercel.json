@@ -1,5 +1,6 @@
 {
   "framework": "nextjs",
+  "installCommand": "pnpm install --frozen-lockfile",
   "build": {
     "env": {
       "VERCEL_AUTO_POLLUTE": "1"
