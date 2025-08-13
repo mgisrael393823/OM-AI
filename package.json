@@ -2,6 +2,10 @@
   "name": "om-intel-chat",
   "version": "2.2.1",
   "private": true,
+  "packageManager": "pnpm@10.5.2",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "_comment": "NODE_OPTIONS='--no-deprecation' suppresses punycode DEP0040 from dependencies tr46/uri-js. Remove when deps updated.",
     "dev:port": "kill -9 $(lsof -ti:3000) 2>/dev/null || true",
@@ -23,7 +27,8 @@
     "clean:full": "npm run clean && rm -rf out && rm -rf build",
     "clean:all": "pnpm run clean && rm -rf node_modules && pnpm install",
     "clean:lockfiles": "rm -f package-lock.json yarn.lock && pnpm install",
-    "clear-cache": "rm -rf .next/cache && rm -rf node_modules/.cache/webpack"
+    "clear-cache": "rm -rf .next/cache && rm -rf node_modules/.cache/webpack",
+    "prepare": "corepack enable || true"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -68,7 +73,6 @@
     "@types/react-window": "^1.8.8",
     "@types/uuid": "^10.0.0",
     "@use-gesture/react": "^10.3.1",
-    "canvas": "^2.11.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.0.4",
@@ -107,7 +111,8 @@
     "zod": "^3.25.76"
   },
   "optionalDependencies": {
-    "@napi-rs/canvas": "^0.1.77"
+    "@napi-rs/canvas": "^0.1.77",
+    "canvas": "^2.11.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

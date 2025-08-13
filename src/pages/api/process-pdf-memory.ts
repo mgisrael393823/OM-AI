@@ -3,7 +3,6 @@ import formidable from 'formidable'
 import { promises as fs } from 'fs'
 import { withAuth, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { processInMemory } from '@/lib/document-processor'
-import { getCanvasStatus } from '@/lib/canvas-loader'
 
 // Check USE_CANVAS environment flag
 const USE_CANVAS = process.env.USE_CANVAS === 'true'
@@ -17,15 +16,27 @@ async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiRespo
   }
 
   // Log canvas status at request start
-  const canvasStatus = getCanvasStatus()
+  let canvasStatus: any = { available: false, reason: 'Canvas disabled' }
+  
+  if (USE_CANVAS) {
+    try {
+      const { getCanvasStatus } = await import('@/lib/canvas-loader')
+      canvasStatus = getCanvasStatus()
+    } catch (error) {
+      console.warn('[process-pdf-memory] Failed to load canvas status:', error)
+      canvasStatus = { available: false, reason: 'Canvas loader failed to import' }
+    }
+  } else {
+    console.log('[process-pdf-memory] Canvas disabled, using text-only processing')
+  }
+  
   console.log('[process-pdf-memory] Starting PDF processing', {
     userId: req.user.id,
     canvasRequested: USE_CANVAS,
     canvasStatus: {
-      enabled: canvasStatus.enabled,
-      available: canvasStatus.success,
-      package: canvasStatus.package,
-      mode: USE_CANVAS && canvasStatus.success ? 'enhanced' : 'text-only'
+      available: canvasStatus.available,
+      reason: canvasStatus.reason,
+      mode: USE_CANVAS && canvasStatus.available ? 'enhanced' : 'text-only'
     }
   })
 
