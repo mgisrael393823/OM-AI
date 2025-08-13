@@ -328,15 +328,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
 
       if (!chunks.length) {
-        return res.status(409).json({
-          error: 'document context not found; reprocess',
-          code: 'DOCUMENT_CONTEXT_NOT_FOUND',
-          request_id: requestId
-        })
+        console.warn(
+          `[chat] No document context found for ${requestBody.metadata.documentId}; continuing without augmentation`
+        )
+      } else {
+        const augmented = augmentMessagesWithContext(chunks, messages)
+        messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
       }
-
-      const augmented = augmentMessagesWithContext(chunks, messages)
-      messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
     }
 
     // Log structured information about the request
