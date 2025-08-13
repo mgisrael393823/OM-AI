@@ -8,7 +8,7 @@ const fireEvent = (global as any).fireEvent || require('@testing-library/react')
 const waitFor = (global as any).waitFor || require('@testing-library/react').waitFor
 
 // Mock react-window with named components to satisfy react/display-name rule
-const FixedSizeListMock = React.forwardRef(function FixedSizeListMock(
+const FixedSizeListMock = React.forwardRef<HTMLDivElement, any>(function FixedSizeListMock(
   { children, itemData, itemCount }: any,
   ref
 ) {
@@ -24,7 +24,7 @@ const FixedSizeListMock = React.forwardRef(function FixedSizeListMock(
 })
 FixedSizeListMock.displayName = 'FixedSizeListMock'
 
-const VariableSizeListMock = React.forwardRef(function VariableSizeListMock(
+const VariableSizeListMock = React.forwardRef<HTMLDivElement, any>(function VariableSizeListMock(
   { children, itemData, itemCount }: any,
   ref
 ) {
