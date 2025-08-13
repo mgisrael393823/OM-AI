@@ -243,6 +243,9 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      '@rollup/rollup-linux-x64-gnu':
+        specifier: 4.46.2
+        version: 4.46.2
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.6.4
@@ -9052,8 +9055,7 @@ snapshots:
   '@rollup/rollup-linux-s390x-gnu@4.46.2':
     optional: true
 
-  '@rollup/rollup-linux-x64-gnu@4.46.2':
-    optional: true
+  '@rollup/rollup-linux-x64-gnu@4.46.2': {}
 
   '@rollup/rollup-linux-x64-musl@4.46.2':
     optional: true
