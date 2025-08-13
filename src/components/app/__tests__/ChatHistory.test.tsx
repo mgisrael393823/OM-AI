@@ -9,13 +9,20 @@ const waitFor = (global as any).waitFor || require('@testing-library/react').wai
 
 // Mock react-window
 jest.mock('react-window', () => ({
-  FixedSizeList: ({ children, itemData, itemCount }: any) => (
-    <div data-testid="virtual-list">
-      {itemData.slice(0, Math.min(itemCount, 5)).map((item: any, index: number) =>
-        children({ index, style: {}, data: itemData })
+  FixedSizeList: React.forwardRef(({ children, itemData, itemCount }: any, ref) => (
+    <div data-testid="virtual-list" ref={ref}>
+      {Array.from({ length: Math.min(itemCount || 0, 5) }).map((_, index) =>
+        typeof children === 'function' ? children({ index, style: {}, data: itemData }) : children
       )}
     </div>
-  ),
+  )),
+  VariableSizeList: React.forwardRef(({ children, itemData, itemCount }: any, ref) => (
+    <div data-testid="variable-list" ref={ref}>
+      {Array.from({ length: Math.min(itemCount || 0, 5) }).map((_, index) =>
+        typeof children === 'function' ? children({ index, style: {}, data: itemData }) : children
+      )}
+    </div>
+  )),
 }))
 
 const mockSessions: ChatSession[] = [

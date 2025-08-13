@@ -33,7 +33,9 @@ export async function retrieveTopK({
       p_limit: k
     })
 
-    if (!error && data && data.length) {
+    if (error) {
+      console.warn('[retrieveTopK] search_document_chunks error:', error.message)
+    } else if (data && data.length) {
       return data.map((d: any) => ({
         content: (d.content || '').slice(0, maxCharsPerChunk),
         page_number: d.page_number,
@@ -44,16 +46,37 @@ export async function retrieveTopK({
     console.warn('[retrieveTopK] search_document_chunks failed, falling back to direct query', err)
   }
 
-  // Fallback: direct query on document_chunks table
-  const { data: tableData } = await supabaseAdmin
+  // Fallback: direct query on document_chunks table using ilike
+  const { data: tableData, error: tableError } = await supabaseAdmin
     .from('document_chunks')
     .select('content,page_number,chunk_type')
     .eq('document_id', documentId)
     .ilike('content', `%${query}%`)
     .limit(k)
 
+  if (tableError) {
+    console.error('[retrieveTopK] fallback query error:', tableError.message)
+    return []
+  }
+
+  if (tableData && tableData.length) {
+    return tableData.map(d => ({
+      content: (d.content || '').slice(0, maxCharsPerChunk),
+      page_number: d.page_number,
+      chunk_type: (d as any).chunk_type
+    }))
+  }
+
+  // Final fallback: return first k chunks from document
+  const { data: anyData } = await supabaseAdmin
+    .from('document_chunks')
+    .select('content,page_number,chunk_type')
+    .eq('document_id', documentId)
+    .order('chunk_index')
+    .limit(k)
+
   return (
-    tableData?.map(d => ({
+    anyData?.map(d => ({
       content: (d.content || '').slice(0, maxCharsPerChunk),
       page_number: d.page_number,
       chunk_type: (d as any).chunk_type
