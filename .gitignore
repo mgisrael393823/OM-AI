@@ -57,3 +57,6 @@ DESIGN_PRINCIPLES.md
 
 # Operations reports directory
 ops/
+
+# Cleanup backup directory
+.cleanup_backup/
