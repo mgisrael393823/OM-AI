@@ -176,6 +176,9 @@ importers:
       openai:
         specifier: ^5.10.2
         version: 5.12.2(ws@8.18.3)(zod@3.25.76)
+      path2d:
+        specifier: ^0.3.1
+        version: 0.3.1
       pdfjs-dist:
         specifier: 3.11.174
         version: 3.11.174
@@ -5410,6 +5413,10 @@ packages:
   path2d-polyfill@2.0.1:
     resolution: {integrity: sha512-ad/3bsalbbWhmBo0D6FZ4RNMwsLsPpL6gnvhuSaU5Vm7b06Kr5ubSltQQ0T7YKsiJQO+g22zJ4dJKNTXIyOXtA==}
     engines: {node: '>=8'}
+
+  path2d@0.3.1:
+    resolution: {integrity: sha512-GSruf/RONdlJgrz3fppp6Fro1r9xHdT2Uxw+rrTvmfwHSPl3AZwvnXVUJmyzsrOUEKl5tZDWCKLgdaMsMMUC+A==}
+    engines: {node: '>=6'}
 
   pdf2json@3.1.4:
     resolution: {integrity: sha512-rS+VapXpXZr+5lUpHmRh3ugXdFXp24p1RyG24yP1DMpqP4t0mrYNGpLtpSbWD42PnQ59GIXofxF+yWb7M+3THg==}
@@ -12589,6 +12596,8 @@ snapshots:
 
   path2d-polyfill@2.0.1:
     optional: true
+
+  path2d@0.3.1: {}
 
   pdf2json@3.1.4: {}
 
