@@ -421,13 +421,34 @@ export async function processInMemory(
     analysis = `[WARN] OpenAI analysis unavailable: ${e?.message || 'unknown error'}`
   }
 
+  // Store chunks in transient store for retrieval
+  const requestId = `mem-${Date.now().toString(36)}`
+  
+  // Transform chunks to TransientChunk format
+  const transientChunks = parseResult.chunks.map((chunk, index) => ({
+    id: chunk.id || `chunk-${index}`,
+    text: chunk.content || chunk.text || '',
+    page: chunk.page_number ?? chunk.page ?? null,
+    chunk_index: chunk.chunk_index ?? index,
+    metadata: {
+      originalFilename: safeOriginalFilename,
+      type: chunk.type || 'text',
+      tokens: chunk.tokens || 0
+    }
+  }))
+
+  // Store chunks in transient store with 15-minute TTL
+  transientStore.setChunks(requestId, transientChunks)
+
   // Restore original console.warn if it was suppressed
   if (originalWarn) {
     console.warn = originalWarn
   }
 
+  console.log(`[processInMemory] Stored ${transientChunks.length} chunks for ${requestId}`)
+
   return {
-    requestId: `mem-${Date.now().toString(36)}`,
+    requestId,
     document: {
       originalFilename: safeOriginalFilename,
       pageCount: parseResult.pages.length,

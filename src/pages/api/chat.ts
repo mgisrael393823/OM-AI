@@ -8,6 +8,9 @@ import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/ser
 import { retrieveTopK } from '@/lib/rag/retriever'
 import { augmentMessagesWithContext } from '@/lib/rag/augment'
 
+// Force Node.js runtime for singleton consistency
+export const runtime = 'nodejs'
+
 // Message schema for validation
 const MessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant']),
@@ -262,10 +265,15 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       apiFamily = 'chat'
     } else {
       // Auto-detect based on model or request structure
-      const model = validRequest.model || process.env.OPENAI_MODEL || 'gpt-4o'
-      if (isResponsesModelUtil(model) || 'input' in validRequest || 'max_output_tokens' in validRequest) {
+      const requestModel = validRequest.model || process.env.OPENAI_MODEL
+      
+      // Only use responses API if explicitly indicated
+      if (requestModel && isResponsesModelUtil(requestModel)) {
+        apiFamily = 'responses'
+      } else if ('input' in validRequest || 'max_output_tokens' in validRequest) {
         apiFamily = 'responses'
       } else {
+        // Default to chat completions for standard requests
         apiFamily = 'chat'
       }
     }
@@ -328,15 +336,51 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
 
       if (!chunks.length) {
-        return res.status(409).json({
-          error: 'document context not found; reprocess',
-          code: 'DOCUMENT_CONTEXT_NOT_FOUND',
-          request_id: requestId
+        // Check if this is a mem-* ID that should have context
+        if (requestBody.metadata.documentId.startsWith('mem-')) {
+          const allowWithoutContext = process.env.ALLOW_CHAT_WITHOUT_CONTEXT === 'true'
+          
+          if (!allowWithoutContext) {
+            console.error(`[chat] Document context not found for ${requestBody.metadata.documentId} - returning 409`, {
+              documentId: requestBody.metadata.documentId,
+              allowWithoutContext,
+              runtime: 'nodejs',
+              pid: process.pid
+            })
+            
+            return res.status(409).json({
+              error: 'Document context not found',
+              code: 'DOCUMENT_CONTEXT_NOT_FOUND',
+              details: 'The specified document context is not available. It may have expired or was not properly uploaded.',
+              documentId: requestBody.metadata.documentId,
+              request_id: requestId
+            })
+          } else {
+            console.warn(`[chat] No document context found for ${requestBody.metadata.documentId}; continuing without augmentation (ALLOW_CHAT_WITHOUT_CONTEXT=true)`, {
+              documentId: requestBody.metadata.documentId,
+              runtime: 'nodejs',
+              pid: process.pid
+            })
+          }
+        } else {
+          console.warn(`[chat] No document context found for ${requestBody.metadata.documentId}; continuing without augmentation`, {
+            documentId: requestBody.metadata.documentId,
+            runtime: 'nodejs',
+            pid: process.pid
+          })
+        }
+      } else {
+        console.log(`[chat] Found ${chunks.length} document chunks for context augmentation`, {
+          documentId: requestBody.metadata.documentId,
+          chunkCount: chunks.length,
+          contextSource: requestBody.metadata.documentId.startsWith('mem-') ? 'transient' : 'database',
+          runtime: 'nodejs',
+          pid: process.pid
         })
+        
+        const augmented = augmentMessagesWithContext(chunks, messages)
+        messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
       }
-
-      const augmented = augmentMessagesWithContext(chunks, messages)
-      messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
     }
 
     // Log structured information about the request
@@ -349,6 +393,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       messages_count: messages.length,
       max_output_tokens: max_output_tokens || 'default',
       sessionId: sessionId || 'none',
+      runtime: 'nodejs',
+      pid: process.pid,
       // Sanitized fields (no sensitive content)
       sanitized: {
         hasDocumentId: !!(requestBody.metadata?.documentId),
@@ -360,7 +406,11 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
     // Build request for selected API family
     const payload = apiFamily === 'responses'
-      ? buildResponses({ model, messages, max_output_tokens })
+      ? buildResponses({ 
+          model, 
+          input: messages.map(m => ({ content: m.content, role: m.role })), 
+          max_output_tokens 
+        })
       : buildChatCompletion({ model, messages, max_tokens: max_output_tokens })
 
     // Call OpenAI with proper error handling

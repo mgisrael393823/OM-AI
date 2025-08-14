@@ -50,6 +50,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       DEV_AUTH_UTILS.clearAuthStorage()
     }
 
+    // Add overall timeout for initial auth flow
+    const authTimeout = setTimeout(() => {
+      if (loading) {
+        console.warn('⏰ Authentication flow timed out, setting loading to false')
+        setLoading(false)
+      }
+    }, 15000) // 15 second overall timeout
+
     // Get initial session
     supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       console.log('🔍 Initial session check:', session?.user?.email || 'No user')
@@ -59,6 +67,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (process.env.NODE_ENV === 'development') {
           DEV_AUTH_UTILS.clearAuthStorage()
         }
+        clearTimeout(authTimeout)
+        setLoading(false)
+        return
       }
       
       setSession(session)
@@ -76,8 +87,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false)
       }
       
+      clearTimeout(authTimeout)
       // Don't set loading=false here if we have a user - let the profile effect handle it
+    }).catch((err) => {
+      console.error('❌ Session check failed:', err)
+      clearTimeout(authTimeout)
+      setLoading(false)
     })
+
+    return () => clearTimeout(authTimeout)
 
     // Listen for auth state changes
     const {
@@ -150,16 +168,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, profile, profileLoading])
 
+  // Timeout fallback to prevent infinite loading if profile fetch stalls
+  useEffect(() => {
+    if (user && !profile && !profileLoading) {
+      const timeout = setTimeout(() => {
+        console.warn('⏰ Profile loading timeout - using fallback profile')
+        setProfile(createFallbackProfile(user.id, user))
+        setLoading(false)
+      }, 10000) // 10 second timeout
+
+      return () => clearTimeout(timeout)
+    }
+  }, [user, profile, profileLoading])
+
   const fetchUserProfile = async (userId: string, currentUser?: User | null) => {
     try {
-      // Try to fetch existing user profile
-      const { data: existingProfile, error: fetchError } = await supabase
+      // Add timeout to profile fetch to prevent stalling
+      const profilePromise = supabase
         .from('users')
         .select('id, email, full_name, avatar_url, subscription_tier, subscription_status, subscription_id, usage_count, usage_limit, created_at, updated_at')
         .eq('id', userId)
         .single();
 
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+      );
+
+      const { data: existingProfile, error: fetchError } = await Promise.race([
+        profilePromise,
+        timeoutPromise
+      ]) as any;
+
       if (fetchError) {
+        // Handle timeout errors specifically
+        if (fetchError.message === 'Profile fetch timeout') {
+          console.warn('⏰ Profile fetch timed out, using fallback profile');
+          setProfile(createFallbackProfile(userId, currentUser));
+          return;
+        }
+        
         // PGRST116 = no rows returned (expected for new users)
         if (fetchError.code !== 'PGRST116') {
           console.error('AuthContext: Error fetching user profile', {
@@ -240,10 +287,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
     } catch (error) {
-      logError(error, {
-        userId,
-        operation: 'fetch_user_profile_catch'
-      });
+      // Handle timeout and other errors
+      if (error instanceof Error && error.message === 'Profile fetch timeout') {
+        console.warn('⏰ Profile fetch timed out in catch, using fallback profile');
+      } else {
+        logError(error, {
+          userId,
+          operation: 'fetch_user_profile_catch'
+        });
+      }
       
       // Always provide a fallback profile
       setProfile(createFallbackProfile(userId, currentUser));

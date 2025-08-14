@@ -7,7 +7,7 @@ export interface ChatCompletionPayload {
 export interface ResponsesPayload {
   model: string
   messages?: { role: 'system' | 'user' | 'assistant'; content: string }[]
-  input?: string | { text: string; role?: 'system' | 'user' | 'assistant' }[]
+  input?: string | { content: string; role?: 'system' | 'user' | 'assistant' }[]
   max_output_tokens?: number
 }
 

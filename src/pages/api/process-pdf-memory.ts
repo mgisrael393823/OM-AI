@@ -4,6 +4,9 @@ import { promises as fs } from 'fs'
 import { withAuth, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { processInMemory } from '@/lib/document-processor'
 
+// Force Node.js runtime for singleton consistency
+export const runtime = 'nodejs'
+
 // Check USE_CANVAS environment flag
 const USE_CANVAS = process.env.USE_CANVAS === 'true'
 
@@ -60,7 +63,21 @@ async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiRespo
       useCanvas: USE_CANVAS
     })
 
-    return res.status(200).json(result)
+    // Add documentId for frontend compatibility
+    const response = {
+      ...result,
+      documentId: result.requestId
+    }
+
+    console.log(`[process-pdf-memory] Processing completed for ${originalFilename}`, {
+      requestId: result.requestId,
+      chunkCount: result.document.chunkCount,
+      pageCount: result.document.pageCount,
+      runtime: 'nodejs',
+      pid: process.pid
+    })
+
+    return res.status(200).json(response)
   } catch (err: any) {
     const msg = err?.message || 'Processing failed'
     const code = /timeout/i.test(msg) ? 504 : 500
