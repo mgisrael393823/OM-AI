@@ -1,11 +1,393 @@
 /**
- * Sentry Client Configuration for Next.js 15
- * This file replaces the deprecated sentry.client.config.js
- * https://nextjs.org/docs/app/api-reference/file-conventions/instrumentation-client
+ * Enhanced Sentry Client Configuration for OM-AI
+ * Provides comprehensive browser-side error monitoring with session replay
+ * and intelligent error filtering for production applications.
  */
 
-// Import the enhanced client configuration
-import './sentry.client.config.js'
+import * as Sentry from '@sentry/nextjs'
 
-// Re-export the router transition hook from the enhanced config
-export { onRouterTransitionStart } from './sentry.client.config.js'
+// Environment-specific DSN selection
+function getDSN(): string | null {
+  // Production DSN (your provided DSN)
+  const productionDSN = 'https://47996feeefcc46d6d6bb4ad64cd12443@o4509724018409472.ingest.us.sentry.io/4509724031516672'
+  
+  // Environment detection
+  const environment = process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
+  
+  switch (environment) {
+    case 'production':
+      return productionDSN
+    case 'preview':
+      return productionDSN // Use same DSN for preview environments
+    case 'development':
+      return null // Disable Sentry in development
+    default:
+      return productionDSN
+  }
+}
+
+// Get release information
+function getRelease(): string {
+  if (typeof window !== 'undefined' && (window as any).__SENTRY_RELEASE__) {
+    return (window as any).__SENTRY_RELEASE__
+  }
+  if (process.env.VERCEL_GIT_COMMIT_SHA) {
+    return process.env.VERCEL_GIT_COMMIT_SHA.substring(0, 7)
+  }
+  if (process.env.SENTRY_RELEASE) {
+    return process.env.SENTRY_RELEASE
+  }
+  return 'unknown'
+}
+
+// Get environment name
+function getEnvironment(): string {
+  return process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
+}
+
+// Enhanced error context collection
+function getErrorContext(): Record<string, any> {
+  if (typeof window === 'undefined') return {}
+  
+  try {
+    return {
+      // Browser information
+      browser: {
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        cookieEnabled: navigator.cookieEnabled,
+        onLine: navigator.onLine,
+        platform: navigator.platform,
+      },
+      
+      // Viewport and screen information
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        screenWidth: window.screen?.width,
+        screenHeight: window.screen?.height,
+        devicePixelRatio: window.devicePixelRatio,
+      },
+      
+      // Performance information
+      performance: {
+        timeOrigin: performance?.timeOrigin,
+        timing: (performance as any)?.timing ? {
+          navigationStart: (performance as any).timing.navigationStart,
+          loadEventEnd: (performance as any).timing.loadEventEnd,
+          domContentLoadedEventEnd: (performance as any).timing.domContentLoadedEventEnd,
+        } : null,
+      },
+      
+      // Current page context
+      page: {
+        url: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+        referrer: document.referrer,
+        title: document.title,
+      },
+      
+      // Connection information
+      connection: (navigator as any).connection ? {
+        effectiveType: (navigator as any).connection.effectiveType,
+        downlink: (navigator as any).connection.downlink,
+        rtt: (navigator as any).connection.rtt,
+      } : null,
+      
+      // Memory information (if available)
+      memory: (performance as any)?.memory ? {
+        usedJSHeapSize: (performance as any).memory.usedJSHeapSize,
+        totalJSHeapSize: (performance as any).memory.totalJSHeapSize,
+        jsHeapSizeLimit: (performance as any).memory.jsHeapSizeLimit,
+      } : null,
+    }
+  } catch (error) {
+    console.warn('[Sentry] Failed to collect error context:', error)
+    return {}
+  }
+}
+
+// Intelligent error filtering
+function shouldCaptureError(event: Sentry.Event): boolean {
+  const error = event.exception?.values?.[0]
+  if (!error) return true
+  
+  const errorMessage = error.value || ''
+  const errorType = error.type || ''
+  
+  // Filter out browser extension errors
+  const extensionPatterns = [
+    /chrome-extension:/,
+    /moz-extension:/,
+    /safari-extension:/,
+    /safari-web-extension:/,
+    /extension\//,
+    /NonError: Object captured as exception/,
+  ]
+  
+  for (const pattern of extensionPatterns) {
+    if (pattern.test(errorMessage) || pattern.test(errorType)) {
+      return false
+    }
+  }
+  
+  // Filter out ad blocker errors
+  const adBlockerPatterns = [
+    /blocked by client/i,
+    /adblocker/i,
+    /adblock/i,
+    /ublock/i,
+    /ghostery/i,
+    /privacy badger/i,
+  ]
+  
+  for (const pattern of adBlockerPatterns) {
+    if (pattern.test(errorMessage)) {
+      return false
+    }
+  }
+  
+  // Filter out common non-actionable errors
+  const nonActionablePatterns = [
+    /Network request failed/,
+    /NetworkError/,
+    /Failed to fetch/,
+    /Load failed/,
+    /Script error/,
+    /ResizeObserver loop limit exceeded/,
+    /Non-Error promise rejection captured/,
+  ]
+  
+  for (const pattern of nonActionablePatterns) {
+    if (pattern.test(errorMessage)) {
+      return false
+    }
+  }
+  
+  // Filter out development-only errors
+  if (getEnvironment() === 'development') {
+    const devPatterns = [
+      /ChunkLoadError/,
+      /Loading chunk \d+ failed/,
+      /Loading CSS chunk/,
+    ]
+    
+    for (const pattern of devPatterns) {
+      if (pattern.test(errorMessage)) {
+        return false
+      }
+    }
+  }
+  
+  return true
+}
+
+// Initialize Sentry if DSN is available
+const dsn = getDSN()
+if (dsn) {
+  Sentry.init({
+    dsn,
+    
+    // Release and environment tracking
+    release: getRelease(),
+    environment: getEnvironment(),
+    
+    // Performance monitoring with environment-aware sampling
+    tracesSampleRate: getEnvironment() === 'production' ? 0.1 : 1.0,
+    
+    // Session replay configuration
+    replaysOnErrorSampleRate: 1.0, // Capture 100% of sessions with errors
+    replaysSessionSampleRate: getEnvironment() === 'production' ? 0.1 : 0.5,
+    
+    // Debug mode for non-production environments
+    debug: getEnvironment() !== 'production',
+    
+    // Enhanced integrations
+    integrations: [
+      // Session replay with privacy settings
+      Sentry.replayIntegration({
+        // Privacy settings - mask sensitive data
+        maskAllText: true,
+        blockAllMedia: true,
+        maskAllInputs: true,
+        
+        // Network recording settings
+        networkDetailAllowUrls: [
+          // Allow network details for your API routes
+          /^\/api\//,
+          /^https:\/\/.*\.supabase\.co/,
+        ],
+        
+        // Performance settings
+        networkCaptureBodies: false,
+        networkRequestHeaders: ['content-type', 'accept'],
+        networkResponseHeaders: ['content-type'],
+      }),
+      
+      // Browser tracing for performance monitoring
+      Sentry.browserTracingIntegration({
+        // Automatic instrumentation
+        enableLongTask: true,
+        enableInp: true,
+        
+        // Route change tracking (Next.js handles this automatically)
+        // routingInstrumentation is handled by Next.js integration
+      }),
+      
+      // HTTP client integration
+      Sentry.httpClientIntegration({
+        failedRequestStatusCodes: [[400, 599]],
+        failedRequestTargets: [/.*/]
+      }),
+      
+      // Console integration for breadcrumbs
+      Sentry.breadcrumbsIntegration({
+        console: true,
+        dom: true,
+        fetch: true,
+        history: true,
+        sentry: false, // Don't log Sentry's own events
+        xhr: true,
+      }),
+    ],
+    
+    // Enhanced error processing
+    beforeSend(event, hint) {
+      // Apply intelligent error filtering
+      if (!shouldCaptureError(event)) {
+        return null
+      }
+      
+      // Add enhanced context
+      const context = getErrorContext()
+      if (Object.keys(context).length > 0) {
+        event.contexts = {
+          ...event.contexts,
+          ...context,
+        }
+      }
+      
+      // Fix serialization issues
+      if (event.exception?.values) {
+        for (const exception of event.exception.values) {
+          if (typeof exception.value === 'object' && exception.value !== null) {
+            try {
+              exception.value = JSON.stringify(exception.value)
+            } catch (e) {
+              exception.value = '[Object - serialization failed]'
+            }
+          }
+          
+          // Handle empty or malformed error messages
+          if (!exception.value || exception.value === 's' || exception.value === 'Object.s') {
+            if (hint?.originalException) {
+              if (typeof hint.originalException === 'string') {
+                exception.value = hint.originalException
+              } else if (hint.originalException instanceof Error) {
+                exception.value = hint.originalException.message || hint.originalException.toString()
+              } else {
+                try {
+                  exception.value = JSON.stringify(hint.originalException)
+                } catch (e) {
+                  exception.value = 'Unknown error (serialization failed)'
+                }
+              }
+            } else {
+              exception.value = 'Unknown error (no context available)'
+            }
+          }
+        }
+      }
+      
+      // Add user feedback capability
+      event.tags = {
+        ...event.tags,
+        component: 'client',
+        canCollectFeedback: true,
+      }
+      
+      return event
+    },
+    
+    // Enhanced breadcrumb processing
+    beforeBreadcrumb(breadcrumb, hint) {
+      // Filter out noisy breadcrumbs
+      if (breadcrumb.category === 'console' && breadcrumb.level === 'debug') {
+        return null
+      }
+      
+      // Filter out test environment breadcrumbs
+      if (breadcrumb.category === 'navigation' && 
+          navigator?.userAgent?.includes('HeadlessChrome')) {
+        return null
+      }
+      
+      // Enhance XHR/fetch breadcrumbs with more context
+      if (breadcrumb.category === 'xhr' || breadcrumb.category === 'fetch') {
+        if (breadcrumb.data?.url) {
+          // Add timing information if available
+          breadcrumb.data.timestamp = Date.now()
+          
+          // Sanitize sensitive URLs
+          if (breadcrumb.data.url.includes('password') || 
+              breadcrumb.data.url.includes('token') ||
+              breadcrumb.data.url.includes('key')) {
+            breadcrumb.data.url = '[SANITIZED]'
+          }
+        }
+      }
+      
+      return breadcrumb
+    },
+    
+    // Initial scope configuration
+    initialScope: {
+      tags: {
+        component: 'client',
+        project: 'om-ai',
+      },
+    },
+  })
+  
+  console.log(`🟢 Sentry client monitoring enabled for ${getEnvironment()}`)
+} else {
+  console.log('🟡 Sentry client monitoring disabled (no DSN configured)')
+}
+
+// User feedback integration
+export function showUserFeedbackDialog(eventId: string): void {
+  if (typeof window !== 'undefined' && dsn) {
+    const user = Sentry.getCurrentScope()?.getUser()
+    
+    Sentry.showReportDialog({
+      eventId,
+      user: user || {
+        email: 'user@example.com',
+        name: 'Anonymous User',
+      },
+    })
+  }
+}
+
+// Manual error reporting with enhanced context
+export function captureErrorWithContext(error: Error, context: Record<string, any> = {}): void {
+  if (dsn) {
+    Sentry.withScope((scope) => {
+      // Add custom context
+      Object.keys(context).forEach((key) => {
+        scope.setContext(key, context[key])
+      })
+      
+      // Add current error context
+      const errorContext = getErrorContext()
+      scope.setContext('errorContext', errorContext)
+      
+      Sentry.captureException(error)
+    })
+  }
+}
+
+// Export router transition hook for navigation instrumentation
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart

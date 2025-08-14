@@ -13,9 +13,9 @@
   - `instrumentation-client.ts` - Client-side configuration with modern API
   - `sentry.server.config.ts` - Server-side Sentry setup
   - `sentry.edge.config.ts` - Edge runtime configuration
-- **Removed Files**:
-  - `sentry.client.config.js` (deprecated)
-  - `sentry.server.config.js` (deprecated)
+- **Migrated to Modern Sentry Setup**:
+  - Replaced `sentry.client.config.js` with `instrumentation-client.ts`
+  - Using `instrumentation.ts` for server/edge registration
 - **Updated**: `next.config.mjs` with modern Sentry webpack plugin config
 - **Fixed TypeScript Errors**:
   - Removed deprecated `routingInstrumentation` from `browserTracingIntegration`
