@@ -24,10 +24,17 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
   }
 
   try {
-    const { fileName, originalFileName, fileSize, userId } = req.body
+    const { bucket, path, originalFilename, fileSize, contentType, fileName, originalFileName, userId } = req.body
+    
+    // Support both old and new payload formats during transition
+    const finalBucket = bucket || 'documents'
+    const finalPath = path || fileName
+    const finalOriginalFilename = originalFilename || originalFileName
     
     console.log(`[${requestId}] Process Document API: Request body parsed`, {
-      hasFileName: !!fileName,
+      bucket: finalBucket,
+      path: finalPath,
+      hasPath: !!finalPath,
       hasOriginalFileName: !!originalFileName,
       hasFileSize: !!fileSize,
       hasUserId: !!userId,
@@ -38,12 +45,11 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     })
 
     // Validate required fields
-    if (!fileName || !originalFileName || !fileSize || !userId) {
+    if (!finalPath || !finalOriginalFilename || !fileSize) {
       const missingFields = []
-      if (!fileName) missingFields.push('fileName')
-      if (!originalFileName) missingFields.push('originalFileName')
+      if (!finalPath) missingFields.push('path/fileName')
+      if (!finalOriginalFilename) missingFields.push('originalFilename/originalFileName')
       if (!fileSize) missingFields.push('fileSize')
-      if (!userId) missingFields.push('userId')
       
       console.log(`[${requestId}] Process Document API: Missing required fields:`, missingFields)
       return apiError(res, 400, `Missing required fields: ${missingFields.join(', ')}`, 'MISSING_FIELDS')
@@ -77,25 +83,75 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       config.supabase.serviceRoleKey
     )
 
-    // Download the file from Supabase Storage
+    // Download the file from Supabase Storage with retry logic (race condition protection)
     console.log(`[${requestId}] Process Document API: Attempting to download file from storage`, {
-      fileName,
-      bucket: 'documents'
+      path: finalPath,
+      bucket: finalBucket
     })
     
-    const { data: fileData, error: downloadError } = await supabase
-      .storage
-      .from('documents')
-      .download(fileName)
+    let fileData = null
+    let downloadError = null
+    let attempts = 0
+    const maxAttempts = 5
+    
+    while (!fileData && attempts < maxAttempts) {
+      attempts++
+      
+      if (attempts > 1) {
+        const delay = Math.min(300 * Math.pow(2, attempts - 2), 2000) // 300ms → 2000ms exponential backoff
+        console.log(`[${requestId}] Process Document API: File download attempt ${attempts}, waiting ${delay}ms`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+      
+      const result = await supabase
+        .storage
+        .from(finalBucket)
+        .download(finalPath)
+        
+      fileData = result.data
+      downloadError = result.error
+      
+      if (fileData) {
+        console.log(`[${requestId}] Process Document API: File downloaded successfully on attempt ${attempts}`)
+        break
+      } else if (downloadError && attempts < maxAttempts) {
+        console.log(`[${requestId}] Process Document API: Download attempt ${attempts} failed, retrying:`, {
+          error: downloadError.message,
+          path: finalPath
+        })
+      }
+    }
 
-    if (downloadError) {
-      console.error(`[${requestId}] Process Document API: Download error:`, {
+    if (downloadError && !fileData) {
+      // If all retries failed, return 409 PENDING_UPLOAD instead of 500 (not an error, just timing)
+      console.log(`[${requestId}] Process Document API: File not found after ${maxAttempts} attempts, returning 409`, {
         error: downloadError,
-        fileName,
+        path: finalPath,
         message: downloadError.message,
         statusCode: (downloadError as any).statusCode || 'unknown'
       })
-      return apiError(res, 404, `File not found: ${downloadError.message}`, 'FILE_NOT_FOUND')
+      
+      return res.status(409).json({
+        success: false,
+        code: 'PENDING_UPLOAD',
+        message: 'File upload may still be in progress. Please try again.',
+        retryAfterMs: 1500
+      })
+    }
+
+    // Final null check after retry loop (race condition safety)
+    if (!fileData) {
+      console.log(`[${requestId}] Process Document API: File data null after retries, returning 409`, {
+        path: finalPath,
+        attempts: maxAttempts
+      })
+      
+      return res.status(409).json({
+        success: false,
+        code: 'PENDING_UPLOAD',
+        message: 'File upload still processing after retries',
+        retryAfterMs: 1500
+      })
     }
 
     // Convert to buffer for processing
@@ -103,7 +159,7 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     const fileBuffer = Buffer.from(arrayBuffer)
 
     console.log(`[${requestId}] Process Document API: File downloaded successfully`, {
-      fileName,
+      path: finalPath,
       bufferSize: fileBuffer.length,
       originalFileSize: fileSize,
       bufferMatch: Math.abs(fileBuffer.length - fileSize) < 1000 // Allow for small differences
@@ -115,11 +171,11 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     
     const processingResult = await processUploadedDocument(
       fileBuffer,
-      fileName,
-      originalFileName,
-      fileName, // storagePath is the same as fileName
+      finalPath,
+      finalOriginalFilename,
+      finalPath, // storagePath is the same as path
       fileSize,
-      userId
+      req.user.id // Use authenticated user ID
     )
     
     const processingTime = Date.now() - processingStart

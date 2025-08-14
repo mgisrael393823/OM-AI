@@ -8,41 +8,35 @@ const fireEvent = (global as any).fireEvent || require('@testing-library/react')
 const waitFor = (global as any).waitFor || require('@testing-library/react').waitFor
 
 // Mock react-window with named components to satisfy react/display-name rule
-const FixedSizeListMock = React.forwardRef<HTMLDivElement, any>(function FixedSizeListMock(
-  { children, itemData, itemCount }: any,
-  ref
-) {
-  return (
-    <div data-testid="virtual-list" ref={ref}>
-      {Array.from({ length: Math.min(itemCount || 0, 5) }).map((_, index) =>
-        typeof children === 'function'
-          ? children({ index, style: {}, data: itemData })
-          : children
-      )}
-    </div>
-  )
-})
-FixedSizeListMock.displayName = 'FixedSizeListMock'
-
-const VariableSizeListMock = React.forwardRef<HTMLDivElement, any>(function VariableSizeListMock(
-  { children, itemData, itemCount }: any,
-  ref
-) {
-  return (
-    <div data-testid="variable-list" ref={ref}>
-      {Array.from({ length: Math.min(itemCount || 0, 5) }).map((_, index) =>
-        typeof children === 'function'
-          ? children({ index, style: {}, data: itemData })
-          : children
-      )}
-    </div>
-  )
-})
-VariableSizeListMock.displayName = 'VariableSizeListMock'
-
 jest.mock('react-window', () => ({
-  FixedSizeList: FixedSizeListMock,
-  VariableSizeList: VariableSizeListMock,
+  FixedSizeList: React.forwardRef<HTMLDivElement, any>(function FixedSizeListMock(
+    { children, itemData, itemCount }: any,
+    ref
+  ) {
+    return (
+      <div data-testid="virtual-list" ref={ref}>
+        {Array.from({ length: Math.min(itemCount || 0, 5) }).map((_, index) =>
+          typeof children === 'function'
+            ? children({ index, style: {}, data: itemData })
+            : children
+        )}
+      </div>
+    )
+  }),
+  VariableSizeList: React.forwardRef<HTMLDivElement, any>(function VariableSizeListMock(
+    { children, itemData, itemCount }: any,
+    ref
+  ) {
+    return (
+      <div data-testid="variable-list" ref={ref}>
+        {Array.from({ length: Math.min(itemCount || 0, 5) }).map((_, index) =>
+          typeof children === 'function'
+            ? children({ index, style: {}, data: itemData })
+            : children
+        )}
+      </div>
+    )
+  })
 }))
 
 const mockSessions: ChatSession[] = [

@@ -10,7 +10,12 @@ export const runtime = 'nodejs'
 // Check USE_CANVAS environment flag
 const USE_CANVAS = process.env.USE_CANVAS === 'true'
 
-export const config = { api: { bodyParser: false } }
+export const config = { 
+  api: { 
+    bodyParser: false,
+    sizeLimit: '4.5mb' // Vercel platform limit
+  } 
+}
 
 async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -44,7 +49,7 @@ async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiRespo
   })
 
   try {
-    const form = formidable({ multiples: false, maxFileSize: 25 * 1024 * 1024 })
+    const form = formidable({ multiples: false, maxFileSize: 4.5 * 1024 * 1024 }) // 4.5MB Vercel limit
     const { files } = await new Promise<{ files: formidable.Files }>((resolve, reject) => {
       form.parse(req, (err, _fields, files) => (err ? reject(err) : resolve({ files })))
     })
