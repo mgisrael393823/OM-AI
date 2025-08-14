@@ -30,6 +30,9 @@ interface DocumentUploadProps {
 }
 
 export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: DocumentUploadProps) {
+  // PDF upload limits
+  const MAX_PDF_MB = 100
+
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
   const [ingestMode, setIngestMode] = useState<'storage' | 'memory'>(() => {
     // Check environment variable and default to memory mode
@@ -75,8 +78,39 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
 
   const uploadWithAuth = useCallback(async (files: File[]) => {
     try {
-      // Create upload entries
-      const newFiles = files.map((file, index) => ({
+      // Validate all files first, collect invalids
+      const invalidFiles: string[] = []
+
+      files.forEach(file => {
+        const isPdf = file.type === 'application/pdf' || 
+                      (file.type === '' && file.name.toLowerCase().endsWith('.pdf'))
+        const isValidSize = file.size <= MAX_PDF_MB * 1024 * 1024
+        
+        if (!isPdf) {
+          invalidFiles.push(`${file.name} (not PDF)`)
+        } else if (!isValidSize) {
+          invalidFiles.push(`${file.name} (exceeds ${MAX_PDF_MB}MB)`)
+        }
+      })
+
+      if (invalidFiles.length > 0) {
+        toast.error(`${invalidFiles.length} invalid files: ${invalidFiles.join(', ')}`)
+        // Don't return - continue with valid files
+      }
+
+      // Filter to valid files only
+      const validFiles = files.filter(file => {
+        const isPdf = file.type === 'application/pdf' || 
+                      (file.type === '' && file.name.toLowerCase().endsWith('.pdf'))
+        return isPdf && file.size <= MAX_PDF_MB * 1024 * 1024
+      })
+
+      if (validFiles.length === 0) {
+        return // No valid files to process
+      }
+
+      // Create upload entries for valid files only
+      const newFiles = validFiles.map((file, index) => ({
         id: `upload-${Date.now()}-${index}`,
         file,
         progress: 0,
@@ -85,9 +119,9 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
 
       setUploadFiles(prev => [...prev, ...newFiles])
 
-      // Process each file sequentially
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i]
+      // Process each valid file sequentially
+      for (let i = 0; i < validFiles.length; i++) {
+        const file = validFiles[i]
         const uploadFileEntry = newFiles[i]
         
         try {
@@ -187,7 +221,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
     accept: {
       'application/pdf': ['.pdf']
     },
-    maxSize: ingestMode === 'memory' ? 25 * 1024 * 1024 : 16 * 1024 * 1024, // 25MB for memory, 16MB for storage
+    maxSize: MAX_PDF_MB * 1024 * 1024, // Direct storage uploads
     multiple: true,
     disabled: isUploading
   })
@@ -212,7 +246,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
           {isDragActive ? "Drop files here" : "Upload PDF documents"}
         </p>
         <p className={`${typography.helper} text-slate-500 dark:text-slate-400`}>
-          Drag & drop or click to browse • Max 16MB per file
+          Drag & drop or click to browse • Max {MAX_PDF_MB}MB per file • Direct storage upload
         </p>
       </div>
 
@@ -287,8 +321,8 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription className={typography.helper}>
-          Supported format: PDF • Maximum file size: {ingestMode === 'memory' ? '25MB' : '16MB'} • 
-          Text will be extracted automatically for AI analysis
+          Supported format: PDF • Maximum file size: {MAX_PDF_MB}MB • 
+          Text will be extracted automatically for AI analysis • Uploads go directly to storage
         </AlertDescription>
       </Alert>
     </div>

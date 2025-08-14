@@ -31,7 +31,7 @@ interface UploadResult {
 }
 
 const DEFAULT_OPTIONS: Required<UseSupabaseUploadOptions> = {
-  maxFileSize: 16 * 1024 * 1024, // 16MB
+  maxFileSize: 100 * 1024 * 1024, // 100MB for direct storage upload
   allowedTypes: ['application/pdf'],
   folder: '',
   onProgress: (_fileName: string, _progress: number) => {} // Explicit no-op function
@@ -94,87 +94,77 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
 
       // Generate unique filename
       const timestamp = Date.now()
-      const fileExt = file.name.split('.').pop() || 'pdf'
       const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
       const fileName = `${userId}/${timestamp}-${sanitizedName}`
+      const bucket = 'documents'
 
-
-      // Create a promise to track upload progress
-      const uploadPromise = new Promise<{ data: any; error: any }>((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        
-        // Track upload progress
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = Math.round((event.loaded / event.total) * 90) // Cap at 90% for processing
-            setProgress(percentComplete)
-            // Call external progress callback if provided
-            if (config.onProgress) {
-              config.onProgress(file.name, percentComplete)
-            }
-          }
-        })
-
-        xhr.addEventListener('load', () => {
-          
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const response = JSON.parse(xhr.responseText)
-              resolve({ data: response, error: null })
-            } catch (e) {
-              console.warn('Supabase Upload: Response parsing failed, using fallback', e)
-              resolve({ data: { path: fileName }, error: null }) // Fallback for successful upload
-            }
-          } else {
-            const errorMsg = `Upload failed: ${xhr.status} ${xhr.statusText}`
-            console.error('Supabase Upload: Upload failed', {
-              status: xhr.status,
-              statusText: xhr.statusText,
-              responseText: xhr.responseText
-            })
-            reject(new Error(errorMsg))
-          }
-        })
-
-        xhr.addEventListener('error', (event) => {
-          console.error('Supabase Upload: Network error during upload', event)
-          reject(new Error('Network error during upload'))
-        })
-
-        xhr.addEventListener('timeout', () => {
-          console.error('Supabase Upload: Upload timeout', {
-            timeout: xhr.timeout,
-            fileName
-          })
-          reject(new Error('Upload timeout'))
-        })
-
-        // Configure the request
-        xhr.open('POST', `/api/supabase-upload`, true)
-        xhr.setRequestHeader('Authorization', `Bearer ${session.access_token}`)
-        xhr.timeout = 300000 // 5 minutes timeout
-
-        // Create FormData
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('fileName', fileName)
-
-        xhr.send(formData)
+      console.log('Supabase Upload: Starting direct upload', {
+        fileName,
+        fileSize: file.size,
+        bucket
       })
 
-      // Wait for upload to complete
-      const { data: uploadData, error: uploadError } = await uploadPromise
+      // Upload directly to Supabase storage (bypasses Vercel completely)
+      setProgress(10)
+      const { data: uploadData, error: uploadError } = await supabase
+        .storage
+        .from(bucket)
+        .upload(fileName, file, {
+          contentType: file.type,
+          upsert: false
+        })
 
       if (uploadError) {
+        console.error('Supabase Upload: Direct upload failed', uploadError)
         throw new Error(`Upload failed: ${uploadError.message}`)
       }
 
-      setProgress(95) // Upload complete, now processing
+      setProgress(50)
+      console.log('Supabase Upload: Direct upload completed', uploadData.path)
+
+      // Verify file exists with polling (race condition protection)
+      console.log('Supabase Upload: Verifying file existence')
+      const dirPath = fileName.split('/').slice(0, -1).join('/')
+      let fileExists = false
+      let attempts = 0
+      const maxAttempts = 5
+      
+      while (!fileExists && attempts < maxAttempts) {
+        attempts++
+        const delay = Math.min(300 * Math.pow(1.5, attempts - 1), 1500) // 300ms → 1500ms backoff
+        
+        if (attempts > 1) {
+          console.log(`Supabase Upload: File existence check attempt ${attempts}, waiting ${delay}ms`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+
+        const { data: files, error: listError } = await supabase
+          .storage
+          .from(bucket)
+          .list(dirPath)
+
+        if (!listError && files) {
+          const targetFileName = fileName.split('/').pop()
+          fileExists = files.some(f => f.name === targetFileName)
+        }
+
+        setProgress(50 + (attempts / maxAttempts) * 30) // 50% → 80%
+      }
+
+      if (!fileExists) {
+        throw new Error('File upload completed but verification failed. Please try again.')
+      }
+
+      console.log('Supabase Upload: File existence verified')
+      setProgress(85) // Verification complete, now processing
       
       // Process the document via API with retry logic
       let processingResult
       let retryCount = 0
       const maxRetries = 2
+      
+      // Small delay before first processing attempt to avoid race conditions
+      await new Promise(resolve => setTimeout(resolve, 300))
       
       while (retryCount <= maxRetries) {
         try {
@@ -185,15 +175,35 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
               'Authorization': `Bearer ${session.access_token}`,
             },
             body: JSON.stringify({
-              fileName: uploadData.fileName || uploadData.path || fileName,
-              originalFileName: file.name,
+              bucket,
+              path: fileName,
+              originalFilename: file.name,
               fileSize: file.size,
-              userId,
+              contentType: file.type,
             }),
           })
 
-
           if (!processingResponse.ok) {
+            // Handle 409 PENDING_UPLOAD specially (race condition retry)
+            if (processingResponse.status === 409) {
+              const errorData = await processingResponse.json()
+              const retryAfterMs = errorData.retryAfterMs || 1500
+              
+              console.warn('[OM-AI] 409 PENDING_UPLOAD retry', {
+                fileName: file.name,
+                attempt: retryCount + 1,
+                maxRetries: maxRetries,
+                retryAfterMs,
+                errorCode: errorData.code,
+                message: errorData.message,
+                timestamp: new Date().toISOString()
+              })
+              
+              await new Promise(resolve => setTimeout(resolve, retryAfterMs))
+              retryCount++
+              continue
+            }
+            
             // Don't retry on 422 (unprocessable content)
             if (processingResponse.status === 422) {
               const errorData = await processingResponse.json();

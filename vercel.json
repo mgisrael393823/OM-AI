@@ -43,5 +43,16 @@
     }
   ],
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "functions": {
+    "src/pages/api/process-document.ts": {
+      "maxDuration": 60
+    },
+    "src/pages/api/process-pdf-memory.ts": {
+      "maxDuration": 60
+    },
+    "src/pages/api/upload.ts": {
+      "maxDuration": 60
+    }
+  }
 }

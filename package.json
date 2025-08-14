@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.5.2",
   "engines": {
-    "node": ">=20 <=22"
+    "node": ">=20 <21"
   },
   "scripts": {
     "_comment": "NODE_OPTIONS='--no-deprecation' suppresses punycode DEP0040 from dependencies tr46/uri-js. Remove when deps updated.",
@@ -87,6 +87,7 @@
     "next": "^15.2.3",
     "next-themes": "^0.4.4",
     "openai": "^5.10.2",
+    "path2d": "^0.3.1",
     "pdfjs-dist": "3.11.174",
     "pdfreader": "^3.0.7",
     "react": "^18.3.1",

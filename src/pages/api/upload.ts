@@ -10,6 +10,7 @@ import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 export const config = {
   api: {
     bodyParser: false,
+    sizeLimit: '4.5mb', // Vercel platform limit
   },
 }
 
@@ -32,7 +33,7 @@ async function uploadHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   )
 
   const form = formidable({
-    maxFileSize: 50 * 1024 * 1024, // 50MB (increased for better PDF support)
+    maxFileSize: 4.5 * 1024 * 1024, // 4.5MB Vercel platform limit
     filter: function ({ mimetype }) {
       return mimetype ? mimetype.includes('pdf') : false
     }

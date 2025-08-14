@@ -22,6 +22,7 @@ interface StoredChunks {
 
 // Global singleton key
 declare global {
+  // eslint-disable-next-line no-var
   var __TRANSIENT_STORE__: TransientStore | undefined
 }
 
@@ -173,7 +174,7 @@ class TransientStore {
       document_id: requestId, // Use requestId as document_id for compatibility
       chunk_type: 'text',
       documents: {
-        original_filename: originalFilename || 'document.pdf'
+        original_filename: (originalFilename as string) || 'document.pdf'
       }
     }))
   }

@@ -128,7 +128,6 @@ async function healthCheckHandler(req: AuthenticatedRequest, res: NextApiRespons
     // Test 5: API Routes Availability
     console.log('Health Check: Testing API routes')
     const apiRoutes = [
-      '/api/supabase-upload',
       '/api/process-document'
     ]
 
