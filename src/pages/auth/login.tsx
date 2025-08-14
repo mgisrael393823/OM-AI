@@ -36,28 +36,63 @@ export default function LoginPage() {
     setIsLoading(true)
     setError("")
 
+    // Add timeout to login attempt
+    const loginTimeout = setTimeout(() => {
+      console.warn('⏰ Login attempt timed out')
+      setError("Login is taking too long. Please try again.")
+      setIsLoading(false)
+    }, 30000) // 30 second timeout
+
     try {
       console.log('🔐 Attempting login for:', email)
+      const startTime = Date.now()
       const { user, error } = await signIn(email, password)
+      const loginDuration = Date.now() - startTime
+      
+      clearTimeout(loginTimeout)
       
       if (error) {
-        console.log('❌ Login error:', error.message)
+        console.log('❌ Login error after', loginDuration + 'ms:', error.message)
+        // Enhanced error logging for production debugging
+        if (process.env.NODE_ENV === 'production') {
+          console.error('Production login error details:', {
+            error: error.message,
+            code: error.status || 'unknown',
+            duration: loginDuration,
+            timestamp: new Date().toISOString(),
+            userAgent: navigator.userAgent,
+            url: window.location.href
+          })
+        }
         setError(error.message)
         return
       }
 
       if (user) {
-        console.log('✅ Login successful, user:', user.email)
+        console.log('✅ Login successful after', loginDuration + 'ms, user:', user.email)
         const redirectTo = router.query.redirect as string || "/app"
         console.log('🔄 Redirecting to:', redirectTo)
         await router.push(redirectTo)
         window.location.reload() // Force reload to clear cache
       } else {
-        console.log('⚠️ Login returned no user')
+        console.log('⚠️ Login returned no user after', loginDuration + 'ms')
         setError("Login failed - no user returned")
       }
     } catch (err: unknown) {
+      clearTimeout(loginTimeout)
       console.log('💥 Login exception:', err)
+      
+      // Enhanced error logging for production
+      if (process.env.NODE_ENV === 'production') {
+        console.error('Production login exception:', {
+          error: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined,
+          timestamp: new Date().toISOString(),
+          userAgent: navigator.userAgent,
+          url: window.location.href
+        })
+      }
+      
       if (err instanceof Error) {
         if (err.message.includes('Missing Supabase environment variables')) {
           setError(`Configuration Error: ${err.message}. Please contact support.`)

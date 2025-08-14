@@ -3,7 +3,6 @@ import type { AppProps } from "next/app";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { fontVariables } from "@/lib/fonts";
-import { FontDebug } from "@/components/debug/FontDebug";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { useAuth } from "@/contexts/AuthContext";
@@ -59,7 +58,6 @@ export default function App({ Component, pageProps }: AppProps) {
         <main className={fontVariables}>
           <AuthProvider>
             <AppContent Component={Component} pageProps={pageProps} />
-            {process.env.NODE_ENV === 'development' && <FontDebug />}
           </AuthProvider>
         </main>
       </ToastProvider>

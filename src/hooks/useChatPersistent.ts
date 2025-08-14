@@ -58,7 +58,12 @@ function safelyExtractMessageContent(input: any): string {
   
   // If it's an object, try to extract known content fields
   if (typeof input === 'object') {
-    // Prefer 'content' field
+    // Prefer 'message' field (our API response format)
+    if (typeof input.message === 'string') {
+      return input.message
+    }
+
+    // Fallback to 'content' field
     if (typeof input.content === 'string') {
       return input.content
     }

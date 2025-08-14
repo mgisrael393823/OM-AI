@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { transientStore } from '@/lib/transient-store'
 
 interface RetrieveParams {
   documentId: string
@@ -25,6 +26,38 @@ export async function retrieveTopK({
   k,
   maxCharsPerChunk = 1000
 }: RetrieveParams): Promise<RetrievedChunk[]> {
+  // Check if this is an in-memory document (starts with "mem-")
+  if (documentId.startsWith('mem-')) {
+    console.log(`[retrieveTopK] Checking transient store for document: ${documentId}`)
+    const chunks = transientStore.getChunks(documentId)
+    
+    if (chunks && chunks.length > 0) {
+      console.log(`[retrieveTopK] Found ${chunks.length} chunks in transient store`)
+      
+      // For in-memory documents, try to find relevant chunks but always return something
+      // since these are temporary uploads meant for immediate context
+      let filteredChunks = chunks.filter(chunk => 
+        chunk.text.toLowerCase().includes(query.toLowerCase())
+      ).slice(0, k)
+      
+      // If no chunks match the query, return the first k chunks as fallback
+      if (filteredChunks.length === 0) {
+        console.log(`[retrieveTopK] No chunks matched query "${query}", returning first ${k} chunks as context`)
+        filteredChunks = chunks.slice(0, k)
+      }
+      
+      return filteredChunks.map(chunk => ({
+        content: chunk.text.slice(0, maxCharsPerChunk),
+        page_number: chunk.page || 1,
+        chunk_type: 'text'
+      }))
+    } else {
+      console.log(`[retrieveTopK] No chunks found in transient store for ${documentId}`)
+      return []
+    }
+  }
+
+  // For database documents, use the existing logic
   // First try the full-text search RPC
   try {
     const { data, error } = await supabaseAdmin.rpc('search_document_chunks', {
