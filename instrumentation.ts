@@ -6,13 +6,13 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Server-side Sentry initialization
-    await import('./sentry.server.config')
+    // Server-side Sentry initialization - use new JS config
+    await import('./sentry.server.config.js')
   }
 
   if (process.env.NEXT_RUNTIME === 'edge') {
-    // Edge runtime Sentry initialization
-    await import('./sentry.edge.config')
+    // Edge runtime Sentry initialization - use new JS config
+    await import('./sentry.edge.config.js')
   }
 }
 
