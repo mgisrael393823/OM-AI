@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.5.2",
   "engines": {
-    "node": ">=20 <21"
+    "node": ">=20 <=22"
   },
   "scripts": {
     "_comment": "NODE_OPTIONS='--no-deprecation' suppresses punycode DEP0040 from dependencies tr46/uri-js. Remove when deps updated.",
