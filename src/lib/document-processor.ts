@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 import { openAIService } from '@/lib/services/openai'
@@ -74,16 +75,8 @@ export async function processUploadedDocument(
   try {
     console.log("Document processor: Starting processing for:", originalFileName)
     
-    // Validate environment variables
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error("Document processor: Missing required Supabase environment variables")
-      throw new Error("Missing required Supabase environment variables")
-    }
-    
-    const supabase = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    )
+    // Use admin client to bypass RLS policies
+    const supabase = supabaseAdmin
 
     // Validate PDF
     console.log("Document processor: Starting PDF validation")
