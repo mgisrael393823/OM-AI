@@ -25,13 +25,15 @@
     "predev": "npm run check-config",
     "clean": "rm -rf .next && rm -rf node_modules/.cache && rm -rf .turbo",
     "clean:full": "npm run clean && rm -rf out && rm -rf build",
-    "clean:all": "pnpm run clean && rm -rf node_modules && pnpm install",
+    "clean:all": "rm -rf node_modules .next pnpm-lock.yaml ~/.cache/next-swc || true && pnpm store prune",
+    "verify:swc": "node -e \"const v=require('next/package.json').version, p=require.resolve('next/dist/compiled/@next/swc'); console.log('next', v); console.log('swc path', p); console.log('swc pkg', require('next/dist/compiled/@next/swc/package.json').version)\"",
     "clean:lockfiles": "rm -f package-lock.json yarn.lock && pnpm install",
     "clear-cache": "rm -rf .next/cache && rm -rf node_modules/.cache/webpack",
     "prepare": "corepack enable || true"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
+    "@next/swc-linux-x64-gnu": "15.4.6",
     "@opentelemetry/auto-instrumentations-node": "^0.62.0",
     "@opentelemetry/core": "^2.0.1",
     "@opentelemetry/sdk-trace-base": "^2.0.1",
@@ -84,7 +86,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "^0.474.0",
     "micro": "^10.0.1",
-    "next": "^15.2.3",
+    "next": "15.4.6",
     "next-themes": "^0.4.4",
     "openai": "^5.10.2",
     "path2d": "^0.3.1",
@@ -116,8 +118,17 @@
     "@napi-rs/canvas": "^0.1.77",
     "canvas": "^2.11.2"
   },
+  "pnpm": {
+    "overrides": {
+      "@next/swc": "15.4.6",
+      "@next/swc-*": "15.4.6"
+    }
+  },
   "devDependencies": {
+    "@next/swc-darwin-arm64": "15.4.6",
+    "@rollup/rollup-darwin-arm64": "4.46.2",
     "@rollup/rollup-linux-x64-gnu": "4.46.2",
+    "@sentry/cli": "^2.52.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
@@ -127,7 +138,7 @@
     "@types/react-dom": "^18",
     "dotenv": "^16.6.1",
     "eslint": "^8.57.0",
-    "eslint-config-next": "^14.2.0",
+    "eslint-config-next": "15.4.6",
     "eslint-plugin-tailwindcss": "^3.18.2",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^30.0.5",
