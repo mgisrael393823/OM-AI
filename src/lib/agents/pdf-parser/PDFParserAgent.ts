@@ -1,5 +1,7 @@
-// PDF.js polyfill for browser compatibility
-import 'path2d';
+// PDF.js polyfill for browser compatibility - guard against SSR
+if (typeof window !== 'undefined') {
+  require('path2d')
+}
 
 // Side-effect import to ensure worker is bundled
 import 'pdfjs-dist/legacy/build/pdf.worker.js';
@@ -131,31 +133,52 @@ export class PDFParserAgent implements IPDFParserAgent {
       console.log(`[PDFParserAgent] Processing ${numPages} pages with concurrency of ${CONCURRENT_PAGES}`);
       
       try {
-        // Process pages in concurrent batches
+        // Process pages in concurrent batches with error resilience
         for (let i = 0; i < numPages; i += CONCURRENT_PAGES) {
-          const batchStart = i;
-          const batchEnd = Math.min(i + CONCURRENT_PAGES, numPages);
-          const batchPromises: Promise<ParsedPage>[] = [];
+          const batchStart = i
+          const batchEnd = Math.min(i + CONCURRENT_PAGES, numPages)
+          const batchPromises: Promise<ParsedPage>[] = []
           
           // Create batch of page processing promises
           for (let pageNumber = batchStart + 1; pageNumber <= batchEnd; pageNumber++) {
-            batchPromises.push(this.processPage(pdfDocument, pageNumber, config));
+            batchPromises.push(this.processPage(pdfDocument, pageNumber, config))
           }
           
-          // Wait for batch to complete
-          const batchResults = await Promise.all(batchPromises);
+          // Wait for batch to complete - use allSettled to handle timeouts gracefully
+          const batchResults = await Promise.allSettled(batchPromises)
           
-          // Add results in order
-          for (const page of batchResults) {
-            if (page.text) hasAnyText = true;
-            pages.push(page);
+          // Add results in order, handling both fulfilled and rejected promises
+          for (let j = 0; j < batchResults.length; j++) {
+            const result = batchResults[j]
+            const pageNumber = batchStart + j + 1
+            
+            if (result.status === 'fulfilled') {
+              const page = result.value
+              if (page.text) hasAnyText = true
+              pages.push(page)
+            } else {
+              console.error(`[PDFParserAgent] Page ${pageNumber} failed:`, result.reason)
+              // Add empty page to maintain order
+              pages.push({
+                pageNumber,
+                text: '',
+                structuredText: [],
+                tables: [],
+                isImageBased: true,
+                ocrText: undefined
+              })
+            }
           }
           
-          console.log(`[PDFParserAgent] Processed batch ${batchStart + 1}-${batchEnd} of ${numPages}`);
+          console.log(`[PDFParserAgent] Processed batch ${batchStart + 1}-${batchEnd} of ${numPages}`)
         }
       } finally {
         // Cleanup
-        await pdfDocument.destroy();
+        try {
+          await pdfDocument.destroy()
+        } catch (error) {
+          console.warn('[PDFParserAgent] Error during PDF document cleanup:', error)
+        }
       }
       
       // Check if we got any text at all
@@ -218,50 +241,106 @@ export class PDFParserAgent implements IPDFParserAgent {
   }
 
   /**
-   * Process a single page asynchronously
+   * Process a single page asynchronously with timeout protection
    */
   private async processPage(
     pdfDocument: any,
     pageNumber: number,
     config: ParseOptions
   ): Promise<ParsedPage> {
+    // Add 10-second timeout for individual page processing
+    const timeoutPromise = new Promise<ParsedPage>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Page ${pageNumber} processing timed out after 10 seconds`))
+      }, 10000)
+    })
+    
+    const pageProcessingPromise = this.processPageInternal(pdfDocument, pageNumber, config)
+    
     try {
-      const page = await pdfDocument.getPage(pageNumber);
+      return await Promise.race([pageProcessingPromise, timeoutPromise])
+    } catch (error: any) {
+      if (error.message?.includes('timed out')) {
+        console.error(`[PDFParserAgent] Page ${pageNumber} processing timed out, skipping`)
+      } else {
+        console.error(`[PDFParserAgent] Error processing page ${pageNumber}:`, error)
+      }
+      
+      // Return empty page instead of failing entire document
+      return {
+        pageNumber,
+        text: '',
+        structuredText: [],
+        tables: [],
+        isImageBased: true,
+        ocrText: undefined
+      }
+    }
+  }
+  
+  /**
+   * Internal page processing logic without timeout wrapper
+   */
+  private async processPageInternal(
+    pdfDocument: any,
+    pageNumber: number,
+    config: ParseOptions
+  ): Promise<ParsedPage> {
+    try {
+      const page = await pdfDocument.getPage(pageNumber)
+      
+      // Guard against null page
+      if (!page) {
+        console.warn(`[PDFParserAgent] Page ${pageNumber} is null, skipping`)
+        return {
+          pageNumber,
+          text: '',
+          structuredText: [],
+          tables: [],
+          isImageBased: true,
+          ocrText: undefined
+        }
+      }
       
       // Optimized text content extraction options
       const textContent = await page.getTextContent({
         normalizeWhitespace: false,      // Keep original spacing for accuracy
         disableCombineTextItems: false,  // Allow combining for speed
         includeMarkedContent: false      // Skip marked content parsing
-      });
+      })
       
-      let pageText = textContent.items
-        ?.map((item: any) => (typeof item?.str === 'string' ? item.str : ''))
-        .join(' ')
-        .trim() ?? '';
+      // Guard against null text content
+      let pageText = ''
+      if (textContent && textContent.items && Array.isArray(textContent.items)) {
+        pageText = textContent.items
+          .filter((item: any) => item && typeof item.str === 'string' && item.str.trim())
+          .map((item: any) => item.str)
+          .join(' ')
+          .trim()
+      }
       
       // OCR fallback only when page text is empty and canvas is available
       if (!pageText && config.performOCR && ENABLE_PDF_OCR && this.ocrProcessor) {
-        const USE_CANVAS = process.env.USE_CANVAS === 'true';
+        const USE_CANVAS = process.env.USE_CANVAS === 'true'
         
         if (!USE_CANVAS) {
-          console.debug(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas disabled`);
+          console.debug(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas disabled`)
         } else {
           try {
-            const { isCanvasAvailable, safeLoadCanvas } = await import('@/lib/canvas-loader');
+            const { isCanvasAvailable, safeLoadCanvas } = await import('@/lib/canvas-loader')
             
             if (!isCanvasAvailable()) {
-              console.debug(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas not available`);
+              console.debug(`[PDFParserAgent] OCR requested for page ${pageNumber} but canvas not available`)
             } else {
-              const canvas = await safeLoadCanvas();
+              const canvas = await safeLoadCanvas()
               if (canvas) {
-                await this.ocrProcessor.initialize();
+                await this.ocrProcessor.initialize()
                 // OCR processing would go here when fully implemented
-                console.debug(`[PDFParserAgent] Canvas available for OCR on page ${pageNumber}`);
+                console.debug(`[PDFParserAgent] Canvas available for OCR on page ${pageNumber}`)
               }
             }
           } catch (error) {
-            console.warn(`[PDFParserAgent] Canvas loading failed for page ${pageNumber}:`, error);
+            console.warn(`[PDFParserAgent] Canvas loading failed for page ${pageNumber}:`, error)
           }
         }
       }
@@ -273,9 +352,9 @@ export class PDFParserAgent implements IPDFParserAgent {
         tables: [],
         isImageBased: !pageText,
         ocrText: undefined
-      };
+      }
     } catch (error) {
-      console.error(`[PDFParserAgent] Error processing page ${pageNumber}:`, error);
+      console.error(`[PDFParserAgent] Error in page ${pageNumber} internal processing:`, error)
       return {
         pageNumber,
         text: '',
@@ -283,7 +362,7 @@ export class PDFParserAgent implements IPDFParserAgent {
         tables: [],
         isImageBased: true,
         ocrText: undefined
-      };
+      }
     }
   }
 

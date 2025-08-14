@@ -2,6 +2,9 @@ import { useState, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 
+// Define the Supabase bucket name
+const SUPABASE_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_BUCKET || 'documents'
+
 interface UseSupabaseUploadOptions {
   maxFileSize?: number      // Default: 16MB
   allowedTypes?: string[]   // Default: ['application/pdf']
@@ -30,11 +33,14 @@ interface UploadResult {
   }
 }
 
+// Upload limits aligned with server
+const MAX_BYTES = 32 * 1024 * 1024 // 32MB limit
+
 const DEFAULT_OPTIONS: Required<UseSupabaseUploadOptions> = {
-  maxFileSize: 100 * 1024 * 1024, // 100MB for direct storage upload
-  allowedTypes: ['application/pdf'],
+  maxFileSize: MAX_BYTES,
+  allowedTypes: ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'],
   folder: '',
-  onProgress: (_fileName: string, _progress: number) => {} // Explicit no-op function
+  onProgress: (_fileName: string, _progress: number) => {}
 }
 
 export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
@@ -51,8 +57,12 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
   }, [])
 
   const validateFile = useCallback((file: File): string | null => {
-    // Check file type
-    if (!config.allowedTypes.includes(file.type)) {
+    // Check file type - support empty MIME type PDFs
+    const isPdf = file.type === 'application/pdf' || 
+                  (file.type === '' && file.name.toLowerCase().endsWith('.pdf'))
+    const isValidType = config.allowedTypes.includes(file.type) || isPdf
+    
+    if (!isValidType) {
       return `Invalid file type. Only ${config.allowedTypes.join(', ')} files are allowed.`
     }
 
@@ -92,35 +102,53 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
 
       const userId = session.user.id
 
-      // Generate unique filename
-      const timestamp = Date.now()
-      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_')
-      const fileName = `${userId}/${timestamp}-${sanitizedName}`
-      const bucket = 'documents'
-
-      console.log('Supabase Upload: Starting direct upload', {
-        fileName,
+      console.log('Supabase Upload: Starting signed upload', {
+        fileName: file.name,
         fileSize: file.size,
-        bucket
+        contentType: file.type
       })
 
-      // Upload directly to Supabase storage (bypasses Vercel completely)
+      // Step 1: Get signed upload URL from API
       setProgress(10)
-      const { data: uploadData, error: uploadError } = await supabase
-        .storage
-        .from(bucket)
-        .upload(fileName, file, {
-          contentType: file.type,
+      const signedResponse = await fetch('/api/storage/signed-upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type || 'application/pdf'
+        }),
+      })
+
+      if (!signedResponse.ok) {
+        const errorData = await signedResponse.json()
+        throw new Error(`Failed to get upload URL: ${errorData.error || signedResponse.statusText}`)
+      }
+
+      const { path, token } = await signedResponse.json()
+      console.log('Supabase Upload: Got signed URL', { path })
+
+      setProgress(25)
+
+      // Step 2: Upload to signed URL using service role
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('documents')
+        .uploadToSignedUrl(path, token, file, {
+          contentType: file.type || 'application/pdf',
           upsert: false
         })
 
       if (uploadError) {
-        console.error('Supabase Upload: Direct upload failed', uploadError)
+        console.error('Supabase Upload: Signed upload failed', uploadError)
         throw new Error(`Upload failed: ${uploadError.message}`)
       }
 
       setProgress(50)
-      console.log('Supabase Upload: Direct upload completed', uploadData.path)
+      console.log('Supabase Upload: Signed upload completed', uploadData.path)
+      
+      const fileName = path // Use the path from signed upload response
 
       // Verify file exists with polling (race condition protection)
       console.log('Supabase Upload: Verifying file existence')
@@ -140,7 +168,7 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
 
         const { data: files, error: listError } = await supabase
           .storage
-          .from(bucket)
+          .from(SUPABASE_BUCKET)
           .list(dirPath)
 
         if (!listError && files) {
@@ -175,11 +203,11 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
               'Authorization': `Bearer ${session.access_token}`,
             },
             body: JSON.stringify({
-              bucket,
+              bucket: SUPABASE_BUCKET,
               path: fileName,
               originalFilename: file.name,
               fileSize: file.size,
-              contentType: file.type,
+              contentType: file.type || 'application/pdf',
             }),
           })
 

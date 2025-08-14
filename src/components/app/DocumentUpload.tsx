@@ -30,8 +30,8 @@ interface DocumentUploadProps {
 }
 
 export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: DocumentUploadProps) {
-  // PDF upload limits
-  const MAX_PDF_MB = 100
+  // PDF upload limits - aligned with signed upload API
+  const MAX_PDF_MB = 32
 
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
   const [ingestMode, setIngestMode] = useState<'storage' | 'memory'>(() => {
