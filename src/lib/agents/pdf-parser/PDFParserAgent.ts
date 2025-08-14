@@ -1,5 +1,5 @@
 // PDF.js polyfill for browser compatibility
-import 'path2d';
+import 'path2d-polyfill';
 
 // Side-effect import to ensure worker is bundled
 import 'pdfjs-dist/legacy/build/pdf.worker.js';
