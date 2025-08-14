@@ -223,6 +223,13 @@ const nextConfig = {
       }
     }
     
+    // Always add path2d-polyfill alias for both client and server
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'path2d-polyfill': 'path2d'
+    };
+    
     return config;
   },
   
