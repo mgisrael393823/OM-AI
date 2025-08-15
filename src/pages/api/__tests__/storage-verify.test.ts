@@ -38,7 +38,8 @@ jest.mock('@/lib/constants/errors', () => ({
       'CONFIG_ERROR': 500,
       'STORAGE_ERROR': 500
     }
-    res.status(statusMap[code] || 500).json({
+    const httpStatus = (statusMap as Record<string, number>)[String(code)] ?? 500
+    res.status(httpStatus).json({
       error: `Mock error: ${code}`,
       code,
       details

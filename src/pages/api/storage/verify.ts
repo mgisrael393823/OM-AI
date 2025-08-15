@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
 import { withAuth, type AuthenticatedRequest } from '@/lib/auth-middleware'
-import { checkRateLimit } from '@/lib/rate-limiter'
+import { simpleRateLimit } from '@/lib/rate-limiter'
 import { z } from 'zod'
 
 // Force Node.js runtime for service role operations
@@ -72,7 +72,16 @@ interface VerifyErrorResponse {
   details?: string | string[]
 }
 
-type VerifyResponse = VerifySuccessResponse | VerifyNotFoundResponse | VerifySizeMismatchResponse | VerifyErrorResponse
+interface VerifyRateLimitResponse {
+  success: false
+  code: 'RATE_LIMITED'
+  message: string
+  limit: number
+  remaining: number
+  resetTime: number
+}
+
+type VerifyResponse = VerifySuccessResponse | VerifyNotFoundResponse | VerifySizeMismatchResponse | VerifyErrorResponse | VerifyRateLimitResponse
 
 // Retry configuration with exponential backoff
 const RETRY_DELAYS = [100, 250, 500, 1000, 1500, 3000, 4000] // 7 attempts, ~10s total
@@ -95,16 +104,16 @@ async function verifyFileHandler(
 
   try {
     // Rate limiting: 30 requests per minute per user
-    const rateLimitResult = await checkRateLimit({
-      endpoint: '/api/storage/verify',
-      maxRequests: 30,
-      windowMinutes: 1
-    }, req)
+    const identity = (req as any).user?.id ?? 
+      ((req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim()) ?? 
+      req.socket.remoteAddress ?? 'anon';
+    const rateLimitKey = `/api/storage/verify:${identity}`;
+    const rateLimitResult = simpleRateLimit(rateLimitKey, 30, 60000); // 30 requests per minute
 
     if (!rateLimitResult.allowed) {
       console.warn('Storage verification rate limited', {
         userId: req.user.id,
-        limit: rateLimitResult.limit,
+        limit: 30,
         remaining: rateLimitResult.remaining,
         resetTime: rateLimitResult.resetTime
       })
@@ -113,7 +122,7 @@ async function verifyFileHandler(
         success: false,
         code: 'RATE_LIMITED',
         message: `Too many verification requests. Try again in ${Math.ceil((rateLimitResult.resetTime - Date.now()) / 1000)} seconds.`,
-        limit: rateLimitResult.limit,
+        limit: 30,
         remaining: rateLimitResult.remaining,
         resetTime: rateLimitResult.resetTime
       })

@@ -31,6 +31,7 @@ interface ErrorResponse {
 
 interface SuccessResponse {
   requestId: string
+  memoryId: string
   success: boolean
   document: {
     originalFilename: string
@@ -215,7 +216,8 @@ async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiRespo
     const response: SuccessResponse = {
       success: true,
       ...result,
-      requestId, // Use our generated requestId
+      requestId, // Use our generated requestId for tracking
+      memoryId: result.requestId, // Expose the memory ID for document context
       processingTimeMs
     }
 

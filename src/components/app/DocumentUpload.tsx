@@ -133,10 +133,15 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
             // Use in-memory processing
             result = await memoryProcess(file)
             
-            // Transform result to match expected format and store requestId
+            // Validate response has memoryId for context
+            if (!result.memoryId?.startsWith('mem-')) {
+              throw new Error('Missing memoryId from processing response')
+            }
+
+            // Transform result to match expected format and store memoryId for context
             const transformedResult = {
               document: {
-                id: result.requestId,
+                id: result.memoryId, // Use memoryId for document context
                 name: result.document.originalFilename,
                 filename: result.document.originalFilename,
                 size: file.size,
@@ -145,15 +150,15 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
                 pageCount: result.document.pageCount,
                 chunkCount: result.document.chunkCount,
                 analysis: result.document.analysis,
-                requestId: result.requestId // Store requestId for follow-up queries
+                requestId: result.memoryId // Store memoryId for follow-up queries
               }
             }
             result = transformedResult
             
-            // Store requestId in session storage for chat context
+            // Store memoryId in session storage for chat context
             if (typeof window !== 'undefined' && result.requestId) {
               const recentRequestIds = JSON.parse(sessionStorage.getItem('recentRequestIds') || '[]')
-              recentRequestIds.unshift(result.requestId)
+              recentRequestIds.unshift(result.requestId) // This is now memoryId
               // Keep only last 5 request IDs
               sessionStorage.setItem('recentRequestIds', JSON.stringify(recentRequestIds.slice(0, 5)))
             }
