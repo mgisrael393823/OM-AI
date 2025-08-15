@@ -24,7 +24,7 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
 
 ### Prerequisites
 
-- Node.js 18+ and npm
+- Node.js 20.x and pnpm (engines: >=20 <21)
 - Supabase account
 - OpenAI API key
 - **Optional**: Canvas dependencies for enhanced PDF processing (see Canvas Setup below)
@@ -39,7 +39,11 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
 
 2. **Install dependencies**
    ```bash
-   npm install
+   # Enable pnpm if not already installed
+   corepack enable
+   
+   # Install dependencies
+   pnpm install
    ```
 
 3. **Set up environment variables** ⚠️ **CRITICAL**
@@ -75,7 +79,7 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
 
 4. **Run database migrations**
    ```bash
-   npx supabase db push
+   pnpm dlx supabase db push
    ```
 
 5. **Set up storage bucket**
@@ -85,7 +89,7 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
 
 6. **Start the development server**
    ```bash
-   npm run dev
+   pnpm run dev
    ```
 
    Visit [http://localhost:3000](http://localhost:3000)
@@ -106,7 +110,7 @@ USE_CANVAS=false
 
 #### Option 2: Enable Canvas with @napi-rs/canvas (Recommended for Production)
 ```bash
-npm install @napi-rs/canvas
+pnpm add @napi-rs/canvas
 ```
 ```env
 USE_CANVAS=true
@@ -120,7 +124,7 @@ USE_CANVAS=true
 # macOS prerequisites
 brew install pkg-config cairo pango libpng jpeg giflib librsvg pixman
 
-npm install canvas
+pnpm add canvas
 ```
 ```env
 USE_CANVAS=true
@@ -144,8 +148,8 @@ USE_CANVAS=true
 **Missing Dependencies**: If you see canvas-related errors with `USE_CANVAS=true`:
 ```bash
 # Install @napi-rs/canvas instead
-npm uninstall canvas
-npm install @napi-rs/canvas
+pnpm remove canvas
+pnpm add @napi-rs/canvas
 ```
 
 **macOS Setup**: 
@@ -379,23 +383,19 @@ Server-side storage verification endpoint with byte-level accuracy and security 
 
 ### Run Tests
 ```bash
-npm test                 # Run all tests
-npm run test:coverage   # With coverage report
-npm run test:watch     # Watch mode
+pnpm test                 # Run all tests
+pnpm run test:coverage   # With coverage report
+pnpm run test:watch     # Watch mode
 ```
 
-### E2E Tests
-```bash
-npm run cypress:open    # Interactive mode
-npm run cypress:run     # Headless mode
-```
 
 ## 🚢 Deployment
 
 ### Production Build
 ```bash
-npm run build
-npm start
+# Requires Node.js 20.x
+pnpm run build
+pnpm start
 ```
 
 ### Environment Variables (Production)
@@ -432,11 +432,10 @@ GitHub Actions workflow included for:
 ### Common Commands
 
 ```bash
-npm run dev          # Start development server
-npm run build        # Production build
-npm run lint         # Run ESLint
-npm run typecheck    # TypeScript validation
-npm run format       # Prettier formatting
+pnpm run dev          # Start development server
+pnpm run build        # Production build
+pnpm run lint         # Run ESLint
+pnpm run typecheck    # TypeScript validation
 ```
 
 ### Dev HMR Gotchas
@@ -447,29 +446,29 @@ Hot Module Replacement (HMR) issues can occasionally cause full page reloads or 
 
 ```bash
 # Fresh start after HMR issues
-npm run clean && npm run dev
+pnpm run clean && pnpm run dev
 
 # Use alternative port if port conflicts persist
-npm run dev:alt
+pnpm run dev:alt
 
 # Complete clean including all build artifacts
-npm run clean:full && npm run dev
+pnpm run clean:full && pnpm run dev
 ```
 
 #### Best Practices
 
 - **Avoid editing API routes during active development** - Changes to `pages/api/*` trigger server restarts that break HMR
-- **Use clean scripts after git operations** - Run `npm run dev:clean` after switching branches or merging
+- **Use clean scripts after git operations** - Run `pnpm run dev:clean` after switching branches or merging
 - **Stop dev server before git operations** - Prevents file lock conflicts and stale cache states
 
 #### Troubleshooting
 
 | Issue | Symptoms | Solution |
 |-------|----------|----------|
-| **404 hot-update errors** | Missing `/_next/static/chunks/` requests | `npm run clean && npm run dev` |
+| **404 hot-update errors** | Missing `/_next/static/chunks/` requests | `pnpm run clean && pnpm run dev` |
 | **Full page reloads** | Components refresh entirely instead of hot updating | Check for recent API route edits, restart dev server |
-| **Port conflicts** | "Port 3000 is already in use" | `npm run dev:alt` or manually kill processes on port 3000 |
-| **Stale cache** | Changes not reflecting, old content showing | `npm run clean:full && npm run dev` |
+| **Port conflicts** | "Port 3000 is already in use" | `pnpm run dev:alt` or manually kill processes on port 3000 |
+| **Stale cache** | Changes not reflecting, old content showing | `pnpm run clean:full && pnpm run dev` |
 
 #### Port Management
 
@@ -483,7 +482,7 @@ lsof -ti:3000
 kill -9 $(lsof -ti:3000)
 
 # Use dedicated development port
-npm run dev:alt  # Uses port 3001
+pnpm run dev:alt  # Uses port 3001
 ```
 
 ## 📊 Monitoring

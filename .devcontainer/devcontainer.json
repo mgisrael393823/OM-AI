@@ -34,8 +34,8 @@
     }
   },
   
-  "postCreateCommand": "npm install",
-  "postStartCommand": "npm run check-config",
+  "postCreateCommand": "corepack enable && pnpm install",
+  "postStartCommand": "pnpm run check-config",
   
   "remoteUser": "node",
   
