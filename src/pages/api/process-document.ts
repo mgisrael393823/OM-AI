@@ -24,7 +24,7 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
   }
 
   try {
-    const { bucket, path, originalFilename, fileSize, contentType, fileName, originalFileName, userId } = req.body
+    const { bucket, path, originalFilename, fileSize, contentType, fileName, originalFileName } = req.body
     
     // Support both old and new payload formats during transition
     const finalBucket = bucket || 'documents'
@@ -37,11 +37,9 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       hasPath: !!finalPath,
       hasOriginalFileName: !!originalFileName,
       hasFileSize: !!fileSize,
-      hasUserId: !!userId,
       fileName,
       originalFileName,
-      fileSize,
-      userId
+      fileSize
     })
 
     // Validate required fields
@@ -55,19 +53,27 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       return apiError(res, 400, `Missing required fields: ${missingFields.join(', ')}`, 'MISSING_FIELDS')
     }
 
-    // Verify the userId matches the authenticated user
-    if (userId !== req.user.id) {
+    // Extract userId from path (format: userId/filename.pdf)
+    const pathUserId = String(finalPath).split('/')[0]
+    if (!pathUserId) {
+      console.log(`[${requestId}] Process Document API: Unable to extract userId from path:`, finalPath)
+      return apiError(res, 400, 'Invalid path format', 'INVALID_PATH')
+    }
+
+    // Verify the path userId matches the authenticated user
+    if (pathUserId !== req.user.id) {
       console.log(`[${requestId}] Process Document API: User ID mismatch`, {
-        requestUserId: userId,
-        authenticatedUserId: req.user.id
+        pathUserId,
+        authenticatedUserId: req.user.id,
+        path: finalPath
       })
       return apiError(res, 403, 'User ID mismatch', 'USER_MISMATCH')
     }
 
-    console.log(`[${requestId}] Process Document API: Starting processing for:`, originalFileName, {
+    console.log(`[${requestId}] Process Document API: Starting processing for:`, finalOriginalFilename, {
       fileName,
       fileSize,
-      userId
+      userId: pathUserId
     })
 
     // Initialize Supabase client
@@ -251,7 +257,8 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       totalTimeMs: totalTime,
       originalFileName: req.body?.originalFileName,
       fileName: req.body?.fileName,
-      userId: req.body?.userId
+      path: req.body?.path,
+      authenticatedUserId: req.user?.id
     })
     return apiError(res, 500, 'Processing failed', 'PROCESSING_ERROR', 
       error instanceof Error ? error.message : 'Unknown error')
