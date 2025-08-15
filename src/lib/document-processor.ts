@@ -1,5 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 import { openAIService } from '@/lib/services/openai'
@@ -76,7 +75,7 @@ export async function processUploadedDocument(
     console.log("Document processor: Starting processing for:", originalFileName)
     
     // Use admin client to bypass RLS policies
-    const supabase = supabaseAdmin
+    const supabase = getSupabaseAdmin()
 
     // Validate PDF
     console.log("Document processor: Starting PDF validation")
@@ -532,14 +531,7 @@ async function storeAnalysisResults(data: {
   metrics: any
 }): Promise<boolean> {
   try {
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return false
-    }
-    
-    const supabase = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    )
+    const supabase = getSupabaseAdmin()
 
     const { error } = await supabase
       .from('usage_logs')

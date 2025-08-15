@@ -3,6 +3,7 @@ import formidable from 'formidable'
 import { promises as fs } from 'fs'
 import { withAuth, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { processInMemory } from '@/lib/document-processor'
+import { UPLOAD_LIMITS } from '@/lib/constants/upload'
 
 // Force Node.js runtime for singleton consistency
 export const runtime = 'nodejs'
@@ -14,10 +15,10 @@ export const config = {
   } 
 }
 
-// Size limit function to support dynamic environment variable changes (for tests)
+// Size limit function using unified constants
 function getMaxLimits() {
-  const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB ?? 8)
-  const MAX_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+  const MAX_UPLOAD_MB = UPLOAD_LIMITS.MAX_MB
+  const MAX_BYTES = UPLOAD_LIMITS.MAX_BYTES
   return { MAX_UPLOAD_MB, MAX_BYTES }
 }
 

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { transientStore } from '@/lib/transient-store'
 
 interface RetrieveParams {
@@ -60,7 +60,8 @@ export async function retrieveTopK({
   // For database documents, use the existing logic
   // First try the full-text search RPC
   try {
-    const { data, error } = await supabaseAdmin.rpc('search_document_chunks', {
+    const supabase = getSupabaseAdmin()
+    const { data, error } = await supabase.rpc('search_document_chunks', {
       p_document_ids: [documentId],
       p_query: query,
       p_limit: k
@@ -80,7 +81,8 @@ export async function retrieveTopK({
   }
 
   // Fallback: direct query on document_chunks table using ilike
-  const { data: tableData, error: tableError } = await supabaseAdmin
+  const supabase = getSupabaseAdmin()
+  const { data: tableData, error: tableError } = await supabase
     .from('document_chunks')
     .select('content,page_number,chunk_type')
     .eq('document_id', documentId)
@@ -101,7 +103,7 @@ export async function retrieveTopK({
   }
 
   // Final fallback: return first k chunks from document
-  const { data: anyData } = await supabaseAdmin
+  const { data: anyData } = await supabase
     .from('document_chunks')
     .select('content,page_number,chunk_type')
     .eq('document_id', documentId)

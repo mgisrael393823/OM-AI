@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { simpleRateLimit } from '@/lib/rate-limiter'
 import { z } from 'zod'
@@ -143,27 +143,19 @@ async function verifyFileHandler(
     const { path, expectedBytes } = parseResult.data
 
     // Resolve bucket server-side from environment (never trust client)
-    const bucket = process.env.NEXT_PUBLIC_SUPABASE_BUCKET || 'documents'
+    const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'documents'
     
-    // Validate required environment variables
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      console.error('Storage verification: Missing required environment variables')
+    // Create admin client with service role key (server-side only)
+    let admin
+    try {
+      admin = getSupabaseAdmin()
+    } catch (error) {
+      console.error('Storage verification: Failed to create admin client:', error)
       return res.status(500).json({
         success: false,
-        code: 'SERVER_CONFIGURATION_ERROR'
+        code: 'SUPABASE_ADMIN_MISCONFIG'
       })
     }
-
-    // Create admin client with service role key (server-side only)
-    const admin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
 
     console.log('Storage verification starting', {
       userId: req.user.id,

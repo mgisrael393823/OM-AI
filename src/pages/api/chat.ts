@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { createChatCompletion } from '@/lib/services/openai'
 import { chatCompletion as buildChatCompletion, responses as buildResponses } from '@/lib/services/openai/builders'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
 import { retrieveTopK } from '@/lib/rag/retriever'
 import { augmentMessagesWithContext } from '@/lib/rag/augment'
@@ -425,7 +425,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     // Best-effort persistence (non-fatal on error)
     if (sessionId) {
       try {
-        await supabaseAdmin.from('messages').insert({
+        const supabase = getSupabaseAdmin()
+        await supabase.from('messages').insert({
           chat_session_id: sessionId,
           role: 'assistant',
           content: ai.content,

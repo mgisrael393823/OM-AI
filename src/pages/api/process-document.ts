@@ -1,9 +1,8 @@
 import { NextApiRequest, NextApiResponse } from 'next'
-import { createClient } from '@supabase/supabase-js'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth, apiError, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { processUploadedDocument } from '@/lib/document-processor'
-import { getConfig } from '@/lib/config'
+import { ensureUserProfile } from '@/lib/db/users'
 import type { Database } from '@/types/database'
 
 async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiResponse) {
@@ -76,18 +75,24 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       userId: pathUserId
     })
 
-    // Initialize Supabase client
-    const config = getConfig()
-    console.log(`[${requestId}] Process Document API: Initializing Supabase client`, {
-      hasUrl: !!config.supabase.url,
-      hasServiceKey: !!config.supabase.serviceRoleKey,
-      urlPrefix: config.supabase.url?.substring(0, 20) + '...' || 'missing'
-    })
-    
-    const supabase = createClient<Database>(
-      config.supabase.url,
-      config.supabase.serviceRoleKey
-    )
+    // Ensure user profile exists before processing
+    try {
+      await ensureUserProfile(req.user.id);
+      console.log(`[${requestId}] Process Document API: User profile verified for userId:`, req.user.id);
+    } catch (error) {
+      console.error(`[${requestId}] Process Document API: User profile check failed:`, error);
+      return apiError(res, 500, 'User profile verification failed', 'DB_INSERT_FAILED');
+    }
+
+    // Initialize Supabase admin client
+    let supabase: ReturnType<typeof getSupabaseAdmin>
+    try {
+      supabase = getSupabaseAdmin()
+      console.log(`[${requestId}] Process Document API: Supabase admin client initialized successfully`)
+    } catch (error) {
+      console.error(`[${requestId}] Process Document API: Failed to initialize Supabase admin:`, error)
+      return apiError(res, 500, 'Database configuration error', 'SUPABASE_ADMIN_MISCONFIG')
+    }
 
     // Download the file from Supabase Storage with retry logic (race condition protection)
     console.log(`[${requestId}] Process Document API: Attempting to download file from storage`, {
@@ -98,14 +103,26 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     let fileData = null
     let downloadError = null
     let attempts = 0
-    const maxAttempts = 5
+    const maxAttempts = 12 // Increased for 45-60s total window
+    const startTime = Date.now()
+    const maxRetryDuration = 60000 // 60 seconds maximum
     
     while (!fileData && attempts < maxAttempts) {
       attempts++
       
+      // Check if we've exceeded the maximum retry duration
+      if (Date.now() - startTime > maxRetryDuration) {
+        console.log(`[${requestId}] Process Document API: Exceeded maximum retry duration of 60s`)
+        break
+      }
+      
       if (attempts > 1) {
-        const delay = Math.min(300 * Math.pow(2, attempts - 2), 2000) // 300ms → 2000ms exponential backoff
-        console.log(`[${requestId}] Process Document API: File download attempt ${attempts}, waiting ${delay}ms`)
+        // Exponential backoff with jitter: 500ms, 1s, 2s, 4s, 8s, 16s... with jitter
+        const baseDelay = Math.min(500 * Math.pow(2, attempts - 2), 16000)
+        const jitter = Math.random() * 0.3 * baseDelay // 30% jitter
+        const delay = Math.floor(baseDelay + jitter)
+        
+        console.log(`[${requestId}] Process Document API: Storage verify attempt ${attempts}, waiting ${delay}ms (${((Date.now() - startTime) / 1000).toFixed(1)}s elapsed)`)
         await new Promise(resolve => setTimeout(resolve, delay))
       }
       
@@ -118,30 +135,47 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
       downloadError = result.error
       
       if (fileData) {
-        console.log(`[${requestId}] Process Document API: File downloaded successfully on attempt ${attempts}`)
+        const totalElapsed = Date.now() - startTime
+        console.log(`[${requestId}] Process Document API: Storage verified successfully on attempt ${attempts} (${totalElapsed}ms elapsed)`)
         break
-      } else if (downloadError && attempts < maxAttempts) {
-        console.log(`[${requestId}] Process Document API: Download attempt ${attempts} failed, retrying:`, {
+      } else if (downloadError) {
+        // Only retry on 404 and 409 errors (eventual consistency issues)
+        const isRetryableError = downloadError.message.includes('404') || 
+                                downloadError.message.includes('409') ||
+                                downloadError.message.includes('not found')
+        
+        if (!isRetryableError || attempts >= maxAttempts) {
+          console.error(`[${requestId}] Process Document API: Non-retryable error or max attempts reached:`, {
+            error: downloadError.message,
+            path: finalPath,
+            attempts,
+            isRetryable: isRetryableError
+          })
+          break
+        }
+        
+        console.log(`[${requestId}] Process Document API: Retryable storage error attempt ${attempts}:`, {
           error: downloadError.message,
-          path: finalPath
+          path: finalPath,
+          willRetry: attempts < maxAttempts
         })
       }
     }
 
     if (downloadError && !fileData) {
-      // If all retries failed, return 409 PENDING_UPLOAD instead of 500 (not an error, just timing)
-      console.log(`[${requestId}] Process Document API: File not found after ${maxAttempts} attempts, returning 409`, {
-        error: downloadError,
-        path: finalPath,
-        message: downloadError.message,
+      // If all retries failed, return specific error code with structured logging
+      console.error(`[${requestId}] Process Document API: Storage not found after ${maxAttempts} attempts`, {
+        userId: req.user.id,
+        bucket: finalBucket,
+        objectPath: finalPath,
+        error: downloadError.message,
         statusCode: (downloadError as any).statusCode || 'unknown'
       })
       
-      return res.status(409).json({
+      return res.status(404).json({
         success: false,
-        code: 'PENDING_UPLOAD',
-        message: 'File upload may still be in progress. Please try again.',
-        retryAfterMs: 1500
+        code: 'STORAGE_NOT_FOUND',
+        message: 'Document not found in storage after multiple attempts'
       })
     }
 
@@ -194,15 +228,21 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
 
     const documentId = processingResult.document?.id
     if (!documentId) {
+      console.error(`[${requestId}] Process Document API: Document missing after processing`, {
+        userId: req.user.id,
+        path: finalPath,
+        bucket: finalBucket,
+        documentId
+      })
       return res.status(500).json({
         success: false,
-        code: 'NO_DOCUMENT',
+        code: 'DB_INSERT_FAILED',
         message: 'Document missing after processing'
       })
     }
 
     // Strict validation - verify actual chunk count
-    const { count } = await supabaseAdmin
+    const { count } = await supabase
       .from('document_chunks')
       .select('id', { count: 'exact', head: true })
       .eq('document_id', documentId)
@@ -213,9 +253,16 @@ async function processDocumentHandler(req: AuthenticatedRequest, res: NextApiRes
     })
     
     if (!count || count === 0) {
+      console.error(`[${requestId}] Process Document API: No chunks produced`, {
+        userId: req.user.id,
+        path: finalPath,
+        bucket: finalBucket,
+        documentId,
+        chunkCount: count
+      })
       return res.status(422).json({
         success: false,
-        code: 'NO_CHUNKS',
+        code: 'PARSE_FAILED',
         message: 'Document processing produced no chunks'
       })
     }
