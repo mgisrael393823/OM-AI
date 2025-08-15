@@ -10,6 +10,8 @@ export const FEATURE_FLAGS = {
   SETTINGS_API: process.env.NEXT_FEATURE_SETTINGS === 'true',
   // OpenAI Analysis Model - Controls whether to use analysis model for complex queries
   USE_ANALYSIS: (process.env.OPENAI_USE_ANALYSIS || 'false').toLowerCase() === 'true',
+  // Web Tools - Enables live market data search and comparable property mapping
+  WEB_TOOLS: process.env.NEXT_FEATURE_WEB_TOOLS === 'true',
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURE_FLAGS;
