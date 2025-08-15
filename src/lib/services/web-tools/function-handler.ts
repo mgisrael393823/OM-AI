@@ -1,38 +1,70 @@
 /**
  * Web Tools Function Handler
  * 
- * Handles function calls for live market data search and property mapping
+ * Handles function calls for generic web search and page fetching
  * when the WEB_TOOLS feature flag is enabled.
  */
 
 import { isFeatureEnabled } from '@/lib/feature-flags'
-import type { 
-  SearchMarketDataParams, 
-  MapPropertyVsCompsParams,
-  MarketDataResponse,
-  PropertyMappingResponse 
-} from '@/lib/services/openai/functions/om-functions'
+
+export interface WebSearchParams {
+  query: string
+  n?: number
+}
+
+export interface FetchPageParams {
+  url: string
+}
 
 export interface WebToolsFunction {
-  name: 'search_market_data' | 'map_property_vs_comps'
-  arguments: SearchMarketDataParams | MapPropertyVsCompsParams
+  name: 'web_search' | 'fetch_page'
+  arguments: WebSearchParams | FetchPageParams
 }
 
 export interface WebToolsResponse {
   functionName: string
   success: boolean
-  data?: MarketDataResponse | PropertyMappingResponse
+  data?: any
   error?: string
 }
 
+export interface ToolBudget {
+  searchCalls: number
+  fetchCalls: number
+  maxSearchCalls: number
+  maxFetchCalls: number
+}
+
+// Global budget tracker per request (reset for each request)
+let requestBudget: ToolBudget = {
+  searchCalls: 0,
+  fetchCalls: 0,
+  maxSearchCalls: 2,
+  maxFetchCalls: 6
+}
+
+export function resetToolBudget(): void {
+  requestBudget = {
+    searchCalls: 0,
+    fetchCalls: 0,
+    maxSearchCalls: 2,
+    maxFetchCalls: 6
+  }
+}
+
+export function getToolBudget(): ToolBudget {
+  return { ...requestBudget }
+}
+
 /**
- * Execute web tools function calls
+ * Execute web tools function calls with budget tracking
  */
 export async function executeWebToolsFunction(
   functionCall: WebToolsFunction,
   authToken: string,
   baseUrl: string = 'http://localhost:3000'
 ): Promise<WebToolsResponse> {
+  const startTime = Date.now()
   
   // Check if web tools are enabled
   if (!isFeatureEnabled('WEB_TOOLS')) {
@@ -43,15 +75,34 @@ export async function executeWebToolsFunction(
     }
   }
 
+  // Check budget before execution
+  if (functionCall.name === 'web_search' && requestBudget.searchCalls >= requestBudget.maxSearchCalls) {
+    return {
+      functionName: functionCall.name,
+      success: false,
+      error: `Search budget exceeded (max ${requestBudget.maxSearchCalls} calls per request)`
+    }
+  }
+
+  if (functionCall.name === 'fetch_page' && requestBudget.fetchCalls >= requestBudget.maxFetchCalls) {
+    return {
+      functionName: functionCall.name,
+      success: false,
+      error: `Fetch budget exceeded (max ${requestBudget.maxFetchCalls} calls per request)`
+    }
+  }
+
   try {
     let endpoint: string
     
     switch (functionCall.name) {
-      case 'search_market_data':
-        endpoint = '/api/web-tools/search-market-data'
+      case 'web_search':
+        endpoint = '/api/web-tools/web-search'
+        requestBudget.searchCalls++
         break
-      case 'map_property_vs_comps':
-        endpoint = '/api/web-tools/map-property-comps'
+      case 'fetch_page':
+        endpoint = '/api/web-tools/fetch-page'
+        requestBudget.fetchCalls++
         break
       default:
         return {
@@ -61,7 +112,10 @@ export async function executeWebToolsFunction(
         }
     }
 
-    console.log(`[WEB-TOOLS] Executing function: ${functionCall.name}`)
+    console.log(`[WEB-TOOLS] Executing function: ${functionCall.name}`, {
+      budget: getToolBudget(),
+      args: functionCall.arguments
+    })
 
     const response = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
@@ -70,6 +124,7 @@ export async function executeWebToolsFunction(
         'Authorization': `Bearer ${authToken}`,
       },
       body: JSON.stringify(functionCall.arguments),
+      signal: AbortSignal.timeout(12000) // 12s timeout for the full request
     })
 
     if (!response.ok) {
@@ -78,8 +133,12 @@ export async function executeWebToolsFunction(
     }
 
     const result = await response.json()
+    const executionTime = Date.now() - startTime
     
-    console.log(`[WEB-TOOLS] Function ${functionCall.name} completed successfully`)
+    console.log(`[WEB-TOOLS] Function ${functionCall.name} completed successfully`, {
+      executionTimeMs: executionTime,
+      budget: getToolBudget()
+    })
 
     return {
       functionName: functionCall.name,
@@ -88,7 +147,11 @@ export async function executeWebToolsFunction(
     }
 
   } catch (error) {
-    console.error(`[WEB-TOOLS] Function ${functionCall.name} failed:`, error)
+    const executionTime = Date.now() - startTime
+    console.error(`[WEB-TOOLS] Function ${functionCall.name} failed:`, error, {
+      executionTimeMs: executionTime,
+      budget: getToolBudget()
+    })
     
     return {
       functionName: functionCall.name,
@@ -107,53 +170,39 @@ export function formatWebToolsResponse(response: WebToolsResponse): string {
   }
 
   switch (response.functionName) {
-    case 'search_market_data':
-      const marketData = response.data as MarketDataResponse
-      return formatMarketDataResponse(marketData)
+    case 'web_search':
+      return formatWebSearchResponse(response.data)
       
-    case 'map_property_vs_comps':
-      const mappingData = response.data as PropertyMappingResponse
-      return formatPropertyMappingResponse(mappingData)
+    case 'fetch_page':
+      return formatFetchPageResponse(response.data)
       
     default:
       return `Web Tools Response: ${JSON.stringify(response.data)}`
   }
 }
 
-function formatMarketDataResponse(data: MarketDataResponse): string {
-  const metrics = data.dataPoints.map(dp => 
-    `${dp.metric}: ${dp.value}${dp.unit} (${Math.round(dp.confidence * 100)}% confidence)`
-  ).join(', ')
-  
-  const comps = data.comparableProperties.map(comp =>
-    `${comp.address}: $${comp.salePrice.toLocaleString()} (${comp.capRate}% cap, $${comp.pricePerSqFt}/sf)`
-  ).join('\n')
-  
-  return `Market Data for ${data.submarket} (${data.propertyType}):
+function formatWebSearchResponse(data: any): string {
+  if (!data?.results || !Array.isArray(data.results)) {
+    return 'No search results found'
+  }
 
-Key Metrics: ${metrics}
+  const results = data.results.map((result: any, index: number) => 
+    `${index + 1}. [${result.title || 'No title'}](${result.url})\n   ${result.snippet || 'No description'}`
+  ).join('\n\n')
 
-Recent Comparable Sales:
-${comps}
-
-Market Outlook: ${data.forecast.outlook} (vacancy trending ${data.forecast.vacancyRate}%, rent growth ${data.forecast.rentGrowth}%)`
+  return `Search Results for "${data.query}":\n\n${results}`
 }
 
-function formatPropertyMappingResponse(data: PropertyMappingResponse): string {
-  const subject = data.subjectProperty
-  const demographics = data.demographics
-  
-  const comps = data.comparables.map(comp =>
-    `${comp.address}: $${comp.salePrice.toLocaleString()} (${comp.distance}mi away, adjusted: $${comp.adjustedValue.toLocaleString()})`
-  ).join('\n')
-  
-  return `Property Location Analysis for ${subject.address}:
+function formatFetchPageResponse(data: any): string {
+  if (!data?.content) {
+    return 'No page content available'
+  }
 
-Location Scores: Walk Score ${subject.walkScore}, Transit Score ${subject.transitScore}
-Demographics: Population ${demographics.population.toLocaleString()}, Median Income $${demographics.medianIncome.toLocaleString()}
+  const title = data.title || 'No title'
+  const url = data.url || ''
+  const content = data.content.length > 2000 ? 
+    data.content.substring(0, 2000) + '...' : 
+    data.content
 
-Comparable Properties:
-${comps}
-
-Analysis: ${data.analysis.comparabilityScore}/10 comparability score. ${data.analysis.adjustmentSummary}`
+  return `Page Content: [${title}](${url})\n\n${content}`
 }

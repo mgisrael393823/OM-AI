@@ -5,8 +5,8 @@ import { ELITE_OM_ADVISOR_PROMPT } from '@/lib/prompts/elite-om-advisor'
 import { getRelevantChunks } from '@/lib/rag/conversational-retriever'
 import { withAuth } from '@/lib/auth-middleware'
 import { isFeatureEnabled } from '@/lib/feature-flags'
-import { OM_FUNCTIONS } from '@/lib/services/openai/functions/om-functions'
-import { executeWebToolsFunction, formatWebToolsResponse } from '@/lib/services/web-tools/function-handler'
+import { WEB_TOOLS_FUNCTIONS } from '@/lib/services/web-tools/tool-definitions'
+import { executeWebToolsFunction, formatWebToolsResponse, resetToolBudget } from '@/lib/services/web-tools/function-handler'
 
 export const config = {
   api: { 
@@ -80,17 +80,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Prepare function tools if web tools are enabled
     const webToolsEnabled = isFeatureEnabled('WEB_TOOLS')
     const tools = webToolsEnabled ? [
-      { type: 'function', function: OM_FUNCTIONS.search_market_data },
-      { type: 'function', function: OM_FUNCTIONS.map_property_vs_comps }
+      { type: 'function' as const, function: WEB_TOOLS_FUNCTIONS.web_search },
+      { type: 'function' as const, function: WEB_TOOLS_FUNCTIONS.fetch_page }
     ] : undefined
 
     console.log('[CHAT-CONV] Web tools enabled:', webToolsEnabled)
 
+    // Reset tool budget for this request
+    if (webToolsEnabled) {
+      resetToolBudget()
+    }
+
     // Prepare base messages
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     const baseMsgs = [
-      { role: 'system', content: ELITE_OM_ADVISOR_PROMPT + documentContext },
-      ...messages
+      { role: 'system' as const, content: ELITE_OM_ADVISOR_PROMPT + documentContext },
+      ...messages.map(m => ({ role: m.role as any, content: m.content }))
     ]
 
     if (webToolsEnabled) {
@@ -112,17 +117,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const toolMessages: any[] = []
         
         for (const tc of calls) {
-          const args = JSON.parse(tc.function.arguments || '{}')
-          const out = await executeWebToolsFunction({
-            name: tc.function.name as any,
-            arguments: args
-          }, authToken)
-          const formatted = formatWebToolsResponse(out)
-          toolMessages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            content: formatted
-          })
+          if (tc.type === 'function') {
+            const args = JSON.parse(tc.function.arguments || '{}')
+            const out = await executeWebToolsFunction({
+              name: tc.function.name as any,
+              arguments: args
+            }, authToken)
+            const formatted = formatWebToolsResponse(out)
+            toolMessages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: formatted
+            })
+          }
         }
         
         // Pass 2: stream final answer with tool results
