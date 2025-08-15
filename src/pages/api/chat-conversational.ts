@@ -52,15 +52,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const safeDocId = documentId && isValidDocumentId(documentId) ? documentId : undefined
 
   // SSE headers
-  res.setHeader('Content-Type','text/event-stream');
-  res.setHeader('Cache-Control','no-cache, no-transform');
-  res.setHeader('Connection','keep-alive');
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
   res.flushHeaders?.();
+  res.write(':ok\n\n'); // prelude to keep the pipe open
 
-  // Heartbeat and cleanup
   const controller = new AbortController();
-  const hb = setInterval(()=>res.write(':heartbeat\n\n'), 30000);
-  req.on('close', ()=>{ clearInterval(hb); controller.abort(); res.end(); });
+  const heartbeat = setInterval(() => res.write(':hb\n\n'), 15000);
+  req.on('close', () => { clearInterval(heartbeat); controller.abort(); });
 
   try {
     // Get document context
@@ -105,7 +108,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         messages: baseMsgs,
         tools,
         stream: false
-      }, { signal: controller.signal })
+      }, { signal: AbortSignal.timeout(55000) })
 
       const m = first.choices[0]?.message
       const calls = m?.tool_calls ?? []
@@ -144,13 +147,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           messages: finalMsgs,
           stream: true,
           tools: undefined
-        }, { signal: controller.signal })
+        }, { signal: AbortSignal.timeout(55000) })
         
         for await (const chunk of finalStream) {
-          const content = chunk.choices[0]?.delta?.content
-          if (content) {
-            res.write(`data: ${JSON.stringify({ content })}\n\n`)
-          }
+          const delta = chunk.choices?.[0]?.delta?.content;
+          if (delta) res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
         }
         
         res.write('data: [DONE]\n\n')
@@ -164,13 +165,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       model: process.env.OPENAI_MODEL || 'gpt-4o',
       messages: baseMsgs,
       stream: true
-    }, { signal: controller.signal })
+    }, { signal: AbortSignal.timeout(55000) })
 
     for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content
-      if (content) {
-        res.write(`data: ${JSON.stringify({ content })}\n\n`)
-      }
+      const delta = chunk.choices?.[0]?.delta?.content;
+      if (delta) res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
     }
 
     res.write('data: [DONE]\n\n')
@@ -178,7 +177,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     console.error('[CHAT-CONV] Error:', error)
     res.write(`event: error\ndata: ${JSON.stringify({ error: 'Stream failed' })}\n\n`)
   } finally {
-    clearInterval(hb)
+    clearInterval(heartbeat)
     res.end()
   }
 }

@@ -22,7 +22,10 @@ const HEURISTIC_SECTIONS = [
 ]
 
 function buildEnhancedQuery(lastUserMsg: string, recentContext: string): string {
-  const query = lastUserMsg.toLowerCase()
+  const q = lastUserMsg.toLowerCase();
+  const expanded = q
+    .replace(/\byear[- ]?1\b/gi, 'year 1 y1 yr 1')
+    .replace(/\bnoi\b/gi, 'noi net operating income');
   
   // Add context from recent messages
   let enhancedQuery = lastUserMsg
@@ -30,12 +33,12 @@ function buildEnhancedQuery(lastUserMsg: string, recentContext: string): string 
     enhancedQuery += ' ' + recentContext
   }
   
-  // Add relevant CRE synonyms based on detected topics
+  // Add relevant CRE synonyms based on detected topics (using expanded query)
   const synonyms: string[] = []
   
   Object.entries(CRE_TERMS).forEach(([category, terms]) => {
-    if (terms.some(term => query.includes(term))) {
-      synonyms.push(...terms.filter(term => !query.includes(term)).slice(0, 2))
+    if (terms.some(term => expanded.includes(term))) {
+      synonyms.push(...terms.filter(term => !expanded.includes(term)).slice(0, 2))
     }
   })
   
