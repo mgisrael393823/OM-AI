@@ -83,6 +83,12 @@ const isResponsesModel = (model: string) => RESPONSES_MODEL_PATTERN.test(model)
  * Chat endpoint handler that supports both Chat Completions and Responses API
  */
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
+  // Kill switch: Route to conversational endpoint when flag is enabled
+  if (process.env.CONVERSATIONAL_CHAT === '1') {
+    const { default: conversationalHandler } = await import('./chat-conversational')
+    return conversationalHandler(req, res)
+  }
+
   const requestId = `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
   
   try {
