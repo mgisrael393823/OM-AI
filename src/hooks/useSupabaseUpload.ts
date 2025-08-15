@@ -150,40 +150,116 @@ export function useSupabaseUpload(options: UseSupabaseUploadOptions = {}) {
       
       const fileName = path // Use the path from signed upload response
 
-      // Verify file exists with polling (race condition protection)
-      console.log('Supabase Upload: Verifying file existence')
-      const dirPath = fileName.split('/').slice(0, -1).join('/')
-      let fileExists = false
-      let attempts = 0
-      const maxAttempts = 5
+      // Verify file exists using server-side verification with byte checking
+      console.log('Supabase Upload: Verifying file existence and size via server')
       
-      while (!fileExists && attempts < maxAttempts) {
-        attempts++
-        const delay = Math.min(300 * Math.pow(1.5, attempts - 1), 1500) // 300ms → 1500ms backoff
+      let verificationAttempts = 0
+      const maxVerificationRetries = 2 // One initial attempt + 1 retry for 404 cases
+      let verificationSuccessful = false
+      let verificationResult: any = null
+
+      while (!verificationSuccessful && verificationAttempts < maxVerificationRetries) {
+        verificationAttempts++
         
-        if (attempts > 1) {
-          console.log(`Supabase Upload: File existence check attempt ${attempts}, waiting ${delay}ms`)
-          await new Promise(resolve => setTimeout(resolve, delay))
+        // Wait before retry (only for retry attempts)
+        if (verificationAttempts > 1) {
+          console.log('Supabase Upload: Retrying verification after 404', {
+            path: fileName,
+            attempt: verificationAttempts,
+            delayMs: 1000
+          })
+          await new Promise(resolve => setTimeout(resolve, 1000))
         }
 
-        const { data: files, error: listError } = await supabase
-          .storage
-          .from(SUPABASE_BUCKET)
-          .list(dirPath)
+        const verificationResponse = await fetch('/api/storage/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            path: fileName,
+            expectedBytes: file.size
+          }),
+        })
 
-        if (!listError && files) {
-          const targetFileName = fileName.split('/').pop()
-          fileExists = files.some(f => f.name === targetFileName)
+        if (!verificationResponse.ok) {
+          const errorData = await verificationResponse.json().catch(() => ({}))
+          
+          if (verificationResponse.status === 404) {
+            console.warn('Supabase Upload: File verification failed - not found', {
+              path: fileName,
+              attempt: verificationAttempts,
+              maxRetries: maxVerificationRetries,
+              attempts: errorData.attempts,
+              totalTimeMs: errorData.totalTimeMs
+            })
+            
+            // Only retry on 404, and only once
+            if (verificationAttempts < maxVerificationRetries) {
+              continue // Try again
+            } else {
+              throw new Error('Upload completed but file verification failed after retries. Please try uploading again.')
+            }
+            
+          } else if (verificationResponse.status === 409) {
+            console.error('Supabase Upload: File verification failed - size mismatch', {
+              path: fileName,
+              expectedBytes: errorData.expectedBytes,
+              actualBytes: errorData.actualBytes,
+              attempts: errorData.attempts,
+              totalTimeMs: errorData.totalTimeMs
+            })
+            
+            // Enhanced error message for size mismatch - no retry for this
+            throw new Error('Upload verified but size mismatch. Re-upload suggested.')
+            
+          } else if (verificationResponse.status === 422) {
+            console.error('Supabase Upload: File verification failed - invalid input', {
+              path: fileName,
+              details: errorData.details
+            })
+            
+            throw new Error('File verification failed due to invalid parameters.')
+            
+          } else {
+            const errorText = await verificationResponse.text().catch(() => 'Unknown error')
+            console.error('Supabase Upload: Verification endpoint error', {
+              status: verificationResponse.status,
+              errorText,
+              errorData
+            })
+            throw new Error(`File verification failed: ${verificationResponse.status} ${verificationResponse.statusText}`)
+          }
+        } else {
+          // Success response
+          verificationResult = await verificationResponse.json()
+          
+          // Check for new success field with backward compatibility
+          const isVerificationSuccessful = verificationResult.success === true && verificationResult.exists === true
+          const isLegacySuccess = !('success' in verificationResult) && verificationResult.exists === true
+          
+          if (isVerificationSuccessful || isLegacySuccess) {
+            verificationSuccessful = true
+            console.log('Supabase Upload: File existence and size verified successfully', {
+              path: fileName,
+              bytes: verificationResult.bytes || 'unknown',
+              expectedBytes: file.size,
+              attempts: verificationResult.attempts,
+              totalTimeMs: verificationResult.totalTimeMs,
+              verifiedAt: verificationResult.verifiedAt,
+              clientAttempt: verificationAttempts
+            })
+          } else {
+            console.error('Supabase Upload: File verification unsuccessful', {
+              path: fileName,
+              verificationResult
+            })
+            throw new Error('File verification completed but was not successful.')
+          }
         }
-
-        setProgress(50 + (attempts / maxAttempts) * 30) // 50% → 80%
       }
 
-      if (!fileExists) {
-        throw new Error('File upload completed but verification failed. Please try again.')
-      }
-
-      console.log('Supabase Upload: File existence verified')
       setProgress(85) // Verification complete, now processing
       
       // Process the document via API with retry logic

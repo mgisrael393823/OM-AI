@@ -50,6 +50,7 @@ OM-AI is an AI-powered commercial real estate analysis platform that helps profe
    NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+   NEXT_PUBLIC_SUPABASE_BUCKET=documents  # Storage bucket name
    
    # OpenAI (REQUIRED for chat functionality)
    OPENAI_API_KEY=your_openai_api_key
@@ -213,6 +214,9 @@ OM-AI/
 - **Private Storage**: User-isolated document storage
 - **Signed URLs**: Time-limited access tokens (5-minute TTL)
 - **File Validation**: MIME type and size restrictions (10MB limit)
+- **Server-Side Verification**: Secure storage verification with service role authentication
+- **Rate Limiting**: 30 verification requests per minute per user
+- **Path Sanitization**: Prevents directory traversal attacks
 - **Virus Scanning**: Ready for integration
 
 ## 📡 API Reference
@@ -293,6 +297,83 @@ All errors follow a consistent format:
   "details": "Additional context" // optional
 }
 ```
+
+#### POST `/api/storage/verify`
+Server-side storage verification endpoint with byte-level accuracy and security hardening.
+
+**Features:**
+- ✅ **Service Role Authentication**: Uses server-side Supabase admin client
+- ✅ **Direct File Verification**: HEAD/Range GET requests instead of bucket listing
+- ✅ **Byte-Level Validation**: Compares expected vs actual file sizes
+- ✅ **Rate Limited**: 30 requests per minute per user
+- ✅ **Input Validation**: Zod schema with path sanitization
+- ✅ **Retry Logic**: 7 attempts with exponential backoff (100ms → 4000ms)
+
+**Request:**
+```json
+{
+  "path": "userId/123456-document.pdf",
+  "expectedBytes": 12345
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "exists": true,
+  "bytes": 12345,
+  "attempts": 1,
+  "verifiedAt": "2025-01-15T10:30:00Z",
+  "totalTimeMs": 150
+}
+```
+
+**Error Responses:**
+```json
+// File Not Found (404)
+{
+  "success": false,
+  "exists": false,
+  "code": "FILE_NOT_FOUND",
+  "attempts": 7,
+  "totalTimeMs": 8500
+}
+
+// Size Mismatch (409)
+{
+  "success": false,
+  "exists": true,
+  "code": "SIZE_MISMATCH",
+  "expectedBytes": 12345,
+  "actualBytes": 54321,
+  "attempts": 1,
+  "totalTimeMs": 200
+}
+
+// Invalid Input (422)
+{
+  "success": false,
+  "code": "INVALID_INPUT",
+  "details": ["path: Path contains invalid characters"]
+}
+
+// Rate Limited (429)
+{
+  "success": false,
+  "code": "RATE_LIMITED",
+  "message": "Too many verification requests. Try again in 45 seconds.",
+  "limit": 30,
+  "remaining": 0,
+  "resetTime": 1705317000000
+}
+```
+
+**Security Features:**
+- Server-side bucket resolution (ignores client-provided bucket)
+- Path sanitization (rejects `../`, leading `/`, special characters)
+- Service role key never exposed to client
+- Comprehensive logging with Sentry breadcrumbs
 
 ## 🧪 Testing
 

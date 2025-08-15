@@ -14,9 +14,12 @@ export const config = {
   } 
 }
 
-// Size limit from environment with 8MB default
-const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB ?? 8)
-const MAX_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+// Size limit function to support dynamic environment variable changes (for tests)
+function getMaxLimits() {
+  const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB ?? 8)
+  const MAX_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+  return { MAX_UPLOAD_MB, MAX_BYTES }
+}
 
 interface ErrorResponse {
   requestId: string
@@ -57,6 +60,8 @@ async function processMemoryHandler(req: AuthenticatedRequest, res: NextApiRespo
   }
 
   try {
+    const { MAX_UPLOAD_MB, MAX_BYTES } = getMaxLimits()
+    
     // Early size check via Content-Length to prevent memory allocation
     const contentLength = req.headers['content-length']
     if (contentLength) {

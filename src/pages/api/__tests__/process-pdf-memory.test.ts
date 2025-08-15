@@ -117,7 +117,7 @@ describe('/api/process-pdf-memory', () => {
       expect(data).toMatchObject({
         requestId: expect.any(String),
         code: 'E_SIZE_LIMIT',
-        message: expect.stringContaining('10.0MB exceeds 8.0MB limit')
+        message: expect.stringContaining('10.0MB exceeds 8MB limit')
       })
     })
 
@@ -203,7 +203,7 @@ describe('/api/process-pdf-memory', () => {
       expect(data).toMatchObject({
         requestId: expect.any(String),
         code: 'E_SIZE_LIMIT',
-        message: expect.stringContaining('exceeds 8.0MB limit')
+        message: expect.stringContaining('exceeds 8MB limit')
       })
     })
   })
