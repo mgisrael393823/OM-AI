@@ -132,6 +132,7 @@
     "@rollup/rollup-darwin-arm64": "4.46.2",
     "@rollup/rollup-linux-x64-gnu": "4.46.2",
     "@sentry/cli": "^2.52.0",
+    "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",

@@ -2,6 +2,7 @@ import React from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Bot, User } from "lucide-react"
 import { componentTypography } from "@/lib/typography"
+// Import Markdown component - explicit path to prevent build optimization issues
 import Markdown from "@/components/ui/Markdown"
 
 export interface MessageBubbleProps {

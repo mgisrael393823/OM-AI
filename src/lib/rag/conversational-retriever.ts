@@ -67,7 +67,7 @@ async function fallbackHeuristicRetrieval(documentId: string): Promise<any[]> {
         documentId,
         query: section,
         k: 2, // Only 2 chunks per section to avoid overwhelming
-        maxCharsPerChunk: 1500
+        maxCharsPerChunk: 1200 // Reduced for faster processing
       })
       
       if (chunks?.length > 0) {
@@ -107,11 +107,13 @@ export async function getRelevantChunks(documentId: string, messages: any[]) {
     })
     
     // Primary retrieval with enhanced query
+    // Environment-configurable chunk limits for performance
+    const maxChunks = Number(process.env.CONTEXT_MAX_CHUNKS) || 10
     const chunks = await retrieveTopK({
       documentId,
       query: enhancedQuery,
-      k: 10, // Get more initially for better selection
-      maxCharsPerChunk: 1500
+      k: maxChunks,
+      maxCharsPerChunk: 1200 // Reduced for faster processing
     })
 
     console.log(`[CONV-RETRIEVER] Primary retrieval found ${chunks?.length || 0} chunks`)
@@ -141,10 +143,11 @@ export async function getRelevantChunks(documentId: string, messages: any[]) {
       if (text.length > prev) byPage.set(page, { content: text, page })
     }
 
-    // Sort by page and limit to best 8 chunks
+    // Sort by page and limit to environment-configured chunks
+    const maxFinalChunks = Number(process.env.CONTEXT_MAX_CHUNKS) || 8
     const sortedChunks = Array.from(byPage.values())
       .sort((a, b) => a.page - b.page)
-      .slice(0, 8)
+      .slice(0, maxFinalChunks)
     
     console.log('[CONV-RETRIEVER] Final selection:', {
       totalFound: finalChunks.length,

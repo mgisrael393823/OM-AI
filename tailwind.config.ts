@@ -23,7 +23,7 @@ const config: Config = {
   theme: {
   	extend: {
   		fontFamily: {
-  			inter: ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
+  			inter: ['var(--font-inter)', 'sans-serif'],
   			noto: ['var(--font-noto-sans)', 'Noto Sans', 'system-ui', 'sans-serif'],
   			fira: ['var(--font-fira-code)', 'Fira Code', 'Monaco', 'Consolas', 'monospace'],
   			// Override default Tailwind fonts with our custom fonts
@@ -141,6 +141,9 @@ const config: Config = {
   		}
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    require("@tailwindcss/typography")
+  ],
 };
 export default config;

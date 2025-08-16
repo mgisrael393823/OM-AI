@@ -2,12 +2,19 @@ import "@/styles/globals.css";
 import type { AppProps } from "next/app";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
-import { fontVariables } from "@/lib/fonts";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect } from "react";
 import { useIsomorphicLayoutEffect } from "@/hooks/useIsomorphicLayoutEffect";
+import { Inter } from 'next/font/google';
+
+// Load Inter font with next/font for consistent rendering
+const inter = Inter({ 
+  subsets: ['latin'], 
+  variable: '--font-inter',
+  display: 'swap'
+});
 
 // Expose supabase to window for console testing
 if (typeof window !== 'undefined') {
@@ -55,11 +62,11 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <ErrorBoundary>
       <ToastProvider>
-        <main className={fontVariables}>
+        <div className={`${inter.variable} font-inter`}>
           <AuthProvider>
             <AppContent Component={Component} pageProps={pageProps} />
           </AuthProvider>
-        </main>
+        </div>
       </ToastProvider>
     </ErrorBoundary>
   );
