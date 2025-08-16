@@ -92,6 +92,9 @@ export async function executeWebToolsFunction(
     }
   }
 
+  // Different timeouts based on tool type
+  const timeoutMs = functionCall.name === 'web_search' ? 8000 : 10000 // 8s for search, 10s for fetch
+
   try {
     let endpoint: string
     
@@ -114,7 +117,8 @@ export async function executeWebToolsFunction(
 
     console.log(`[WEB-TOOLS] Executing function: ${functionCall.name}`, {
       budget: getToolBudget(),
-      args: functionCall.arguments
+      args: functionCall.arguments,
+      timeoutMs
     })
 
     const response = await fetch(`${baseUrl}${endpoint}`, {
@@ -124,7 +128,7 @@ export async function executeWebToolsFunction(
         'Authorization': `Bearer ${authToken}`,
       },
       body: JSON.stringify(functionCall.arguments),
-      signal: AbortSignal.timeout(12000) // 12s timeout for the full request
+      signal: AbortSignal.timeout(timeoutMs)
     })
 
     if (!response.ok) {
@@ -148,15 +152,20 @@ export async function executeWebToolsFunction(
 
   } catch (error) {
     const executionTime = Date.now() - startTime
-    console.error(`[WEB-TOOLS] Function ${functionCall.name} failed:`, error, {
+    const isTimeout = error instanceof Error && (error.name === 'AbortError' || error.message.includes('timeout'))
+    
+    console.error(`[WEB-TOOLS] Function ${functionCall.name} ${isTimeout ? 'timed out' : 'failed'}:`, error, {
       executionTimeMs: executionTime,
-      budget: getToolBudget()
+      budget: getToolBudget(),
+      isTimeout
     })
     
     return {
       functionName: functionCall.name,
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: isTimeout 
+        ? `${functionCall.name} timed out after ${timeoutMs}ms` 
+        : (error instanceof Error ? error.message : 'Unknown error')
     }
   }
 }

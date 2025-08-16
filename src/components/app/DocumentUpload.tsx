@@ -15,6 +15,7 @@ import { useSupabaseUpload } from "@/hooks/useSupabaseUpload"
 import { useInMemoryPDFProcessor } from "@/hooks/useInMemoryPDFProcessor"
 import { toast } from "sonner"
 import { typography } from "@/lib/typography"
+import { UPLOAD_LIMITS } from "@/lib/constants/upload"
 
 interface UploadFile {
   id: string
@@ -30,8 +31,8 @@ interface DocumentUploadProps {
 }
 
 export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: DocumentUploadProps) {
-  // PDF upload limits - aligned with signed upload API
-  const MAX_PDF_MB = 32
+  // PDF upload limits - unified across client and server
+  const MAX_PDF_MB = UPLOAD_LIMITS.MAX_MB
 
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
   const [ingestMode, setIngestMode] = useState<'storage' | 'memory'>(() => {
