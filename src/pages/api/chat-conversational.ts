@@ -59,7 +59,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  // @ts-expect-error — type is incorrect here due to streaming typings in Node 20
   res.flushHeaders?.();
   res.write('event: ping\ndata: start\n\n'); // send something right away
 
