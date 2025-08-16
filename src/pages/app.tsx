@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import Head from "next/head"
 import { useRouter } from "next/router"
 import { Button } from "@/components/ui/button"
@@ -31,7 +31,7 @@ export default function AppPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
   const [selectedDocumentName, setSelectedDocumentName] = useState<string | null>(null)
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   
@@ -47,6 +47,13 @@ export default function AppPage() {
     deleteChatSession,
     renameChatSession
   } = useChatPersistent(selectedDocumentId)
+
+  // Handle review upload button click
+  const handleReviewUpload = useCallback((docId: string) => {
+    const reviewMessage = "Please review this upload and provide a summary of the key information."
+    sendMessage(reviewMessage, null, [docId])
+    setShowUpload(false) // Close upload panel
+  }, [sendMessage])
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -249,9 +256,10 @@ export default function AppPage() {
                   onUploadComplete={(document) => {
                     setShowUpload(false)
                     // Set the uploaded document as selected
-                    setSelectedDocumentId(document.id)
-                    setSelectedDocumentName(document.name || document.original_filename || 'Document')
+                    setSelectedDocumentId(document.docId)
+                    setSelectedDocumentName(document.title || 'Document')
                   }}
+                  onReviewUpload={handleReviewUpload}
                 />
               </div>
             </div>

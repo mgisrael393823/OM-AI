@@ -1,7 +1,15 @@
 import OpenAI from 'openai'
 import { isResponsesModel } from './modelUtils'
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! })
+// Module-scope client reuse for better performance
+const client = new OpenAI({ 
+  apiKey: process.env.OPENAI_API_KEY!,
+  timeout: 30000,
+  maxRetries: 1, // Reduce retries for speed
+  defaultHeaders: {
+    'Connection': 'keep-alive'
+  }
+})
 
 interface RequestPayload {
   model: string
@@ -11,13 +19,20 @@ interface RequestPayload {
   max_output_tokens?: number
 }
 
+// Fast model configuration helper
+export function getFastModel(): string {
+  return process.env.USE_FAST_MODEL === 'true' ? 
+    (process.env.CHAT_MODEL_FAST || 'gpt-4o-mini') : 
+    (process.env.OPENAI_MODEL || 'gpt-4o')
+}
+
 export async function createChatCompletion(payload: RequestPayload) {
-  const model = payload.model || process.env.OPENAI_MODEL || 'gpt-4o'
+  const model = payload.model || getFastModel()
   const isResponses = isResponsesModel(model) || !!payload.input
   const limit =
     payload.max_output_tokens ??
     payload.max_tokens ??
-    Number(process.env.CHAT_MAX_TOKENS ?? 2000)
+    Number(process.env.CHAT_MAX_TOKENS ?? 1500) // Reduced for speed
 
   let attempt = 0
   while (true) {

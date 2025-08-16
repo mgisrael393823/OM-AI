@@ -8,6 +8,15 @@ import { isFeatureEnabled } from '@/lib/feature-flags'
 import { WEB_TOOLS_FUNCTIONS } from '@/lib/services/web-tools/tool-definitions'
 import { executeWebToolsFunction, formatWebToolsResponse, resetToolBudget } from '@/lib/services/web-tools/function-handler'
 
+// KV storage for recent documents
+let kvStore: any = null
+try {
+  const { kv } = require('@vercel/kv')
+  kvStore = kv
+} catch (error) {
+  console.log('[chat-conversational] KV not available, using fallback')
+}
+
 // Maximum runtime for the entire conversation endpoint
 const MAX_MS = Number(process.env.CONV_MAX_RUN_MS ?? 60000) // 1 minute default
 
@@ -27,7 +36,10 @@ const ChatSchema = z.object({
     content: z.string()
   })).min(1).max(50),
   documentId: z.string().optional(),
-  sessionId: z.string().optional()
+  sessionId: z.string().optional(),
+  context: z.object({
+    docIds: z.array(z.string()).optional()
+  }).optional()
 })
 
 // Document ID validation
@@ -51,7 +63,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(400).json({ error: 'Invalid request' })
   }
 
-  const { messages, documentId } = validation.data
+  const { messages, documentId, context } = validation.data
   const safeDocId = documentId && isValidDocumentId(documentId) ? documentId : undefined
 
   // SSE headers with immediate flush
@@ -78,10 +90,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Skip progress indicator - start directly with content
 
   try {
+    // Resolve document IDs for context
+    let resolvedDocIds: string[] = []
+    
+    if (context?.docIds?.length) {
+      // Use provided docIds
+      resolvedDocIds = context.docIds.filter(id => isValidDocumentId(id))
+    } else if (safeDocId) {
+      // Use legacy documentId
+      resolvedDocIds = [safeDocId]
+    } else {
+      // Fallback to recent documents
+      resolvedDocIds = await getRecentDocuments(req.user.id) || []
+    }
+
     // Get document context
     let documentContext = ''
-    if (safeDocId) {
-      const chunks = await getRelevantChunks(safeDocId, messages)
+    if (resolvedDocIds.length > 0) {
+      const chunks = await getRelevantChunks(resolvedDocIds[0], messages)
       if (chunks?.length) {
         documentContext = '\n\nDocument context:\n' + 
           chunks.map(c => `[Page ${c.page}] ${c.content}`).join('\n')
@@ -284,6 +310,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } finally {
     cleanup()
     res.end()
+  }
+}
+
+// Get recent documents for user from KV store
+async function getRecentDocuments(userId: string): Promise<string[]> {
+  if (!kvStore) {
+    console.log('[chat-conversational] KV not available, no recent docs')
+    return []
+  }
+
+  try {
+    const recentKey = `recent:${userId}:docIds`
+    const docIds: string[] = await kvStore.get(recentKey) || []
+    console.log(`[chat-conversational] Found ${docIds.length} recent docs for user ${userId}`)
+    return docIds
+  } catch (error) {
+    console.warn('[chat-conversational] Failed to get recent documents:', error)
+    return []
   }
 }
 

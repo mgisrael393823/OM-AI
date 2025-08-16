@@ -187,7 +187,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
   }, [user, session, getAuthToken])
 
   // Send message with persistence
-  const sendMessage = useCallback(async (content: string, docId?: string | null) => {
+  const sendMessage = useCallback(async (content: string, docId?: string | null, contextDocIds?: string[]) => {
     // In-flight guard - prevent double submissions
     if (!content.trim() || isLoading || !user || !session) return
 
@@ -239,6 +239,11 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       if (finalDocId) {
         payload.documentId = finalDocId
         payload.metadata = { documentId: finalDocId }
+      }
+      
+      // Include context docIds if provided (for memory-aware retrieval)
+      if (contextDocIds && contextDocIds.length > 0) {
+        payload.context = { docIds: contextDocIds }
       }
       
       // Remove any null or undefined fields from payload
