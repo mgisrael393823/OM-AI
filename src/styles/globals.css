@@ -144,6 +144,70 @@
     @apply mx-auto px-4 md:px-6 lg:px-8 max-w-7xl w-full;
   }
   
+  /* ChatGPT-Style Markdown Content */
+  .chat-md { 
+    font-family: var(--font-inter), 'Inter', system-ui, sans-serif;
+    line-height: 1.7;
+    font-size: 15px;
+    color: var(--foreground, #0f172a); /* slate-900 fallback */
+  }
+
+  .chat-md p { 
+    margin: 0.25rem 0 0.5rem; 
+  }
+  
+  .chat-md strong { 
+    font-weight: 600; 
+  }
+
+  .chat-md ul { 
+    list-style: disc;
+    margin: 0.25rem 0 0.75rem;
+    padding-left: 1.25rem; /* nice bullet indent */
+  }
+  
+  .chat-md li { 
+    margin: 0.25rem 0; 
+  }
+
+  .chat-md h1, .chat-md h2, .chat-md h3 {
+    font-weight: 600;            /* bold like ChatGPT section titles */
+    line-height: 1.4;
+    margin: 0.75rem 0 0.35rem;
+    font-size: 16px;             /* compact, not shouty */
+  }
+
+  .chat-md hr { 
+    border: 0; 
+    border-top: 1px solid rgba(0,0,0,0.08); 
+    margin: 0.75rem 0;
+  }
+
+  .chat-md code { 
+    font-size: 13px;
+    background: rgba(0,0,0,0.04);
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+  }
+  
+  /* Legacy markdown content styling */
+  .markdown-content {
+    @apply text-inherit leading-relaxed;
+  }
+  
+  .markdown-content > *:first-child {
+    @apply mt-0;
+  }
+  
+  .markdown-content > *:last-child {
+    @apply mb-0;
+  }
+  
+  /* Prevent layout jumps during streaming */
+  .markdown-content p:empty::before {
+    content: '\200B'; /* Zero-width space */
+  }
+  
   /* Typography Components */
   .typography-heading {
     @apply font-inter font-semibold;

@@ -2,6 +2,7 @@ import React from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Bot, User } from "lucide-react"
 import { componentTypography } from "@/lib/typography"
+import Markdown from "@/components/ui/Markdown"
 
 export interface MessageBubbleProps {
   role: "user" | "assistant"
@@ -97,9 +98,14 @@ export function MessageBubble({
         aria-label={`${isUser ? 'User' : 'Assistant'} message`}
       >
         <div className="grid grid-cols-1 gap-2">
-          <p className={`whitespace-pre-wrap break-words ${componentTypography.chat.message}`}>
-            {safeContent}
-          </p>
+          {/* Render markdown for assistant messages, plain text for user messages */}
+          {!isUser ? (
+            <Markdown>{safeContent}</Markdown>
+          ) : (
+            <p className="whitespace-pre-wrap break-words text-[15px] leading-[1.7] font-inter">
+              {safeContent}
+            </p>
+          )}
           
           {/* Loading indicator for streaming */}
           {isLoading && !isUser && (
