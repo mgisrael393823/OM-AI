@@ -118,3 +118,42 @@ export async function retrieveTopK({
     })) || []
   )
 }
+
+/**
+ * Get chunks for multiple document IDs, prioritizing memory documents
+ */
+export async function getChunksForDocIds(
+  docIds: string[], 
+  maxChunks?: number
+): Promise<RetrievedChunk[]> {
+  const maxChunksLimit = maxChunks || Number(process.env.CONTEXT_MAX_CHUNKS) || 4
+  const allChunks: RetrievedChunk[] = []
+
+  for (const docId of docIds) {
+    if (allChunks.length >= maxChunksLimit) break
+
+    // Memory documents first (transient store)
+    if (docId.startsWith('mem-')) {
+      console.log(`[getChunksForDocIds] Loading memory document: ${docId}`)
+      const chunks = transientStore.getChunks(docId)
+      
+      if (chunks && chunks.length > 0) {
+        const remaining = maxChunksLimit - allChunks.length
+        const memoryChunks = chunks.slice(0, remaining).map(chunk => ({
+          content: chunk.text,
+          page_number: chunk.page || 1,
+          chunk_type: 'text'
+        }))
+        
+        allChunks.push(...memoryChunks)
+        console.log(`[getChunksForDocIds] Added ${memoryChunks.length} memory chunks`)
+      }
+    } else {
+      // Database documents (future enhancement - would need KV lookup for version)
+      console.log(`[getChunksForDocIds] Database documents not yet supported: ${docId}`)
+    }
+  }
+
+  console.log(`[getChunksForDocIds] Total chunks loaded: ${allChunks.length}`)
+  return allChunks
+}

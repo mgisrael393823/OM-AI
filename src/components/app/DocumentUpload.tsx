@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react"
+import React, { useCallback, useState, useEffect } from "react"
 import { useDropzone } from "react-dropzone"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -11,8 +11,7 @@ import {
   AlertCircle,
   Loader2
 } from "lucide-react"
-import { useSupabaseUpload } from "@/hooks/useSupabaseUpload"
-import { useInMemoryPDFProcessor } from "@/hooks/useInMemoryPDFProcessor"
+import { useDirectUpload } from "@/hooks/useDirectUpload"
 import { toast } from "sonner"
 import { typography } from "@/lib/typography"
 import { UPLOAD_LIMITS } from "@/lib/constants/upload"
@@ -28,20 +27,29 @@ interface UploadFile {
 interface DocumentUploadProps {
   onUploadComplete?: (document: any) => void
   onDocumentListRefresh?: () => void
+  onReviewUpload?: (docId: string) => void
 }
 
-export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: DocumentUploadProps) {
+export function DocumentUpload({ onUploadComplete, onDocumentListRefresh, onReviewUpload }: DocumentUploadProps) {
   // PDF upload limits - unified across client and server
   const MAX_PDF_MB = UPLOAD_LIMITS.MAX_MB
 
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
-  const [ingestMode, setIngestMode] = useState<'storage' | 'memory'>(() => {
-    // Check environment variable and default to memory mode
-    const envMode = process.env.NEXT_PUBLIC_INGEST_MODE
-    return envMode === 'memory' ? 'memory' : 'storage'
-  })
+  const [activeDocId, setActiveDocId] = useState<string | null>(null)
 
-  const { uploadFile: storageUpload, progress: storageProgress, isUploading: isStorageUploading, error: storageError, reset: resetStorage } = useSupabaseUpload({
+  // Load activeDocId from sessionStorage on mount
+  useEffect(() => {
+    try {
+      const storedDocId = sessionStorage.getItem('activeDocId')
+      if (storedDocId) {
+        setActiveDocId(storedDocId)
+      }
+    } catch (error) {
+      console.warn('Failed to load activeDocId from sessionStorage:', error)
+    }
+  }, [])
+
+  const { uploadFile, progress, isUploading, error: uploadError, reset } = useDirectUpload({
     onProgress: (fileName: string, progress: number) => {
       // Update progress for the specific file
       setUploadFiles(prev => prev.map(f => 
@@ -49,33 +57,26 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
           ? { 
               ...f, 
               progress,
-              // Switch to processing when upload reaches 95%
-              status: progress >= 95 && progress < 100 ? "processing" : f.status
+              // Switch to processing when upload reaches 70%
+              status: progress >= 70 && progress < 100 ? "processing" : f.status
             }
           : f
       ))
-    }
-  })
-
-  const { processFile: memoryProcess, progress: memoryProgress, isProcessing, error: memoryError, reset: resetMemory } = useInMemoryPDFProcessor({
-    onProgress: (fileName: string, progress: number) => {
+    },
+    onUploadComplete: (result) => {
+      // Mark as completed
       setUploadFiles(prev => prev.map(f => 
-        f.file.name === fileName && (f.status === "uploading" || f.status === "processing")
-          ? { 
-              ...f, 
-              progress,
-              status: progress >= 60 && progress < 100 ? "processing" : f.status
-            }
-          : f
+        f.status === "processing" ? { ...f, status: "completed", progress: 100 } : f
       ))
+      
+      // Store active document ID
+      setActiveDocId(result.docId)
+      
+      // Call the parent callback
+      onUploadComplete?.(result)
+      onDocumentListRefresh?.()
     }
   })
-
-  // Use appropriate values based on mode
-  const isUploading = ingestMode === 'memory' ? isProcessing : isStorageUploading
-  const globalProgress = ingestMode === 'memory' ? memoryProgress : storageProgress
-  const uploadError = ingestMode === 'memory' ? memoryError : storageError
-  const reset = ingestMode === 'memory' ? resetMemory : resetStorage
 
   const uploadWithAuth = useCallback(async (files: File[]) => {
     try {
@@ -126,69 +127,43 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
         const uploadFileEntry = newFiles[i]
         
         try {
-          console.log(`Starting ${ingestMode} processing for:`, file.name)
+          console.log(`Starting direct upload processing for:`, file.name)
           
-          let result: any
+          // Use direct upload with fast processing
+          const result = await uploadFile(file)
           
-          if (ingestMode === 'memory') {
-            // Use in-memory processing
-            result = await memoryProcess(file)
-            
-            // Validate response has memoryId for context
-            if (!result.memoryId?.startsWith('mem-')) {
-              throw new Error('Missing memoryId from processing response')
+          // Transform result to match expected format
+          const transformedResult = {
+            document: {
+              id: result.docId, // Use docId for document context
+              name: file.name,
+              filename: file.name,
+              size: file.size,
+              type: file.type,
+              status: result.status === 'complete' ? 'completed' : 'processing',
+              pageCount: result.pagesIndexed,
+              processingTime: result.processingTime,
+              backgroundProcessing: result.backgroundProcessing,
+              requestId: result.docId // Store docId for follow-up queries
             }
-
-            // Transform result to match expected format and store memoryId for context
-            const transformedResult = {
-              document: {
-                id: result.memoryId, // Use memoryId for document context
-                name: result.document.originalFilename,
-                filename: result.document.originalFilename,
-                size: file.size,
-                type: file.type,
-                status: 'completed',
-                pageCount: result.document.pageCount,
-                chunkCount: result.document.chunkCount,
-                analysis: result.document.analysis,
-                requestId: result.memoryId // Store memoryId for follow-up queries
-              }
-            }
-            result = transformedResult
-            
-            // Store memoryId in session storage for chat context
-            if (typeof window !== 'undefined' && result.requestId) {
-              const recentRequestIds = JSON.parse(sessionStorage.getItem('recentRequestIds') || '[]')
-              recentRequestIds.unshift(result.requestId) // This is now memoryId
-              // Keep only last 5 request IDs
-              sessionStorage.setItem('recentRequestIds', JSON.stringify(recentRequestIds.slice(0, 5)))
-            }
-          } else {
-            // Use storage-based processing
-            result = await storageUpload(file)
           }
           
-          // Update status to completed
+          // Store docId in session storage for chat context
+          if (typeof window !== 'undefined' && result.docId) {
+            const recentRequestIds = JSON.parse(sessionStorage.getItem('recentRequestIds') || '[]')
+            recentRequestIds.unshift(result.docId)
+            // Keep only last 5 request IDs
+            sessionStorage.setItem('recentRequestIds', JSON.stringify(recentRequestIds.slice(0, 5)))
+          }
+          
+          // Update status to completed (note: this is also handled by the useDirectUpload hook)
           setUploadFiles(prev => prev.map(f => 
             f.id === uploadFileEntry.id 
               ? { ...f, status: "completed", progress: 100 } 
               : f
           ))
           
-          if (onUploadComplete && result.document) {
-            onUploadComplete(result.document)
-          }
-          
-          const successMessage = ingestMode === 'memory' 
-            ? `${file.name} processed successfully (${result.document.pageCount} pages, ${result.document.chunkCount} chunks)`
-            : `${file.name} uploaded successfully`
-          
-          toast.success(successMessage)
-          
-          // Refresh document list
-          if (onDocumentListRefresh) {
-            onDocumentListRefresh()
-          }
+          // Success message is handled by useDirectUpload hook
           
           // Remove from list after 10 seconds
           setTimeout(() => {
@@ -212,7 +187,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
       console.error("Error starting processing:", error)
       toast.error("Failed to start processing")
     }
-  }, [ingestMode, storageUpload, memoryProcess, onUploadComplete, onDocumentListRefresh])
+  }, [uploadFile, onUploadComplete, onDocumentListRefresh])
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     uploadWithAuth(acceptedFiles)
@@ -308,9 +283,21 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh }: Docu
               )}
               
               {uploadFile.status === "completed" && (
-                <p className={`${typography.helper} text-green-600 dark:text-green-400`}>
-                  Upload completed successfully
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className={`${typography.helper} text-green-600 dark:text-green-400`}>
+                    Upload completed successfully
+                  </p>
+                  {activeDocId && onReviewUpload && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onReviewUpload(activeDocId)}
+                      className="text-xs"
+                    >
+                      Review Upload
+                    </Button>
+                  )}
+                </div>
               )}
               
               {uploadFile.status === "error" && (

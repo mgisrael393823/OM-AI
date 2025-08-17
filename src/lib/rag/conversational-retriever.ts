@@ -1,4 +1,10 @@
 import { retrieveTopK } from '@/lib/rag/retriever'
+import crypto from 'crypto'
+
+// KV cache helpers for micro-caching (optional - only if KV is available)
+let kvCache: any = null
+// Disable KV caching for now - would require additional setup
+// To enable: install @vercel/kv and configure VERCEL_KV_URL
 
 // CRE risk synonyms and key terms for query expansion
 const CRE_TERMS = {
@@ -106,14 +112,29 @@ export async function getRelevantChunks(documentId: string, messages: any[]) {
       messageCount: messages.length
     })
     
+    // Try micro-cache first (60s cache for repeat queries)
+    const cacheKey = `rt:${documentId}:${hashQuery(enhancedQuery)}`
+    let chunks: any[] = []
+    
+    try {
+      const cached = await getCachedChunks(cacheKey)
+      if (cached) {
+        console.log('[CONV-RETRIEVER] Cache hit')
+        return cached
+      }
+    } catch (error) {
+      // Ignore cache errors, continue with retrieval
+      console.log('[CONV-RETRIEVER] Cache miss, continuing with retrieval')
+    }
+
     // Primary retrieval with enhanced query
-    // Environment-configurable chunk limits for performance
-    const maxChunks = Number(process.env.CONTEXT_MAX_CHUNKS) || 10
-    const chunks = await retrieveTopK({
+    // Environment-configurable chunk limits for performance (default to 4 for speed)
+    const maxChunks = Number(process.env.CONTEXT_MAX_CHUNKS) || 4
+    chunks = await retrieveTopK({
       documentId,
       query: enhancedQuery,
       k: maxChunks,
-      maxCharsPerChunk: 1200 // Reduced for faster processing
+      maxCharsPerChunk: 1000 // Reduced for faster processing
     })
 
     console.log(`[CONV-RETRIEVER] Primary retrieval found ${chunks?.length || 0} chunks`)
@@ -143,8 +164,8 @@ export async function getRelevantChunks(documentId: string, messages: any[]) {
       if (text.length > prev) byPage.set(page, { content: text, page })
     }
 
-    // Sort by page and limit to environment-configured chunks
-    const maxFinalChunks = Number(process.env.CONTEXT_MAX_CHUNKS) || 8
+    // Sort by page and limit to environment-configured chunks (default to 4 for speed)
+    const maxFinalChunks = Number(process.env.CONTEXT_MAX_CHUNKS) || 4
     const sortedChunks = Array.from(byPage.values())
       .sort((a, b) => a.page - b.page)
       .slice(0, maxFinalChunks)
@@ -156,9 +177,40 @@ export async function getRelevantChunks(documentId: string, messages: any[]) {
       pages: sortedChunks.map(c => c.page)
     })
 
+    // Cache the result (fire and forget)
+    cacheChunks(cacheKey, sortedChunks).catch(() => {})
+
     return sortedChunks
   } catch (error) {
     console.error('[CONV-RETRIEVER] Error in retrieval:', error)
     return []
+  }
+}
+
+// Helper functions for micro-caching
+function hashQuery(query: string): string {
+  return crypto.createHash('md5').update(query).digest('hex').substring(0, 8)
+}
+
+async function getCachedChunks(cacheKey: string): Promise<any[] | null> {
+  if (!kvCache) return null
+  
+  try {
+    return await kvCache.get(cacheKey)
+  } catch (error) {
+    console.warn('[CONV-RETRIEVER] Cache read error:', error)
+    return null
+  }
+}
+
+async function cacheChunks(cacheKey: string, chunks: any[]): Promise<void> {
+  if (!kvCache || !chunks?.length) return
+  
+  try {
+    // Cache for 60 seconds with sliding expiration
+    await kvCache.set(cacheKey, chunks, { ex: 60 })
+    console.log(`[CONV-RETRIEVER] Cached ${chunks.length} chunks for key ${cacheKey}`)
+  } catch (error) {
+    console.warn('[CONV-RETRIEVER] Cache write error:', error)
   }
 }
