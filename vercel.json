@@ -1,5 +1,6 @@
 {
   "framework": "nextjs",
+  "regions": ["iad1"],
   "installCommand": "pnpm install --frozen-lockfile",
   "build": {
     "env": {
@@ -47,33 +48,27 @@
   "functions": {
     "src/pages/api/blob/upload.ts": {
       "memory": 1536,
-      "maxDuration": 60,
-      "regions": ["iad1"]
+      "maxDuration": 60
     },
     "src/pages/api/process-pdf-fast.ts": {
       "memory": 2048,
-      "maxDuration": 60,
-      "regions": ["iad1"]
+      "maxDuration": 60
     },
     "src/pages/api/chat-conversational.ts": {
       "memory": 1536,
-      "maxDuration": 60,
-      "regions": ["iad1"]
+      "maxDuration": 60
     },
     "src/pages/api/process-document.ts": {
       "memory": 2048,
-      "maxDuration": 60,
-      "regions": ["iad1"]
+      "maxDuration": 60
     },
     "src/pages/api/process-pdf-memory.ts": {
       "memory": 2048,
-      "maxDuration": 60,
-      "regions": ["iad1"]
+      "maxDuration": 60
     },
     "src/pages/api/upload.ts": {
       "memory": 1536,
-      "maxDuration": 60,
-      "regions": ["iad1"]
+      "maxDuration": 60
     }
   }
 }

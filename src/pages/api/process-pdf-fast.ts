@@ -174,21 +174,31 @@ async function processRemainingPages(
   const pdfParser = new PDFParserAgent()
   
   try {
-    // Process remaining pages
+    // full pass (no unsupported startPage option)
     const fullParseResult = await pdfParser.parseBuffer(fullBuffer, {
       extractTables: true,
       performOCR: false,
       chunkSize: 4000,
       preserveFormatting: true,
-      useCanvas: false,
-      startPage: startPage + 1 // Continue from where fast processing left off
+      useCanvas: false
     })
 
-    if (fullParseResult?.success && fullParseResult.chunks?.length) {
+    // Only keep pages AFTER the fast pass
+    const chunksAfter = (fullParseResult?.chunks ?? []).filter((c: any) => {
+      const p =
+        (c?.page as number | undefined) ??
+        (c?.pageNumber as number | undefined) ??
+        (c?.page_number as number | undefined) ??
+        (c?.metadata?.page as number | undefined) ??
+        0
+      return p > startPage
+    })
+
+    if (fullParseResult?.success && chunksAfter.length) {
       // Merge with existing chunks in transient store
       const existingChunks = transientStore.getChunks(memoryId) || []
       
-      const newChunks = fullParseResult.chunks.map((chunk, index) => ({
+      const newChunks = chunksAfter.map((chunk, index) => ({
         id: chunk.id || `chunk-bg-${index}`,
         text: chunk.content || chunk.text || '',
         page: chunk.page_number ?? chunk.page ?? startPage + 1,

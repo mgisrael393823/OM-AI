@@ -3,7 +3,7 @@ import { OpenAI } from 'openai'
 import { z } from 'zod'
 import { ELITE_OM_ADVISOR_PROMPT } from '@/lib/prompts/elite-om-advisor'
 import { getRelevantChunks } from '@/lib/rag/conversational-retriever'
-import { withAuth } from '@/lib/auth-middleware'
+import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { isFeatureEnabled } from '@/lib/feature-flags'
 import { WEB_TOOLS_FUNCTIONS } from '@/lib/services/web-tools/tool-definitions'
 import { executeWebToolsFunction, formatWebToolsResponse, resetToolBudget } from '@/lib/services/web-tools/function-handler'
@@ -47,7 +47,7 @@ function isValidDocumentId(id: string): boolean {
   return id.startsWith('mem-') || /^[0-9a-fA-F-]{36}$/.test(id)
 }
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: AuthenticatedRequest, res: NextApiResponse) {
   // Kill switch
   if (process.env.CONVERSATIONAL_CHAT !== '1') {
     const { default: legacyHandler } = await import('./chat')
