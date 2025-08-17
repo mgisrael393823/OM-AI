@@ -47,8 +47,7 @@
   "functions": {
     "src/pages/api/blob/upload.ts": {
       "memory": 1536,
-      "maxDuration": 60,
-      "regions": ["iad1"]
+      "maxDuration": 60
     },
     "src/pages/api/process-pdf-fast.ts": {
       "memory": 2048,
