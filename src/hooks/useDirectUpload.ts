@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { upload } from '@vercel/blob/client'
 import { toast } from 'sonner'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface UseDirectUploadOptions {
   onProgress?: (fileName: string, progress: number) => void
@@ -28,6 +29,7 @@ export function useDirectUpload(options: UseDirectUploadOptions = {}): UseDirect
   const [progress, setProgress] = useState(0)
   const [isUploading, setIsUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { session } = useAuth()
 
   const { onProgress, onUploadComplete } = options
 
@@ -81,9 +83,16 @@ export function useDirectUpload(options: UseDirectUploadOptions = {}): UseDirect
       setProgress(75)
       onProgress?.(file.name, 75)
 
+      // Get auth token for authenticated request
+      const token = session?.access_token
+
       const processResponse = await fetch('/api/process-pdf-fast', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ 
           file_key: blob.pathname,
           file_url: blob.url
@@ -131,7 +140,7 @@ export function useDirectUpload(options: UseDirectUploadOptions = {}): UseDirect
     } finally {
       setIsUploading(false)
     }
-  }, [onProgress, onUploadComplete])
+  }, [onProgress, onUploadComplete, session])
 
   return {
     uploadFile,
