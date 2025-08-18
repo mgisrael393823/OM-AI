@@ -256,7 +256,9 @@ export default function AppPage() {
                   onUploadComplete={(document) => {
                     setShowUpload(false)
                     // Set the uploaded document as selected
-                    setSelectedDocumentId(document.docId)
+                    // Compatibility: use documentId if available, fallback to docId
+                    const documentId = document.documentId || document.docId
+                    setSelectedDocumentId(documentId)
                     setSelectedDocumentName(document.title || 'Document')
                   }}
                   onReviewUpload={handleReviewUpload}

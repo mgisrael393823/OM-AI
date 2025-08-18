@@ -237,9 +237,15 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       }
       
       // Include document ID in payload and metadata if provided
+      // Validate document ID format - must start with 'mem-' for KV storage
       if (finalDocId) {
-        payload.documentId = finalDocId
-        payload.metadata = { documentId: finalDocId }
+        if (finalDocId.startsWith('mem-')) {
+          payload.documentId = finalDocId
+          payload.metadata = { documentId: finalDocId }
+        } else {
+          console.warn(`[useChatPersistent] Invalid document ID format: ${finalDocId}. Expected 'mem-*' prefix. Proceeding without document context.`)
+          // Don't include invalid document ID in payload
+        }
       }
       
       // Include context docIds if provided (for memory-aware retrieval)
