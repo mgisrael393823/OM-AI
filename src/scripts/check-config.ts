@@ -39,7 +39,7 @@ if (vercelEnv === 'preview' || vercelEnv === 'production') {
   
   console.log(`✅ KV configuration validated for ${vercelEnv}`)
 } else {
-  console.log('ℹ️  Skipping KV validation for local development')
+  console.log('ℹ️  KV: memory (dev fallback)')
 }
 
 // Additional checks can be added here in the future

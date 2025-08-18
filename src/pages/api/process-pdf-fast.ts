@@ -43,12 +43,16 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
   const userId = req.user.id
   let documentId: string | undefined // Declare here for catch block access
 
-  // Check KV availability
-  if (!kvStore.isKvAvailable()) {
-    structuredLog('error', 'KV store unavailable', {
+  // Check storage availability - only return 503 in preview/production when KV is truly unavailable
+  const isDev = process.env.NODE_ENV === 'development'
+  const isMemoryMode = kvStore.getAdapter() === 'memory'
+  
+  if (!isDev && !isMemoryMode && !kvStore.isKvAvailable()) {
+    structuredLog('error', 'KV store unavailable in production', {
       documentId: 'none',
       userId,
       kvWrite: false,
+      adapter: kvStore.getAdapter(),
       status: 'error',
       request_id: requestId
     })
@@ -144,8 +148,8 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
         .digest('hex')
         .substring(0, 16)
 
-      // Store context in KV
-      const contextStored = await kvStore.setContext(documentId, userId, {
+      // Store context with retry logic for memory operations
+      let contextStored = await kvStore.setContext(documentId, userId, {
         chunks: kvChunks,
         userId,
         meta: {
@@ -156,16 +160,47 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
         }
       })
 
+      // Retry logic for memory adapter (up to 2 retries)
+      if (!contextStored && kvStore.getAdapter() === 'memory') {
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          console.log(`[process-pdf-fast] Memory storage failed, retrying attempt ${attempt}/2`)
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt)) // Brief delay
+          
+          contextStored = await kvStore.setContext(documentId, userId, {
+            chunks: kvChunks,
+            userId,
+            meta: {
+              pagesIndexed: parseResult.pages.length,
+              processingTime: Date.now() - startTime,
+              contentHash,
+              originalFilename: file_key.split('/').pop()?.replace(/\.pdf$/i, '') || 'document.pdf'
+            }
+          })
+          
+          if (contextStored) {
+            console.log(`[process-pdf-fast] Memory storage succeeded on retry ${attempt}`)
+            break
+          }
+        }
+      }
+
       if (!contextStored) {
         await kvStore.setStatus(documentId, 'error', 'Failed to store context')
-        structuredLog('error', 'Failed to store context in KV', {
+        structuredLog('error', 'Failed to store context', {
           documentId,
           userId,
           kvWrite: false,
+          adapter: kvStore.getAdapter(),
           status: 'error',
           request_id: requestId
         })
-        return apiError(res, 500, 'Failed to store document context', 'STORAGE_ERROR')
+        
+        // For memory mode, continue with warning instead of failing
+        if (kvStore.getAdapter() === 'memory') {
+          console.warn(`[process-pdf-fast] Memory storage failed after retries, continuing without persistence`)
+        } else {
+          return apiError(res, 500, 'Failed to store document context', 'STORAGE_ERROR')
+        }
       }
 
       // Set status to ready
@@ -186,7 +221,8 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       structuredLog('info', 'PDF processing completed', {
         documentId,
         userId,
-        kvWrite: true,
+        kvWrite: contextStored,
+        adapter: kvStore.getAdapter(),
         status: 'ready',
         parts: 1, // Will be updated if multi-part
         request_id: requestId
@@ -198,7 +234,9 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
         pagesIndexed: parseResult.pages.length,
         processingTime,
         status: 'ready',
-        ...(parseResult.pages.length >= 15 && { backgroundProcessing: true })
+        ...(parseResult.pages.length >= 15 && { backgroundProcessing: true }),
+        // Include adapter info for debugging
+        ...(process.env.NODE_ENV === 'development' && { adapter: kvStore.getAdapter(), kvWrite: contextStored })
       }
 
       return res.status(200).json(response)
@@ -219,6 +257,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       documentId: typeof documentId !== 'undefined' ? documentId : 'none',
       userId,
       kvWrite: false,
+      adapter: kvStore.getAdapter(),
       status: 'error',
       error: error instanceof Error ? error.message : 'Unknown error',
       request_id: requestId
