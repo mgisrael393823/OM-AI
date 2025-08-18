@@ -129,7 +129,15 @@ export function useDirectUpload(options: UseDirectUploadOptions = {}): UseDirect
       // Store server-generated document ID for chat context
       // IMPORTANT: Use exact documentId from server, do not modify
       try {
-        sessionStorage.setItem('activeDocId', result.documentId)
+        // Migrate legacy activeDocId if present (one-time migration)
+        if (sessionStorage.getItem('activeDocId') && !sessionStorage.getItem('activeDocumentId')) {
+          const legacyId = sessionStorage.getItem('activeDocId')
+          sessionStorage.setItem('activeDocumentId', legacyId!)
+          sessionStorage.removeItem('activeDocId')
+          console.log('[DirectUpload] Migrated activeDocId to activeDocumentId:', legacyId)
+        }
+        
+        sessionStorage.setItem('activeDocumentId', result.documentId)
         console.log('[DirectUpload] Stored server documentId:', result.documentId)
       } catch (error) {
         console.warn('[DirectUpload] Failed to store documentId in sessionStorage:', error)

@@ -35,17 +35,29 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh, onRevi
   const MAX_PDF_MB = UPLOAD_LIMITS.MAX_MB
 
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
-  const [activeDocId, setActiveDocId] = useState<string | null>(null)
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null)
 
-  // Load activeDocId from sessionStorage on mount
+  // Load activeDocumentId from sessionStorage on mount (with migration from legacy activeDocId)
   useEffect(() => {
     try {
-      const storedDocId = sessionStorage.getItem('activeDocId')
+      // Check for new key first, then migrate from old if needed
+      let storedDocId = sessionStorage.getItem('activeDocumentId')
+      
+      // One-time migration from activeDocId to activeDocumentId
+      if (!storedDocId && sessionStorage.getItem('activeDocId')) {
+        storedDocId = sessionStorage.getItem('activeDocId')
+        if (storedDocId) {
+          sessionStorage.setItem('activeDocumentId', storedDocId)
+          sessionStorage.removeItem('activeDocId')
+          console.log('[DocumentUpload] Migrated activeDocId to activeDocumentId:', storedDocId)
+        }
+      }
+      
       if (storedDocId) {
-        setActiveDocId(storedDocId)
+        setActiveDocumentId(storedDocId)
       }
     } catch (error) {
-      console.warn('Failed to load activeDocId from sessionStorage:', error)
+      console.warn('Failed to load activeDocumentId from sessionStorage:', error)
     }
   }, [])
 
@@ -69,8 +81,10 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh, onRevi
         f.status === "processing" ? { ...f, status: "completed", progress: 100 } : f
       ))
       
-      // Store active document ID
-      setActiveDocId(result.docId)
+      // Store active document ID - use documentId from server response
+      // Compatibility: fallback to docId if documentId not present (temporary)
+      const documentId = result.documentId || result.docId
+      setActiveDocumentId(documentId)
       
       // Call the parent callback
       onUploadComplete?.(result)
@@ -133,9 +147,11 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh, onRevi
           const result = await uploadFile(file)
           
           // Transform result to match expected format
+          // Compatibility shim: use documentId if available, fallback to docId
+          const uploadDocumentId = result.documentId || result.docId
           const transformedResult = {
             document: {
-              id: result.docId, // Use docId for document context
+              id: uploadDocumentId, // Use documentId for document context
               name: file.name,
               filename: file.name,
               size: file.size,
@@ -144,14 +160,18 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh, onRevi
               pageCount: result.pagesIndexed,
               processingTime: result.processingTime,
               backgroundProcessing: result.backgroundProcessing,
-              requestId: result.docId // Store docId for follow-up queries
-            }
+              requestId: uploadDocumentId // Store documentId for follow-up queries
+            },
+            // Include documentId at top level for parent callback
+            documentId: uploadDocumentId,
+            title: file.name.replace(/\.pdf$/i, '')
           }
           
-          // Store docId in session storage for chat context
-          if (typeof window !== 'undefined' && result.docId) {
+          // Store documentId in session storage for chat context
+          const recentDocumentId = result.documentId || result.docId
+          if (typeof window !== 'undefined' && recentDocumentId) {
             const recentRequestIds = JSON.parse(sessionStorage.getItem('recentRequestIds') || '[]')
-            recentRequestIds.unshift(result.docId)
+            recentRequestIds.unshift(recentDocumentId)
             // Keep only last 5 request IDs
             sessionStorage.setItem('recentRequestIds', JSON.stringify(recentRequestIds.slice(0, 5)))
           }
@@ -287,11 +307,11 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh, onRevi
                   <p className={`${typography.helper} text-green-600 dark:text-green-400`}>
                     Upload completed successfully
                   </p>
-                  {activeDocId && onReviewUpload && (
+                  {activeDocumentId && onReviewUpload && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => onReviewUpload(activeDocId)}
+                      onClick={() => onReviewUpload(activeDocumentId)}
                       className="text-xs"
                     >
                       Review Upload
