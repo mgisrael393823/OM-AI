@@ -14,10 +14,37 @@ export interface LogFields {
   status?: string
   error?: string
   request_id: string
-  [key: string]: any // Allow additional fields
+  [key: string]: any // Allow additional fields for backward compatibility
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+// Strongly typed internal log entry
+interface LogEntry {
+  documentId: string      // Required
+  userId: string          // Required
+  pid: number            // Required
+  timestamp?: string     // Optional
+  level?: LogLevel       // Optional
+  message?: string       // Optional
+  request_id?: string    // Optional
+  kvWrite?: boolean      // Optional
+  kvRead?: boolean       // Optional
+  parts?: number         // Optional
+  status?: string        // Optional
+  error?: string         // Optional
+  adapter?: 'vercel-kv' | 'memory' // Optional
+  endpoint?: string      // Optional
+}
+
+/**
+ * Convert LogEntry to clean record without undefined values
+ */
+function toCleanRecord(entry: LogEntry): Record<string, unknown> {
+  return Object.entries(entry)
+    .filter(([_, value]) => value !== undefined)
+    .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {})
+}
 
 /**
  * Emit structured log with consistent format
@@ -27,36 +54,42 @@ export function structuredLog(
   message: string,
   fields: LogFields
 ): void {
-  const timestamp = new Date().toISOString()
-  const pid = process.pid
-  
-  // Build log object
-  const logObject = {
-    timestamp,
-    level,
-    message,
-    pid,
-    ...fields
-  }
-  
-  // Remove undefined values
-  Object.keys(logObject).forEach(key => {
-    if (logObject[key] === undefined) {
-      delete logObject[key]
-    }
-  })
-  
-  // Format for console output
-  const logString = `[${level.toUpperCase()}] ${message} | ${JSON.stringify({
+  // Build strongly typed log entry
+  const base: LogEntry = {
     documentId: fields.documentId,
     userId: fields.userId,
+    pid: process.pid,
+    timestamp: new Date().toISOString(),
+    level,
+    message,
+    request_id: fields.request_id,
     kvWrite: fields.kvWrite,
     kvRead: fields.kvRead,
     parts: fields.parts,
     status: fields.status,
-    request_id: fields.request_id,
-    ...(fields.error && { error: fields.error })
-  })}`
+    error: fields.error,
+    adapter: fields.adapter as ('vercel-kv' | 'memory' | undefined)
+  }
+  
+  // Convert to clean record without undefined values
+  const clean = toCleanRecord(base)
+  
+  // Format for console output - extract specific fields for display
+  const displayFields: Record<string, unknown> = {
+    documentId: clean.documentId,
+    userId: clean.userId,
+    request_id: clean.request_id
+  }
+  
+  // Add optional fields if present
+  if (clean.kvWrite !== undefined) displayFields.kvWrite = clean.kvWrite
+  if (clean.kvRead !== undefined) displayFields.kvRead = clean.kvRead
+  if (clean.parts !== undefined) displayFields.parts = clean.parts
+  if (clean.status !== undefined) displayFields.status = clean.status
+  if (clean.error !== undefined) displayFields.error = clean.error
+  if (clean.adapter !== undefined) displayFields.adapter = clean.adapter
+  
+  const logString = `[${level.toUpperCase()}] ${message} | ${JSON.stringify(displayFields)}`
   
   // Output based on level
   switch (level) {

@@ -11,23 +11,41 @@
 
 import { structuredLog } from './log'
 
+// Determine adapter based on environment
+const vercelEnv = process.env.VERCEL_ENV
+const fallbackPreview = process.env.KV_FALLBACK_PREVIEW === 'true'
+
 // Check if KV is available
 let kvClient: any = null
 let kvAvailable = false
+let adapter: 'vercel-kv' | 'memory' = 'memory'
 
-try {
-  const { kv } = require('@vercel/kv')
-  kvClient = kv
-  kvAvailable = true
-  console.log('[KV Store] Vercel KV initialized successfully')
-} catch (error) {
-  console.warn('[KV Store] Vercel KV not available:', error)
-}
-
-// Validate KV environment variables
-if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-  console.warn('[KV Store] Missing KV environment variables')
+// Use memory fallback for local dev or when explicitly set for preview
+if (!vercelEnv || (vercelEnv === 'preview' && fallbackPreview)) {
+  adapter = 'memory'
   kvAvailable = false
+  console.log(`[KV Store] Using memory adapter (${!vercelEnv ? 'local dev' : 'preview fallback'})`)
+} else {
+  // Try to initialize KV for preview/production
+  try {
+    const { kv } = require('@vercel/kv')
+    kvClient = kv
+    
+    // Validate KV environment variables
+    if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
+      console.warn('[KV Store] Missing KV environment variables')
+      kvAvailable = false
+      adapter = 'memory'
+    } else {
+      kvAvailable = true
+      adapter = 'vercel-kv'
+      console.log('[KV Store] Vercel KV initialized successfully')
+    }
+  } catch (error) {
+    console.warn('[KV Store] Vercel KV not available:', error)
+    kvAvailable = false
+    adapter = 'memory'
+  }
 }
 
 const TTL_SECONDS = 1800 // 30 minutes
@@ -64,6 +82,13 @@ export interface DocumentStatus {
  */
 export function isKvAvailable(): boolean {
   return kvAvailable
+}
+
+/**
+ * Get current adapter type
+ */
+export function getAdapter(): 'vercel-kv' | 'memory' {
+  return adapter
 }
 
 /**
@@ -122,6 +147,7 @@ export async function setStatus(
       userId: 'system',
       kvWrite: false,
       status,
+      adapter,
       request_id: `status-${Date.now()}`
     })
     return false
@@ -148,6 +174,7 @@ export async function setStatus(
       userId: 'system',
       kvWrite: true,
       status,
+      adapter,
       request_id: `status-${Date.now()}`
     })
     

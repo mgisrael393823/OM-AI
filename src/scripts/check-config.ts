@@ -1,51 +1,48 @@
 #!/usr/bin/env node
+
 /**
- * Configuration check script
- * Run this to verify all environment variables are properly set
+ * Configuration Check Script
+ * 
+ * Validates required environment variables for different deployment environments.
+ * Fails the build early on Vercel when KV configuration is missing.
  */
 
-// Load environment variables using dotenv for better performance
-import { config } from 'dotenv';
-import { join } from 'path';
+const vercelEnv = process.env.VERCEL_ENV
 
-// Fast exit in CI environments
-if (process.env.CI || process.env.VERCEL) {
-  console.log('🚀 Skipping config check in CI environment');
-  process.exit(0);
-}
+console.log('🔍 Running configuration check...')
+console.log(`Environment: ${vercelEnv || 'local development'}`)
 
-// Load .env.local with dotenv (more efficient than manual parsing)
-try {
-  config({ path: join(process.cwd(), '.env.local') });
-} catch (error) {
-  console.warn('Could not load .env.local file');
-}
-
-import { checkEnvironment, logConfigStatus, isProduction } from '@/lib/config';
-
-console.log('🔍 Checking configuration...\n');
-
-// Log current configuration status
-logConfigStatus();
-
-// Check for errors
-const validation = checkEnvironment();
-
-if (validation.isValid) {
-  console.log('\n✅ All required environment variables are set!');
-  process.exit(0);
-} else {
-  console.error('\n❌ Configuration errors found:');
-  validation.errors.forEach(error => {
-    console.error(`   - ${error}`);
-  });
+// Check KV configuration for preview and production environments
+if (vercelEnv === 'preview' || vercelEnv === 'production') {
+  const kvUrl = process.env.KV_REST_API_URL
+  const kvToken = process.env.KV_REST_API_TOKEN
   
-  if (isProduction()) {
-    console.error('\n🚨 Cannot start in production with missing configuration!');
-    process.exit(1);
-  } else {
-    console.warn('\n⚠️  Starting in development mode with missing configuration.');
-    console.warn('   Some features may not work properly.');
-    process.exit(0);
+  if (!kvUrl || !kvToken) {
+    console.error(`\n❌ KV: missing for ${vercelEnv}`)
+    console.error('\nRequired environment variables not found:')
+    
+    if (!kvUrl) {
+      console.error('  - KV_REST_API_URL')
+    }
+    if (!kvToken) {
+      console.error('  - KV_REST_API_TOKEN')
+    }
+    
+    console.error('\nPlease add these environment variables in Vercel Dashboard:')
+    console.error('  1. Go to your project settings')
+    console.error('  2. Navigate to Environment Variables')
+    console.error('  3. Add KV_REST_API_URL and KV_REST_API_TOKEN')
+    console.error('  4. Ensure they are set for Preview and Production environments\n')
+    
+    process.exit(1)
   }
+  
+  console.log(`✅ KV configuration validated for ${vercelEnv}`)
+} else {
+  console.log('ℹ️  Skipping KV validation for local development')
 }
+
+// Additional checks can be added here in the future
+
+console.log('✅ Config check passed\n')
+process.exit(0)

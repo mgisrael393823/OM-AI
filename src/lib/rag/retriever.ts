@@ -139,7 +139,8 @@ export async function retrieveTopK({
  */
 export async function getChunksForDocIds(
   docIds: string[], 
-  maxChunks?: number
+  maxChunks: number = 8,
+  userId: string // Required for KV security
 ): Promise<RetrievedChunk[]> {
   const maxChunksLimit = maxChunks || Number(process.env.CONTEXT_MAX_CHUNKS) || 4
   const allChunks: RetrievedChunk[] = []
@@ -147,24 +148,31 @@ export async function getChunksForDocIds(
   for (const docId of docIds) {
     if (allChunks.length >= maxChunksLimit) break
 
-    // Memory documents first (transient store)
+    // Memory documents from KV store
     if (docId.startsWith('mem-')) {
       console.log(`[getChunksForDocIds] Loading memory document: ${docId}`)
-      const chunks = transientStore.getChunks(docId)
       
-      if (chunks && chunks.length > 0) {
-        const remaining = maxChunksLimit - allChunks.length
-        const memoryChunks = chunks.slice(0, remaining).map(chunk => ({
-          content: chunk.text,
-          page_number: chunk.page || 1,
-          chunk_type: 'text'
-        }))
+      try {
+        const context = await kvStore.getContext(docId, userId)
         
-        allChunks.push(...memoryChunks)
-        console.log(`[getChunksForDocIds] Added ${memoryChunks.length} memory chunks`)
+        if (context && context.chunks && context.chunks.length > 0) {
+          const remaining = maxChunksLimit - allChunks.length
+          const memoryChunks = context.chunks.slice(0, remaining).map(chunk => ({
+            content: chunk.text,
+            page_number: chunk.page || 1,
+            chunk_type: 'text'
+          }))
+          
+          allChunks.push(...memoryChunks)
+          console.log(`[getChunksForDocIds] Added ${memoryChunks.length} memory chunks from KV`)
+        } else {
+          console.log(`[getChunksForDocIds] No chunks found in KV for ${docId}`)
+        }
+      } catch (error) {
+        console.error(`[getChunksForDocIds] Error retrieving from KV for ${docId}:`, error)
       }
     } else {
-      // Database documents (future enhancement - would need KV lookup for version)
+      // Database documents (future enhancement)
       console.log(`[getChunksForDocIds] Database documents not yet supported: ${docId}`)
     }
   }

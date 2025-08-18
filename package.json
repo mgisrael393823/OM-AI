@@ -13,7 +13,7 @@
     "dev:clean": "npm run clean && npm run dev",
     "dev:force": "npm run clean:all && npm run dev",
     "dev:alt": "NODE_OPTIONS='--no-deprecation' next dev --port 3001",
-    "build": "next build",
+    "build": "npx tsx src/scripts/check-config.ts && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit --pretty",

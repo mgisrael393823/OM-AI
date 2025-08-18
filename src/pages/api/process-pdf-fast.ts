@@ -41,6 +41,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
   const startTime = Date.now()
   const requestId = generateRequestId('pdf')
   const userId = req.user.id
+  let documentId: string | undefined // Declare here for catch block access
 
   // Check KV availability
   if (!kvStore.isKvAvailable()) {
@@ -90,7 +91,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
     }
 
     // Generate server-side document ID with mem- prefix
-    const documentId = `mem-${ulid()}`
+    documentId = `mem-${ulid()}`
     
     // Set processing status immediately
     await kvStore.setStatus(documentId, 'processing')
