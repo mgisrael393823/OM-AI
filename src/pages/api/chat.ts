@@ -7,6 +7,8 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
 import { retrieveTopK } from '@/lib/rag/retriever'
 import { augmentMessagesWithContext } from '@/lib/rag/augment'
+import * as kvStore from '@/lib/kv-store'
+import { structuredLog, generateRequestId } from '@/lib/log'
 
 // Force Node.js runtime for singleton consistency
 export const runtime = 'nodejs'
@@ -89,7 +91,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return conversationalHandler(req, res)
   }
 
-  const requestId = `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`
+  const requestId = generateRequestId('chat')
+  const userId = req.user?.id || 'anonymous'
   
   try {
     if (req.method !== 'POST') {
@@ -190,6 +193,26 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       requestBody.metadata = requestBody.metadata || {}
       requestBody.metadata.documentId = requestBody.documentId
       delete requestBody.documentId
+    }
+    
+    // Validate documentId format if provided
+    if (requestBody.metadata?.documentId) {
+      const docId = requestBody.metadata.documentId
+      if (!docId.startsWith('mem-')) {
+        structuredLog('warn', 'Invalid document ID format', {
+          documentId: docId,
+          userId,
+          kvRead: false,
+          status: 'invalid',
+          request_id: requestId
+        })
+        return res.status(400).json({
+          error: 'Invalid document ID format',
+          code: 'INVALID_DOCUMENT_ID',
+          details: 'Document ID must be a server-generated ID starting with "mem-". Use the documentId returned from the upload endpoint.',
+          request_id: requestId
+        })
+      }
     }
     
     // Detect conflicts between messages and input
@@ -331,57 +354,114 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       normalizedPath = 'chat-messages'
     }
 
-    // Document context augmentation
+    // Document context augmentation with KV retry logic
     if (requestBody.metadata?.documentId) {
+      const documentId = requestBody.metadata.documentId
       const latestUser = [...messages].reverse().find(m => m.role === 'user')
+      
+      // Check status first
+      const status = await kvStore.getStatus(documentId, userId)
+      
+      // Handle processing status with retries
+      if (status.status === 'processing') {
+        structuredLog('info', 'Document still processing, retrying', {
+          documentId,
+          userId,
+          kvRead: true,
+          status: 'processing',
+          request_id: requestId
+        })
+        
+        // Retry up to 3 times with 500ms delays
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+          const retryStatus = await kvStore.getStatus(documentId, userId)
+          
+          if (retryStatus.status === 'ready') {
+            status.status = 'ready'
+            break
+          }
+        }
+        
+        if (status.status === 'processing') {
+          structuredLog('warn', 'Document still processing after retries', {
+            documentId,
+            userId,
+            kvRead: true,
+            status: 'processing',
+            request_id: requestId
+          })
+          
+          return res.status(409).json({
+            error: 'Document still processing',
+            code: 'DOCUMENT_PROCESSING',
+            details: 'The document is still being processed. Please try again in a moment.',
+            documentId,
+            status: 'processing',
+            request_id: requestId
+          })
+        }
+      }
+      
+      // Handle error or missing status
+      if (status.status === 'error' || status.status === 'missing') {
+        structuredLog('error', 'Document context not available', {
+          documentId,
+          userId,
+          kvRead: true,
+          status: status.status,
+          error: status.error,
+          request_id: requestId
+        })
+        
+        return res.status(409).json({
+          error: 'Document context not found',
+          code: 'DOCUMENT_CONTEXT_NOT_FOUND',
+          details: status.status === 'error' 
+            ? `Document processing failed: ${status.error || 'Unknown error'}`
+            : 'The specified document context is not available. It may have expired or was not properly uploaded.',
+          documentId,
+          status: status.status,
+          request_id: requestId
+        })
+      }
+      
+      // Retrieve chunks from KV
       const chunks = await retrieveTopK({
-        documentId: requestBody.metadata.documentId,
+        documentId,
         query: latestUser?.content || '',
         k: 8,
-        maxCharsPerChunk: 1000
+        maxCharsPerChunk: 1000,
+        userId // Pass userId for security check
       })
 
       if (!chunks.length) {
-        // Check if this is a mem-* ID that should have context
-        if (requestBody.metadata.documentId.startsWith('mem-')) {
-          const allowWithoutContext = process.env.ALLOW_CHAT_WITHOUT_CONTEXT === 'true'
-          
-          if (!allowWithoutContext) {
-            console.error(`[chat] Document context not found for ${requestBody.metadata.documentId} - returning 409`, {
-              documentId: requestBody.metadata.documentId,
-              allowWithoutContext,
-              runtime: 'nodejs',
-              pid: process.pid
-            })
-            
-            return res.status(409).json({
-              error: 'Document context not found',
-              code: 'DOCUMENT_CONTEXT_NOT_FOUND',
-              details: 'The specified document context is not available. It may have expired or was not properly uploaded.',
-              documentId: requestBody.metadata.documentId,
-              request_id: requestId
-            })
-          } else {
-            console.warn(`[chat] No document context found for ${requestBody.metadata.documentId}; continuing without augmentation (ALLOW_CHAT_WITHOUT_CONTEXT=true)`, {
-              documentId: requestBody.metadata.documentId,
-              runtime: 'nodejs',
-              pid: process.pid
-            })
-          }
-        } else {
-          console.warn(`[chat] No document context found for ${requestBody.metadata.documentId}; continuing without augmentation`, {
-            documentId: requestBody.metadata.documentId,
-            runtime: 'nodejs',
-            pid: process.pid
+        structuredLog('warn', 'No chunks found after status check', {
+          documentId,
+          userId,
+          kvRead: true,
+          status: 'empty',
+          request_id: requestId
+        })
+        
+        const allowWithoutContext = process.env.ALLOW_CHAT_WITHOUT_CONTEXT === 'true'
+        if (!allowWithoutContext) {
+          return res.status(409).json({
+            error: 'Document context not found',
+            code: 'DOCUMENT_CONTEXT_NOT_FOUND',
+            details: 'The document context exists but contains no chunks.',
+            documentId,
+            request_id: requestId
           })
         }
       } else {
-        console.log(`[chat] Found ${chunks.length} document chunks for context augmentation`, {
-          documentId: requestBody.metadata.documentId,
-          chunkCount: chunks.length,
-          contextSource: requestBody.metadata.documentId.startsWith('mem-') ? 'transient' : 'database',
-          runtime: 'nodejs',
-          pid: process.pid
+        structuredLog('info', 'Document chunks retrieved', {
+          documentId,
+          userId,
+          kvRead: true,
+          status: 'ready',
+          parts: status.parts || 1,
+          request_id: requestId
         })
         
         const augmented = augmentMessagesWithContext(chunks, messages)

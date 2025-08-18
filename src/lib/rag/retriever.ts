@@ -1,11 +1,13 @@
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
-import { transientStore } from '@/lib/transient-store'
+import * as kvStore from '@/lib/kv-store'
+import { structuredLog } from '@/lib/log'
 
 interface RetrieveParams {
   documentId: string
   query: string
   k: number
   maxCharsPerChunk?: number
+  userId?: string  // For KV security checks
 }
 
 interface RetrievedChunk {
@@ -24,26 +26,29 @@ export async function retrieveTopK({
   documentId,
   query,
   k,
-  maxCharsPerChunk = 1000
+  maxCharsPerChunk = 1000,
+  userId
 }: RetrieveParams): Promise<RetrievedChunk[]> {
-  // Check if this is an in-memory document (starts with "mem-")
+  // Check if this is a KV document (starts with "mem-")
   if (documentId.startsWith('mem-')) {
-    console.log(`[retrieveTopK] Checking transient store for document: ${documentId}`)
-    const chunks = transientStore.getChunks(documentId)
+    console.log(`[retrieveTopK] Checking KV store for document: ${documentId}`)
     
-    if (chunks && chunks.length > 0) {
-      console.log(`[retrieveTopK] Found ${chunks.length} chunks in transient store`)
+    // Retrieve context from KV with retry logic
+    const context = userId ? await kvStore.getContext(documentId, userId) : null
+    
+    if (context && context.chunks && context.chunks.length > 0) {
+      console.log(`[retrieveTopK] Found ${context.chunks.length} chunks in KV store`)
       
-      // For in-memory documents, try to find relevant chunks but always return something
+      // For KV documents, try to find relevant chunks but always return something
       // since these are temporary uploads meant for immediate context
-      let filteredChunks = chunks.filter(chunk => 
+      let filteredChunks = context.chunks.filter(chunk => 
         chunk.text.toLowerCase().includes(query.toLowerCase())
       ).slice(0, k)
       
       // If no chunks match the query, return the first k chunks as fallback
       if (filteredChunks.length === 0) {
         console.log(`[retrieveTopK] No chunks matched query "${query}", returning first ${k} chunks as context`)
-        filteredChunks = chunks.slice(0, k)
+        filteredChunks = context.chunks.slice(0, k)
       }
       
       return filteredChunks.map(chunk => ({
@@ -52,7 +57,17 @@ export async function retrieveTopK({
         chunk_type: 'text'
       }))
     } else {
-      console.log(`[retrieveTopK] No chunks found in transient store for ${documentId}`)
+      console.log(`[retrieveTopK] No chunks found in KV store for ${documentId}`)
+      
+      // Log structured info for debugging
+      structuredLog('info', 'No chunks found in KV', {
+        documentId,
+        userId: userId || 'unknown',
+        kvRead: true,
+        status: 'empty',
+        request_id: `retrieve-${Date.now()}`
+      })
+      
       return []
     }
   }
