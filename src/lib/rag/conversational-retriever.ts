@@ -61,7 +61,7 @@ function buildEnhancedQuery(lastUserMsg: string, recentContext: string): string 
   return enhancedQuery
 }
 
-async function fallbackHeuristicRetrieval(documentId: string): Promise<any[]> {
+async function fallbackHeuristicRetrieval(documentId: string, userId?: string): Promise<any[]> {
   console.log('[CONV-RETRIEVER] Attempting heuristic fallback retrieval')
   
   const fallbackChunks: any[] = []
@@ -73,7 +73,8 @@ async function fallbackHeuristicRetrieval(documentId: string): Promise<any[]> {
         documentId,
         query: section,
         k: 2, // Only 2 chunks per section to avoid overwhelming
-        maxCharsPerChunk: 1200 // Reduced for faster processing
+        maxCharsPerChunk: 1200, // Reduced for faster processing
+        userId // Pass userId for KV security
       })
       
       if (chunks?.length > 0) {
@@ -88,7 +89,7 @@ async function fallbackHeuristicRetrieval(documentId: string): Promise<any[]> {
   return fallbackChunks
 }
 
-export async function getRelevantChunks(documentId: string, messages: any[]) {
+export async function getRelevantChunks(documentId: string, messages: any[], userId?: string) {
   if (!documentId || !messages?.length) return []
   
   // Get last user message and recent context
@@ -134,7 +135,8 @@ export async function getRelevantChunks(documentId: string, messages: any[]) {
       documentId,
       query: enhancedQuery,
       k: maxChunks,
-      maxCharsPerChunk: 1000 // Reduced for faster processing
+      maxCharsPerChunk: 1000, // Reduced for faster processing
+      userId // Pass userId for KV security
     })
 
     console.log(`[CONV-RETRIEVER] Primary retrieval found ${chunks?.length || 0} chunks`)
@@ -143,7 +145,7 @@ export async function getRelevantChunks(documentId: string, messages: any[]) {
     let finalChunks = chunks || []
     if (!finalChunks.length) {
       console.log('[CONV-RETRIEVER] No chunks found, attempting heuristic fallback')
-      finalChunks = await fallbackHeuristicRetrieval(documentId)
+      finalChunks = await fallbackHeuristicRetrieval(documentId, userId)
     }
     
     if (!finalChunks.length) {

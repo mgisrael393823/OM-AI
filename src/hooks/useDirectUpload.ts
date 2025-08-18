@@ -17,12 +17,12 @@ interface UseDirectUploadResult {
 }
 
 interface ProcessResult {
-  docId: string
+  documentId: string  // Changed from docId to documentId for consistency
   title: string
   pagesIndexed: number
   processingTime: number
-  status: 'partial' | 'complete'
-  backgroundProcessing: boolean
+  status: 'ready' | 'processing' | 'error'
+  backgroundProcessing?: boolean
 }
 
 export function useDirectUpload(options: UseDirectUploadOptions = {}): UseDirectUploadResult {
@@ -101,7 +101,13 @@ export function useDirectUpload(options: UseDirectUploadOptions = {}): UseDirect
 
       if (!processResponse.ok) {
         const error = await processResponse.json()
-        throw new Error(error.message || 'Processing failed')
+        
+        // Handle specific error codes
+        if (processResponse.status === 503) {
+          throw new Error('Upload service temporarily unavailable. Please try again later.')
+        }
+        
+        throw new Error(error.message || error.error || 'Processing failed')
       }
 
       const result: ProcessResult = await processResponse.json()
@@ -120,12 +126,13 @@ export function useDirectUpload(options: UseDirectUploadOptions = {}): UseDirect
         `Document processed in ${timeStr}${result.backgroundProcessing ? ' (continuing in background)' : ''}`
       )
 
-      // Store active document ID for chat context
+      // Store server-generated document ID for chat context
+      // IMPORTANT: Use exact documentId from server, do not modify
       try {
-        sessionStorage.setItem('activeDocId', result.docId)
-        console.log('[DirectUpload] Stored activeDocId:', result.docId)
+        sessionStorage.setItem('activeDocId', result.documentId)
+        console.log('[DirectUpload] Stored server documentId:', result.documentId)
       } catch (error) {
-        console.warn('[DirectUpload] Failed to store activeDocId in sessionStorage:', error)
+        console.warn('[DirectUpload] Failed to store documentId in sessionStorage:', error)
       }
 
       onUploadComplete?.(result)

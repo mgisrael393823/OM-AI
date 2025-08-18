@@ -2,18 +2,13 @@ import { NextApiRequest, NextApiResponse } from 'next'
 import { withAuth, AuthenticatedRequest, apiError } from '@/lib/auth-middleware'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 import { PDFValidator } from '@/lib/validation'
-import { transientStore } from '@/lib/transient-store'
-import { v4 as uuidv4 } from 'uuid'
+import { ulid } from 'ulid'
+import crypto from 'crypto'
+import * as kvStore from '@/lib/kv-store'
+import { structuredLog, generateRequestId } from '@/lib/log'
 
-// KV storage for tracking recent documents
-let kvStore: any = null
-try {
-  // Dynamically import KV to avoid build issues when not configured
-  const { kv } = require('@vercel/kv')
-  kvStore = kv
-} catch (error) {
-  console.log('[process-pdf-fast] KV not available, using fallback storage')
-}
+// Force Node.js runtime for KV consistency
+export const runtime = 'nodejs'
 
 export const config = {
   api: {
@@ -30,20 +25,39 @@ interface ProcessPdfRequest {
 }
 
 interface ProcessPdfResponse {
-  docId: string
+  documentId: string  // Changed from docId to documentId for consistency
   title: string
   pagesIndexed: number
   processingTime: number
-  status: 'partial' | 'complete'
-  backgroundProcessing: boolean
+  status: 'ready' | 'processing' | 'error'
+  backgroundProcessing?: boolean
 }
 
-async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResponse<ProcessPdfResponse>) {
+async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResponse<ProcessPdfResponse | any>) {
   if (req.method !== 'POST') {
     return apiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED')
   }
 
   const startTime = Date.now()
+  const requestId = generateRequestId('pdf')
+  const userId = req.user.id
+  let documentId: string | undefined // Declare here for catch block access
+
+  // Check KV availability
+  if (!kvStore.isKvAvailable()) {
+    structuredLog('error', 'KV store unavailable', {
+      documentId: 'none',
+      userId,
+      kvWrite: false,
+      status: 'error',
+      request_id: requestId
+    })
+    return res.status(503).json({
+      error: 'Ephemeral store unavailable',
+      code: 'KV_UNAVAILABLE',
+      details: 'The context storage service is currently unavailable. Please try again later.'
+    })
+  }
 
   try {
     const { file_key, file_url }: ProcessPdfRequest = req.body
@@ -76,8 +90,19 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       return apiError(res, 400, quickValidation.error || 'Invalid PDF file', 'INVALID_PDF')
     }
 
-    // Generate unique document ID
-    const docId = `doc-${Date.now()}-${uuidv4().substring(0, 8)}`
+    // Generate server-side document ID with mem- prefix
+    documentId = `mem-${ulid()}`
+    
+    // Set processing status immediately
+    await kvStore.setStatus(documentId, 'processing')
+    
+    structuredLog('info', 'Starting PDF processing', {
+      documentId,
+      userId,
+      kvWrite: true,
+      status: 'processing',
+      request_id: requestId
+    })
 
     // Fast parse: first 15 pages only
     const pdfParser = new PDFParserAgent()
@@ -99,8 +124,8 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
 
       console.log(`[process-pdf-fast] Fast parse completed: ${parseResult.chunks.length} chunks from ${parseResult.pages.length} pages`)
 
-      // Store chunks in transient store for immediate access
-      const transientChunks = parseResult.chunks.map((chunk, index) => ({
+      // Prepare chunks for KV storage
+      const kvChunks = parseResult.chunks.map((chunk, index) => ({
         id: chunk.id || `chunk-${index}`,
         text: chunk.content || chunk.text || '',
         page: chunk.page_number ?? chunk.page ?? 1,
@@ -112,13 +137,43 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
         }
       }))
 
-      // Store with user isolation
-      const memoryId = `mem-${req.user.id}-${Date.now()}`
-      transientStore.setChunks(memoryId, transientChunks, { ttlMs: 30 * 60 * 1000 }) // 30 minutes
+      // Calculate content hash for deduplication
+      const contentHash = crypto
+        .createHash('sha256')
+        .update(kvChunks.map(c => c.text).join(''))
+        .digest('hex')
+        .substring(0, 16)
 
+      // Store context in KV
+      const contextStored = await kvStore.setContext(documentId, userId, {
+        chunks: kvChunks,
+        userId,
+        meta: {
+          pagesIndexed: parseResult.pages.length,
+          processingTime: Date.now() - startTime,
+          contentHash,
+          originalFilename: file_key.split('/').pop()?.replace(/\.pdf$/i, '') || 'document.pdf'
+        }
+      })
+
+      if (!contextStored) {
+        await kvStore.setStatus(documentId, 'error', 'Failed to store context')
+        structuredLog('error', 'Failed to store context in KV', {
+          documentId,
+          userId,
+          kvWrite: false,
+          status: 'error',
+          request_id: requestId
+        })
+        return apiError(res, 500, 'Failed to store document context', 'STORAGE_ERROR')
+      }
+
+      // Set status to ready
+      await kvStore.setStatus(documentId, 'ready')
+      
       // Start background processing for remaining pages (fire and forget)
       if (parseResult.pages.length >= 15) {
-        processRemainingPages(file_url, docId, req.user.id, memoryId, 15)
+        processRemainingPages(file_url, documentId, userId, 15)
           .catch(error => console.error('[process-pdf-fast] Background processing failed:', error))
       }
 
@@ -128,18 +183,22 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       // Extract title from filename (remove path and extension)
       const title = file_key.split('/').pop()?.replace(/\.pdf$/i, '') || 'Untitled Document'
 
-      // Track recent documents for user
-      await trackRecentDocument(req.user.id, memoryId).catch(error => 
-        console.warn('[process-pdf-fast] Failed to track recent document:', error)
-      )
+      structuredLog('info', 'PDF processing completed', {
+        documentId,
+        userId,
+        kvWrite: true,
+        status: 'ready',
+        parts: 1, // Will be updated if multi-part
+        request_id: requestId
+      })
 
       const response: ProcessPdfResponse = {
-        docId: memoryId, // Use memory ID as document ID for immediate access
+        documentId, // Return server-generated ID
         title,
         pagesIndexed: parseResult.pages.length,
         processingTime,
-        status: parseResult.pages.length >= 15 ? 'partial' : 'complete',
-        backgroundProcessing: parseResult.pages.length >= 15
+        status: 'ready',
+        ...(parseResult.pages.length >= 15 && { backgroundProcessing: true })
       }
 
       return res.status(200).json(response)
@@ -150,7 +209,20 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
 
   } catch (error) {
     const processingTime = Date.now() - startTime
-    console.error('[process-pdf-fast] Processing error:', error)
+    
+    // Set error status if we have a documentId
+    if (typeof documentId !== 'undefined') {
+      await kvStore.setStatus(documentId, 'error', error instanceof Error ? error.message : 'Unknown error')
+    }
+    
+    structuredLog('error', 'PDF processing failed', {
+      documentId: typeof documentId !== 'undefined' ? documentId : 'none',
+      userId,
+      kvWrite: false,
+      status: 'error',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      request_id: requestId
+    })
     
     return apiError(res, 500, 'PDF processing failed', 'PROCESSING_ERROR',
       error instanceof Error ? error.message : 'Unknown error')
@@ -160,9 +232,8 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
 // Background processing for remaining pages
 async function processRemainingPages(
   file_url: string, 
-  docId: string, 
-  userId: string, 
-  memoryId: string,
+  documentId: string, 
+  userId: string,
   startPage: number
 ) {
   console.log(`[process-pdf-fast] Starting background processing from page ${startPage}`)
@@ -195,58 +266,37 @@ async function processRemainingPages(
     })
 
     if (fullParseResult?.success && chunksAfter.length) {
-      // Merge with existing chunks in transient store
-      const existingChunks = transientStore.getChunks(memoryId) || []
+      // Get existing context from KV
+      const existingContext = await kvStore.getContext(documentId, userId)
       
-      const newChunks = chunksAfter.map((chunk, index) => ({
-        id: chunk.id || `chunk-bg-${index}`,
-        text: chunk.content || chunk.text || '',
-        page: chunk.page_number ?? chunk.page ?? startPage + 1,
-        chunk_index: (chunk.chunk_index ?? index) + existingChunks.length,
-        metadata: {
-          type: chunk.type || 'text',
-          tokens: chunk.tokens || 0,
-          backgroundProcessing: true
-        }
-      }))
+      if (existingContext) {
+        const newChunks = chunksAfter.map((chunk, index) => ({
+          id: chunk.id || `chunk-bg-${index}`,
+          text: chunk.content || chunk.text || '',
+          page: chunk.page_number ?? chunk.page ?? startPage + 1,
+          chunk_index: (chunk.chunk_index ?? index) + existingContext.chunks.length,
+          metadata: {
+            type: chunk.type || 'text',
+            tokens: chunk.tokens || 0,
+            backgroundProcessing: true
+          }
+        }))
 
-      // Update transient store with complete document
-      const allChunks = [...existingChunks, ...newChunks]
-      transientStore.setChunks(memoryId, allChunks, { ttlMs: 60 * 60 * 1000 }) // Extend to 1 hour
+        // Update KV with complete document
+        const allChunks = [...existingContext.chunks, ...newChunks]
+        await kvStore.setContext(documentId, userId, {
+          ...existingContext,
+          chunks: allChunks
+        })
 
-      console.log(`[process-pdf-fast] Background processing completed: ${allChunks.length} total chunks`)
+        console.log(`[process-pdf-fast] Background processing completed: ${allChunks.length} total chunks`)
+      }
     }
 
   } catch (error) {
     console.error('[process-pdf-fast] Background processing error:', error)
   } finally {
     await pdfParser.cleanup()
-  }
-}
-
-// Track recent documents for user context
-async function trackRecentDocument(userId: string, docId: string): Promise<void> {
-  if (!kvStore) {
-    console.log('[process-pdf-fast] KV not available, skipping recent doc tracking')
-    return
-  }
-
-  try {
-    const recentKey = `recent:${userId}:docIds`
-    
-    // Get current list (if any)
-    const currentList: string[] = await kvStore.get(recentKey) || []
-    
-    // Add new docId to front, remove duplicates, limit to 3
-    const updatedList = [docId, ...currentList.filter(id => id !== docId)].slice(0, 3)
-    
-    // Store with 10-minute TTL (600 seconds)
-    await kvStore.set(recentKey, updatedList, { ex: 600 })
-    
-    console.log(`[process-pdf-fast] Tracked recent document: ${docId} for user: ${userId}`)
-  } catch (error) {
-    console.error('[process-pdf-fast] Failed to track recent document:', error)
-    throw error
   }
 }
 

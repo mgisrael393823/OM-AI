@@ -107,7 +107,7 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse) {
     // Get document context
     let documentContext = ''
     if (resolvedDocIds.length > 0) {
-      const chunks = await getRelevantChunks(resolvedDocIds[0], messages)
+      const chunks = await getRelevantChunks(resolvedDocIds[0], messages, req.user.id)
       if (chunks?.length) {
         documentContext = '\n\nDocument context:\n' + 
           chunks.map(c => `[Page ${c.page}] ${c.content}`).join('\n')

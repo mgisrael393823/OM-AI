@@ -187,6 +187,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
   }, [user, session, getAuthToken])
 
   // Send message with persistence
+  // docId should be the server-generated documentId from upload (mem-{ULID} format)
   const sendMessage = useCallback(async (content: string, docId?: string | null, contextDocIds?: string[]) => {
     // In-flight guard - prevent double submissions
     if (!content.trim() || isLoading || !user || !session) return
@@ -288,7 +289,63 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
           response = await makeRequest(data.session.access_token)
         }
       }
-
+      
+      // Handle 409 (document processing or not found)
+      if (response.status === 409) {
+        const errorData = await response.json()
+        console.log('⏳ Document context issue:', errorData)
+        
+        // If document is still processing, show message and retry
+        if (errorData.status === 'processing') {
+          // Show indexing message
+          const indexingMessage: Message = {
+            id: (Date.now() + 2).toString(),
+            role: "assistant",
+            content: "Document is still being indexed. Retrying...",
+            timestamp: new Date()
+          }
+          setMessages(prev => [...prev, indexingMessage])
+          
+          // Retry up to 3 times with 500ms delays
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 500))
+            
+            response = await makeRequest(token)
+            if (response.status !== 409) break
+            
+            const retryData = await response.json()
+            if (retryData.status !== 'processing') break
+          }
+          
+          // Remove indexing message
+          setMessages(prev => prev.filter(msg => msg.id !== indexingMessage.id))
+          
+          // If still 409 after retries, show error
+          if (response.status === 409) {
+            const finalError = await response.json()
+            const errorMessage: Message = {
+              id: (Date.now() + 3).toString(),
+              role: "assistant",
+              content: finalError.status === 'processing' 
+                ? "Document is still being processed. Please try again in a moment."
+                : "Document context not found. The document may have expired or was not properly uploaded. Try uploading again or chat without documents.",
+              timestamp: new Date()
+            }
+            setMessages(prev => [...prev, errorMessage])
+            return
+          }
+        } else {
+          // Document not found or error
+          const errorMessage: Message = {
+            id: (Date.now() + 3).toString(),
+            role: "assistant",
+            content: errorData.details || "Document context not available. Try uploading again or chat without documents.",
+            timestamp: new Date()
+          }
+          setMessages(prev => [...prev, errorMessage])
+          return
+        }
+      }
 
       if (!response.ok) {
         const errorText = await response.text()
