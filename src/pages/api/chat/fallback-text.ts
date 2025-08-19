@@ -173,10 +173,18 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
           max_tokens: 600 // Cap output length
         })
 
-    // Force text output and disable tools
-    payload.tool_choice = 'none'
+    // Force text output and sanitize tool-related fields
+    payload.stream = false
     payload.response_format = { type: 'text' }
-    payload.stream = false // Explicitly disable streaming for fallback
+
+    // Critical: Remove tool_choice if no tools present
+    if (!payload.tools || (Array.isArray(payload.tools) && payload.tools.length === 0)) {
+      delete payload.tool_choice
+      delete payload.tools
+    } else {
+      // If tools exist, disable them for fallback
+      payload.tool_choice = 'none'
+    }
 
     structuredLog('info', 'Fallback request initiated', {
       documentId: validRequest.metadata?.documentId,
@@ -192,18 +200,21 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     const ai = await createChatCompletion(payload)
 
     // Ensure we have text content
-    if (!ai.content || ai.content.trim().length === 0) {
+    const textContent = (ai.content || '').trim()
+    if (!textContent) {
       structuredLog('error', 'Fallback produced empty content', {
         documentId: validRequest.metadata?.documentId,
         userId,
         model,
         request_id: requestId
       })
-      
-      return res.status(502).json({
-        error: 'empty_text',
-        code: 'FALLBACK_EMPTY_TEXT',
-        message: 'Fallback endpoint failed to produce text content',
+
+      // Return a default message rather than failing
+      return res.status(200).json({
+        message: "I understand your request but need more context. Could you please rephrase or provide more details?",
+        model: ai.model,
+        usage: ai.usage,
+        source: 'fallback_default',
         request_id: requestId
       })
     }
