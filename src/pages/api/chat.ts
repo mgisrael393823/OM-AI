@@ -145,15 +145,15 @@ async function runTextFallback(
   signal: AbortSignal
 ): Promise<{content: string, model: string, usage: any, reason: string}> {
   const fallbackPayload = apiFamily === 'responses'
-    ? buildResponses({ 
+    ? buildResponses({
         model: originalPayload.model,
-        input: messages.map(m => ({ content: m.content, role: m.role })), 
+        input: messages.map(m => ({ content: m.content, role: m.role })),
         max_output_tokens: Math.min(originalPayload.max_output_tokens || 600, 600)
       })
-    : buildChatCompletion({ 
+    : buildChatCompletion({
         model: originalPayload.model,
-        messages, 
-        max_tokens: Math.min(originalPayload.max_tokens || 600, 600) 
+        messages,
+        max_tokens: Math.min(originalPayload.max_tokens || 600, 600)
       })
   
   // Force text output and disable tools if present
@@ -169,7 +169,7 @@ async function runTextFallback(
 
   fixResponseFormat(fallbackPayload)
   const fallbackResult = await createChatCompletion(fallbackPayload, { signal })
-  
+
   return {
     content: fallbackResult.content || '',
     model: fallbackResult.model || originalPayload.model,
