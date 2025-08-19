@@ -138,7 +138,7 @@ async function getDocumentHash(documentId: string, userId: string): Promise<stri
  * Used when JSON parsing fails, content is empty, or schema validation fails
  */
 async function runTextFallback(
-  model: string,
+  originalPayload: any,
   messages: Message[],
   apiFamily: 'chat' | 'responses',
   reason: 'json_parse' | 'timeout' | 'empty_content' | 'schema_error',
@@ -146,26 +146,39 @@ async function runTextFallback(
 ): Promise<{content: string, model: string, usage: any, reason: string}> {
   const fallbackPayload = apiFamily === 'responses'
     ? buildResponses({
-        model,
+        model: originalPayload.model,
         input: messages.map(m => ({ content: m.content, role: m.role })),
-        max_output_tokens: 600
+        max_output_tokens: Math.min(originalPayload.max_output_tokens || 600, 600)
       })
     : buildChatCompletion({
-        model,
+        model: originalPayload.model,
         messages,
-        max_tokens: 600
+        max_tokens: Math.min(originalPayload.max_tokens || 600, 600)
       })
 
   // Force text output and disable tools
-  fallbackPayload.tool_choice = 'none'
-  fallbackPayload.response_format = { type: 'text' }
+  if (fallbackPayload.tools && Array.isArray(fallbackPayload.tools) && fallbackPayload.tools.length > 0) {
+    fallbackPayload.tool_choice = 'none'
+  }
+  
+  // API-specific response format handling
+  if (apiFamily === 'responses') {
+    fallbackPayload.text = { format: 'plain' }
+  }
+  // For chat completions, omit response_format entirely
+  
   fallbackPayload.stream = false
+  
+  // Preserve temperature from original (if any)
+  if (originalPayload.temperature !== undefined) {
+    fallbackPayload.temperature = originalPayload.temperature
+  }
 
   const fallbackResult = await createChatCompletion(fallbackPayload, { signal })
 
   return {
     content: fallbackResult.content || '',
-    model: fallbackResult.model || model,
+    model: fallbackResult.model || originalPayload.model,
     usage: fallbackResult.usage,
     reason
   }
@@ -751,7 +764,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             
             try {
               const fallbackResult = await runTextFallback(
-                model, messages, apiFamily, 'schema_error', fallbackController.signal
+                payload, messages, apiFamily, 'schema_error', fallbackController.signal
               )
               clearTimeout(fallbackTimeout)
               
@@ -893,7 +906,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             
             try {
               const fallbackResult = await runTextFallback(
-                model, messages, apiFamily, 'json_parse', fallbackController.signal
+                payload, messages, apiFamily, 'json_parse', fallbackController.signal
               )
               clearTimeout(fallbackTimeout)
               
@@ -1117,7 +1130,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       
       try {
         const fallbackResult = await runTextFallback(
-          model, messages, apiFamily, 'empty_content', fallbackController.signal
+          payload, messages, apiFamily, 'empty_content', fallbackController.signal
         )
         clearTimeout(fallbackTimeout)
         
