@@ -40,6 +40,7 @@ const FallbackRequestSchema = z.object({
 async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   const requestId = req.headers['x-correlation-id'] as string || generateRequestId('fallback')
   const userId = req.user?.id || 'anonymous'
+  const rawDocumentId = (req.body as any)?.metadata?.documentId as string | undefined
   
   // Check for duplicate request ID using KV store (distributed idempotency)
   const clientRequestId = req.headers['x-request-id'] as string || requestId
@@ -50,6 +51,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     const existingEntry = await kvStore.getItem(idempotencyKey)
     if (existingEntry) {
       structuredLog('warn', 'Duplicate fallback request blocked', {
+        documentId: rawDocumentId || 'none',
         requestId: clientRequestId,
         userId,
         source: 'kv_idempotency_check',
@@ -74,6 +76,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     
   } catch (idempotencyError) {
     structuredLog('warn', 'Failed to check/set idempotency', {
+      documentId: rawDocumentId || 'none',
       requestId: clientRequestId,
       userId,
       error: idempotencyError instanceof Error ? idempotencyError.message : 'Unknown error',
@@ -176,7 +179,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     payload.stream = false // Explicitly disable streaming for fallback
 
     structuredLog('info', 'Fallback request initiated', {
-      documentId: validRequest.metadata?.documentId,
+      documentId: validRequest.metadata?.documentId || 'none',
       userId,
       model,
       apiFamily: isResponsesModel(model) ? 'responses' : 'chat',
@@ -191,7 +194,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     // Ensure we have text content
     if (!ai.content || ai.content.trim().length === 0) {
       structuredLog('error', 'Fallback produced empty content', {
-        documentId: validRequest.metadata?.documentId,
+        documentId: validRequest.metadata?.documentId || 'none',
         userId,
         model,
         request_id: requestId
@@ -207,7 +210,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
 
     // Log successful fallback
     structuredLog('info', 'Fallback request completed', {
-      documentId: validRequest.metadata?.documentId,
+      documentId: validRequest.metadata?.documentId || 'none',
       userId,
       model,
       contentLength: ai.content.length,
@@ -246,7 +249,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     
   } catch (error: any) {
     structuredLog('error', 'Fallback request failed', {
-      documentId: undefined, // May not be available in error case
+      documentId: rawDocumentId || 'none',
       userId,
       error: error?.message,
       status: error?.status,
