@@ -50,12 +50,17 @@ function AppContent({ Component, pageProps }: { Component: any; pageProps: any }
 }
 
 export default function App({ Component, pageProps }: AppProps) {
-  // Register service worker
+  // Register/unregister service worker based on environment
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js')
-        .then(registration => console.log('Service Worker registered:', registration.scope))
-        .catch(error => console.error('Service Worker registration failed:', error));
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      if (process.env.NODE_ENV === 'production') {
+        navigator.serviceWorker.register('/service-worker.js').catch(() => {})
+      } else {
+        // Unregister any SW in development to prevent caching issues
+        navigator.serviceWorker.getRegistrations().then(regs => {
+          regs.forEach(reg => reg.unregister())
+        })
+      }
     }
   }, []);
 
