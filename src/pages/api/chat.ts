@@ -569,7 +569,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         k: 3,
         maxCharsPerChunk: 1000,
         userId, // Pass userId for security check
-        docHash: await getDocumentHash(documentId, userId) // For cache coherence
+        docHash: (await getDocumentHash(documentId, userId)) || undefined // For cache coherence
       })
 
       // Context gating: return 424 when no chunks found to prevent AI hallucination
@@ -630,6 +630,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     // Model cascade for deal points queries when fast path cache miss
     let cascadeResult: any = null
+    const latestUser = [...messages].reverse().find(m => m.role === 'user')
     const isDeepAnalysisQuery = isDealPointsQuery(latestUser?.content || '') && requestBody.metadata?.documentId
     
     if (isDeepAnalysisQuery) {

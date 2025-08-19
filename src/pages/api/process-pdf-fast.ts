@@ -493,7 +493,7 @@ async function extractDealPoints(chunks: any[], contentHash: string) {
     // Use gpt-4o-mini for extraction
     const { createChatCompletion } = await import('@/lib/services/openai')
     
-    const extractionResult = await createChatCompletion({
+    const extractionPayload = {
       model: 'gpt-4o-mini',
       messages: [
         {
@@ -505,10 +505,12 @@ async function extractDealPoints(chunks: any[], contentHash: string) {
           content: `Extract the key deal points from this document:\n\n${combinedText}`
         }
       ],
-      response_format: { type: 'json_object' },
       max_tokens: 350,
       temperature: 0.1
-    })
+    } as any
+    extractionPayload.response_format = { type: 'json_object' }
+    
+    const extractionResult = await createChatCompletion(extractionPayload)
     
     if (extractionResult.content) {
       try {
