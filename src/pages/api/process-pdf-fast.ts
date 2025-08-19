@@ -231,7 +231,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
             )
             
             structuredLog('info', 'Deal points extracted and cached (async)', {
-              documentId,
+              documentId: documentId || 'none',
               userId,
               contentHash,
               bulletsCount: dealPoints.bullets.length,
@@ -241,7 +241,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
             })
           } else {
             structuredLog('info', 'Deal points extraction returned null (async)', {
-              documentId,
+              documentId: documentId || 'none',
               userId,
               contentHash,
               source: 'async_extraction',
@@ -250,7 +250,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
           }
         } catch (extractionError) {
           structuredLog('error', 'Async deal points extraction failed', {
-            documentId,
+            documentId: documentId || 'none',
             userId,
             contentHash,
             error: extractionError instanceof Error ? extractionError.message : 'Unknown error',
