@@ -6,7 +6,7 @@
  */
 
 export interface LogFields {
-  documentId: string
+  documentId?: string
   userId: string
   kvWrite?: boolean
   kvRead?: boolean
@@ -21,7 +21,7 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 // Strongly typed internal log entry
 interface LogEntry {
-  documentId: string      // Required
+  documentId?: string     // Optional
   userId: string          // Required
   pid: number            // Required
   timestamp?: string     // Optional
@@ -76,10 +76,12 @@ export function structuredLog(
   
   // Format for console output - extract specific fields for display
   const displayFields: Record<string, unknown> = {
-    documentId: clean.documentId,
     userId: clean.userId,
     request_id: clean.request_id
   }
+  
+  // Add documentId if present
+  if (clean.documentId !== undefined) displayFields.documentId = clean.documentId
   
   // Add optional fields if present
   if (clean.kvWrite !== undefined) displayFields.kvWrite = clean.kvWrite

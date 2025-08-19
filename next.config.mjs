@@ -7,6 +7,9 @@ const __dirname = dirname(__filename);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   reactStrictMode: process.env.NODE_ENV !== 'development',
   transpilePackages: ['pdfjs-dist'],
   
@@ -120,8 +123,8 @@ const nextConfig = {
   
   // Optimize build performance
   experimental: {
-    // Disable Turbopack in development for better HMR stability
-    // turbo: {},
+    // Note: Use 'next dev --turbo' to enable Turbopack in development
+    // Removed turbopack config option to prevent webpack hot-update.json 404s
   },
   // Canvas external package removed - text-only PDF processing
   

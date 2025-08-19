@@ -1,11 +1,25 @@
 // src/components/ui/Markdown.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
+import { Button } from './button';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
-const Markdown = ({ children }: { children: string }) => {
+interface MarkdownProps {
+  children: string;
+  maxLength?: number;
+}
+
+const Markdown = ({ children, maxLength = 8000 }: MarkdownProps) => {
   let cleaned = children ?? '';
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Determine if content should be collapsed
+  const shouldCollapse = cleaned.length > maxLength;
+  const displayContent = shouldCollapse && !isExpanded 
+    ? cleaned.substring(0, maxLength) + '...'
+    : cleaned;
   
   // Clean up common artifacts
   cleaned = cleaned
@@ -36,8 +50,31 @@ const Markdown = ({ children }: { children: string }) => {
         rehypePlugins={[rehypeSanitize]} 
         skipHtml
       >
-        {cleaned}
+        {displayContent}
       </ReactMarkdown>
+      
+      {shouldCollapse && (
+        <div className="mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 p-0 h-auto font-normal"
+          >
+            {isExpanded ? (
+              <>
+                <ChevronUp className="w-4 h-4 mr-1" />
+                Show less
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4 mr-1" />
+                Show more ({((cleaned.length - maxLength) / 1000).toFixed(1)}k more characters)
+              </>
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

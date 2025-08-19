@@ -7,6 +7,8 @@ import { Message } from './types'
 interface MessageGroupProps {
   messages: Message[]
   isLoading?: boolean
+  isTyping?: boolean
+  isThinking?: boolean
   onCopy?: (content: string) => void
   userInitials?: string
 }
@@ -21,7 +23,14 @@ function shouldShowDateSeparator(currentMessage: Message, previousMessage?: Mess
   return format(currentDate, 'yyyy-MM-dd') !== format(prevDate, 'yyyy-MM-dd')
 }
 
-export function MessageGroup({ messages, isLoading = false, onCopy, userInitials = "U" }: MessageGroupProps) {
+export function MessageGroup({ 
+  messages, 
+  isLoading = false, 
+  isTyping = false, 
+  isThinking = false, 
+  onCopy, 
+  userInitials = "U" 
+}: MessageGroupProps) {
   if (!messages.length) return null
 
   return (
@@ -31,6 +40,8 @@ export function MessageGroup({ messages, isLoading = false, onCopy, userInitials
         const showDateSeparator = shouldShowDateSeparator(message, previousMessage)
         const isLastMessage = index === messages.length - 1
         const showLoading = isLoading && isLastMessage && message.role === 'assistant'
+        const showTyping = isTyping && isLastMessage && message.role === 'assistant'
+        const showThinking = isThinking && isLastMessage && message.role === 'assistant'
 
         return (
           <div key={message.id} className="message-container">
@@ -45,6 +56,8 @@ export function MessageGroup({ messages, isLoading = false, onCopy, userInitials
                 role={message.role}
                 content={message.content}
                 isLoading={showLoading}
+                isTyping={showTyping}
+                isThinking={showThinking}
                 userInitials={userInitials}
               />
             </div>
