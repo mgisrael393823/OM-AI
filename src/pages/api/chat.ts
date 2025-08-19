@@ -134,6 +134,49 @@ async function getDocumentHash(documentId: string, userId: string): Promise<stri
 }
 
 /**
+ * Internal text fallback helper - mirrors context and forces text output
+ * Used when JSON parsing fails, content is empty, or schema validation fails
+ */
+async function runTextFallback(
+  originalPayload: any,
+  messages: Message[],
+  apiFamily: 'chat' | 'responses',
+  reason: 'json_parse' | 'timeout' | 'empty_content' | 'schema_error',
+  signal: AbortSignal
+): Promise<{content: string, model: string, usage: any, reason: string}> {
+  const fallbackPayload = apiFamily === 'responses'
+    ? buildResponses({ 
+        model: originalPayload.model,
+        input: messages.map(m => ({ content: m.content, role: m.role })), 
+        max_output_tokens: Math.min(originalPayload.max_output_tokens || 600, 600)
+      })
+    : buildChatCompletion({ 
+        model: originalPayload.model,
+        messages, 
+        max_tokens: Math.min(originalPayload.max_tokens || 600, 600) 
+      })
+  
+  // Force text output and disable tools
+  fallbackPayload.tool_choice = 'none'
+  fallbackPayload.response_format = { type: 'text' }
+  fallbackPayload.stream = false
+  
+  // Preserve temperature from original (if any)
+  if (originalPayload.temperature !== undefined) {
+    fallbackPayload.temperature = originalPayload.temperature
+  }
+  
+  const fallbackResult = await createChatCompletion(fallbackPayload, { signal })
+  
+  return {
+    content: fallbackResult.content || '',
+    model: fallbackResult.model || originalPayload.model,
+    usage: fallbackResult.usage,
+    reason
+  }
+}
+
+/**
  * Chat endpoint handler that supports both Chat Completions and Responses API
  */
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
@@ -147,6 +190,16 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   const userId = req.user?.id || 'anonymous'
   let correlationId: string = (req.headers['x-correlation-id'] as string) || requestId
   let requestBody: any
+  
+  // Unified 13s timeout budget: 9s primary + 4s fallback
+  const controller = new AbortController()
+  const primaryTimeout = setTimeout(() => controller.abort(), 9000) // 9s for primary
+  const signal = controller.signal
+  
+  // Track timing and outcomes for terminal logging
+  const startTime = Date.now()
+  let outcome: 'primary' | 'fallback' | 'cache_hit' = 'primary'
+  let failure_cause: string | undefined
   
   try {
     if (req.method !== 'POST') {
@@ -368,6 +421,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     let max_output_tokens: number | undefined
     let model: string
     let sessionId: string | undefined
+    let payload: any // Declare payload early for error handling
     
     if (apiFamily === 'responses') {
       const responsesReq = validRequest as z.infer<typeof ResponsesAPISchema> | z.infer<typeof AutoDetectSchema>
@@ -450,27 +504,29 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             const responseBytes = new TextEncoder().encode(fastPathResponse).length
             res.setHeader('X-Text-Bytes', responseBytes.toString())
             
-            // Best-effort persistence if session provided
+            // Non-blocking fire-and-forget persistence
             if (sessionId) {
-              try {
-                const supabase = getSupabaseAdmin()
-                await supabase.from('messages').insert({
-                  chat_session_id: sessionId,
-                  role: 'assistant',
-                  content: fastPathResponse,
-                  metadata: { 
-                    requestId, 
-                    correlationId,
-                    model: 'fast-path-cache',
-                    apiFamily: 'cache',
-                    source: 'dealPoints',
-                    cacheHit: true,
-                    contentHash: docHash
-                  }
-                })
-              } catch (persistErr) {
-                console.warn(`[${requestId}] Failed to persist fast path message:`, persistErr)
-              }
+              setImmediate(async () => {
+                try {
+                  const supabase = getSupabaseAdmin()
+                  await supabase.from('messages').insert({
+                    chat_session_id: sessionId,
+                    role: 'assistant',
+                    content: fastPathResponse,
+                    metadata: { 
+                      requestId, 
+                      correlationId,
+                      model: 'fast-path-cache',
+                      apiFamily: 'cache',
+                      source: 'dealPoints',
+                      cacheHit: true,
+                      contentHash: docHash
+                    }
+                  })
+                } catch (persistErr) {
+                  console.warn(`[${requestId}] Failed to persist fast path message:`, persistErr)
+                }
+              })
             }
             
             structuredLog('info', 'Fast path response completed', {
@@ -640,23 +696,37 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           model: 'gpt-4o-mini',
           messages: messages.map(m => ({ role: m.role, content: m.content })),
           response_format: { 
-            type: 'json_object' as const,
-            schema: {
-              type: 'object',
-              properties: {
-                bullets: { type: 'array', items: { type: 'string' } },
-                citations: { 
-                  type: 'array', 
-                  items: { 
-                    type: 'object',
-                    properties: {
-                      page: { type: 'number' },
-                      text: { type: 'string' }
+            type: 'json_schema' as const,
+            json_schema: {
+              name: 'deal_points_extraction',
+              strict: true,
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['bullets', 'citations', 'confidence', 'schema_version'],
+                properties: {
+                  bullets: { 
+                    type: 'array', 
+                    minItems: 1,
+                    items: { type: 'string', minLength: 1 }
+                  },
+                  citations: {
+                    type: 'array',
+                    minItems: 0,
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      required: ['page', 'text'],
+                      properties: {
+                        page: { type: 'number', minimum: 1 },
+                        text: { type: 'string', minLength: 1 }
+                      }
                     }
-                  }
-                },
-                confidence: { type: 'boolean' },
-                distinctPages: { type: 'number' }
+                  },
+                  confidence: { type: 'boolean' },
+                  distinctPages: { type: 'number', minimum: 0 },
+                  schema_version: { type: 'string', enum: ['v1.0'] }
+                }
               }
             }
           },
@@ -665,7 +735,52 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         }
         
         const startTime = Date.now()
-        const stageAResult = await createChatCompletion(stageAPayload)
+        let stageAResult
+        try {
+          stageAResult = await createChatCompletion(stageAPayload, { signal })
+        } catch (schemaError: any) {
+          // Fast-fail on 4xx schema validation errors - jump to fallback
+          if (schemaError.status === 400 || schemaError.message?.includes('schema')) {
+            structuredLog('warn', 'Stage A schema validation failed - routing to fallback', {
+              correlationId,
+              documentId: requestBody.metadata?.documentId,
+              userId,
+              error: schemaError.message,
+              request_id: requestId
+            })
+            
+            // Clear primary timeout and start fallback budget  
+            clearTimeout(primaryTimeout)
+            const fallbackController = new AbortController()
+            const fallbackTimeout = setTimeout(() => fallbackController.abort(), 4000) // 4s fallback budget
+            
+            try {
+              const fallbackResult = await runTextFallback(
+                payload, messages, apiFamily, 'schema_error', fallbackController.signal
+              )
+              clearTimeout(fallbackTimeout)
+              
+              outcome = 'fallback'
+              failure_cause = 'schema_error'
+              
+              // Set response and return early
+              res.setHeader('X-Text-Bytes', new TextEncoder().encode(fallbackResult.content).length.toString())
+              return res.status(200).json({
+                message: fallbackResult.content,
+                model: fallbackResult.model,
+                usage: fallbackResult.usage,
+                fallback_reason: 'schema_error',
+                correlationId,
+                request_id: requestId
+              })
+            } catch (fallbackError) {
+              clearTimeout(fallbackTimeout)
+              throw fallbackError // Let main error handler deal with this
+            }
+          }
+          // Re-throw other errors to main handler
+          throw schemaError
+        }
         const stageATime = Date.now() - startTime
         
         if (stageAResult.content) {
@@ -707,7 +822,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               stageBPayload.stream = false
               
               const stageBStart = Date.now()
-              const stageBResult = await createChatCompletion(stageBPayload)
+              const stageBResult = await createChatCompletion(stageBPayload, { signal })
               const stageBTime = Date.now() - stageBStart
               
               if (stageBResult.content?.trim()) {
@@ -768,13 +883,42 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               })
             }
           } catch (parseError) {
-            structuredLog('warn', 'Stage A JSON parse failed', {
+            structuredLog('warn', 'Stage A JSON parse failed - routing to fallback', {
               correlationId,
               documentId: requestBody.metadata?.documentId,
               userId,
               error: parseError instanceof Error ? parseError.message : 'Unknown error',
               request_id: requestId
             })
+            
+            // Clear primary timeout and start fallback budget
+            clearTimeout(primaryTimeout)
+            const fallbackController = new AbortController()
+            const fallbackTimeout = setTimeout(() => fallbackController.abort(), 4000) // 4s fallback budget
+            
+            try {
+              const fallbackResult = await runTextFallback(
+                payload, messages, apiFamily, 'json_parse', fallbackController.signal
+              )
+              clearTimeout(fallbackTimeout)
+              
+              outcome = 'fallback'
+              failure_cause = 'json_parse'
+              
+              // Set response and return early
+              res.setHeader('X-Text-Bytes', new TextEncoder().encode(fallbackResult.content).length.toString())
+              return res.status(200).json({
+                message: fallbackResult.content,
+                model: fallbackResult.model,
+                usage: fallbackResult.usage,
+                fallback_reason: 'json_parse',
+                correlationId,
+                request_id: requestId
+              })
+            } catch (fallbackError) {
+              clearTimeout(fallbackTimeout)
+              throw fallbackError // Let main error handler deal with this
+            }
           }
         }
       } catch (cascadeError) {
@@ -794,26 +938,28 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       const responseBytes = new TextEncoder().encode(cascadeResult.content).length
       res.setHeader('X-Text-Bytes', responseBytes.toString())
       
-      // Best-effort persistence
+      // Non-blocking fire-and-forget persistence
       if (sessionId) {
-        try {
-          const supabase = getSupabaseAdmin()
-          await supabase.from('messages').insert({
-            chat_session_id: sessionId,
-            role: 'assistant',
-            content: cascadeResult.content,
-            metadata: { 
-              requestId, 
-              correlationId,
-              usage: cascadeResult.usage, 
-              model: cascadeResult.model,
-              apiFamily: 'cascade',
-              cascade: cascadeResult.cascade
-            }
-          })
-        } catch (persistErr) {
-          console.warn(`[${requestId}] Failed to persist cascade message:`, persistErr)
-        }
+        setImmediate(async () => {
+          try {
+            const supabase = getSupabaseAdmin()
+            await supabase.from('messages').insert({
+              chat_session_id: sessionId,
+              role: 'assistant',
+              content: cascadeResult.content,
+              metadata: { 
+                requestId, 
+                correlationId,
+                usage: cascadeResult.usage, 
+                model: cascadeResult.model,
+                apiFamily: 'cascade',
+                cascade: cascadeResult.cascade
+              }
+            })
+          } catch (persistErr) {
+            console.warn(`[${requestId}] Failed to persist cascade message:`, persistErr)
+          }
+        })
       }
       
       structuredLog('info', 'Model cascade completed', {
@@ -838,7 +984,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     }
     
     // Build request for selected API family with streaming enabled
-    const payload = apiFamily === 'responses'
+    payload = apiFamily === 'responses'
       ? buildResponses({ 
           model, 
           input: messages.map(m => ({ content: m.content, role: m.role })), 
@@ -866,7 +1012,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     // Call OpenAI with proper error handling and performance monitoring
     const callStartTime = Date.now()
-    const ai = await createChatCompletion(payload)
+    const ai = await createChatCompletion(payload, { signal })
     const firstTokenTime = Date.now() - callStartTime
     
     // Performance budget monitoring (tightened thresholds)
@@ -925,7 +1071,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       fallbackPayload.stream = false
       
       try {
-        const fallbackAi = await createChatCompletion(fallbackPayload)
+        const fallbackAi = await createChatCompletion(fallbackPayload, { signal })
         
         if (fallbackAi.content && fallbackAi.content.trim().length > 0) {
           structuredLog('info', 'Fallback text generated successfully', {
@@ -952,81 +1098,92 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       }
     }
 
-    // Best-effort persistence (non-fatal on error)
-    if (sessionId) {
-      try {
-        const supabase = getSupabaseAdmin()
-        await supabase.from('messages').insert({
-          chat_session_id: sessionId,
-          role: 'assistant',
-          content: ai.content,
-          metadata: { 
-            requestId, 
-            correlationId,
-            usage: ai.usage, 
-            model: ai.model,
-            apiFamily,
-            path: normalizedPath,
-            finish_reason: (ai as any).finish_reason || 'unknown',
-            hadToolCalls: !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0),
-            hadText: !!(ai.content && ai.content.trim().length > 0)
-          }
-        })
-      } catch (persistErr) {
-        console.warn(`[${requestId}] Failed to persist chat message:`, persistErr)
-      }
-    }
-
     // Set X-Text-Bytes header for fallback gating
     const responseBytes = new TextEncoder().encode(ai.content || '').length
     res.setHeader('X-Text-Bytes', responseBytes.toString())
     
-    // Enhanced response logging with performance metrics
-    const totalTime = Date.now() - callStartTime
-    structuredLog('info', 'Chat request completed', {
-      correlationId,
-      documentId: requestBody.metadata?.documentId,
-      userId: req.user?.id || 'anonymous',
-      model: ai.model,
-      usage: ai.usage,
-      finish_reason: (ai as any).finish_reason || 'unknown',
-      hadToolCalls: !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0),
-      hadText: !!(ai.content && ai.content.trim().length > 0),
-      contentLength: ai.content?.length || 0,
-      t_first_token: firstTokenTime,
-      t_total: totalTime,
-      responseBytes,
-      used_fallback: false,
-      request_id: requestId
-    })
-    
-    // Check for empty content after completion
-    if (!ai.content || ai.content.trim().length === 0) {
-      structuredLog('error', 'Empty content in non-streaming response', {
+    // Check for empty content after completion - route to fallback instead of 502
+    const hasToolCalls = !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0)
+    if ((!ai.content || ai.content.trim().length === 0) && !hasToolCalls && !signal.aborted) {
+      structuredLog('warn', 'Empty content detected - routing to fallback', {
         correlationId,
         documentId: requestBody.metadata?.documentId,
         userId: req.user?.id || 'anonymous',
         model: ai.model,
         finish_reason: (ai as any).finish_reason,
-        hadToolCalls: !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0),
+        hasToolCalls,
         request_id: requestId
       })
       
-      return res.status(502).json({
-        error: 'empty_text',
-        code: 'EMPTY_RESPONSE',
-        message: 'The AI response was empty. Please try again.',
-        request_id: requestId
-      })
+      // Clear primary timeout and start fallback budget
+      clearTimeout(primaryTimeout)
+      const fallbackController = new AbortController()
+      const fallbackTimeout = setTimeout(() => fallbackController.abort(), 4000) // 4s fallback budget
+      
+      try {
+        const fallbackResult = await runTextFallback(
+          payload, messages, apiFamily, 'empty_content', fallbackController.signal
+        )
+        clearTimeout(fallbackTimeout)
+        
+        outcome = 'fallback'
+        failure_cause = 'empty_content'
+        
+        // Use fallback content and continue with response
+        ai.content = fallbackResult.content
+        ai.model = fallbackResult.model
+        ai.usage = fallbackResult.usage
+        ;(ai as any).fallback_reason = 'empty_content'
+      } catch (fallbackError) {
+        clearTimeout(fallbackTimeout)
+        // If fallback also fails, return 502
+        return res.status(502).json({
+          error: 'empty_text',
+          code: 'EMPTY_RESPONSE',
+          message: 'The AI response was empty and fallback failed. Please try again.',
+          request_id: requestId
+        })
+      }
     }
     
-    return res.status(200).json({ 
+    // Send response first
+    const response = res.status(200).json({ 
       message: ai.content,
       model: ai.model,
       usage: ai.usage,
       correlationId,
       request_id: requestId
     })
+    
+    // Fire-and-forget persistence (non-blocking)
+    if (sessionId) {
+      setImmediate(async () => {
+        try {
+          const supabase = getSupabaseAdmin()
+          await supabase.from('messages').insert({
+            chat_session_id: sessionId,
+            role: 'assistant',
+            content: ai.content,
+            metadata: { 
+              requestId, 
+              correlationId,
+              usage: ai.usage, 
+              model: ai.model,
+              apiFamily,
+              path: normalizedPath,
+              finish_reason: (ai as any).finish_reason || 'unknown',
+              hadToolCalls: !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0),
+              hadText: !!(ai.content && ai.content.trim().length > 0),
+              fallback_reason: (ai as any).fallback_reason
+            }
+          })
+        } catch (persistErr) {
+          console.warn(`[${requestId}] Failed to persist chat message:`, persistErr)
+        }
+      })
+    }
+    
+    return response
     
   } catch (error: any) {
     // Handle Zod errors that might occur during processing
@@ -1062,12 +1219,35 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     const statusCode = isUpstreamError ? 502 : (error?.status || 500)
     const errorType = isUpstreamError ? 'UPSTREAM_ERROR' : (error?.code || 'CHAT_ERROR')
     
+    // Determine if timeout caused this error
+    if (signal.aborted || error?.name === 'AbortError') {
+      outcome = 'fallback'
+      failure_cause = 'timeout'
+    } else {
+      outcome = 'fallback'  
+      failure_cause = 'error'
+    }
+
     return res.status(statusCode).json({ 
       code: errorType,
       type: error?.type || 'api_error',
       message: error?.message || 'Chat processing failed',
       correlationId: finalCorrelationId,
       request_id: error?.request_id || requestId
+    })
+  } finally {
+    // Clean up timeout and emit terminal log
+    clearTimeout(primaryTimeout)
+    
+    // Single terminal log per request
+    structuredLog('info', 'Chat request completed', {
+      documentId: requestBody?.metadata?.documentId,
+      userId,
+      outcome,
+      failure_cause,
+      latency_ms: Date.now() - startTime,
+      correlationId,
+      request_id: requestId
     })
   }
 }

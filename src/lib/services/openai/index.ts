@@ -1,6 +1,29 @@
 import OpenAI from 'openai'
 import { isResponsesModel } from './modelUtils'
 
+/**
+ * Sanitizes OpenAI payloads to prevent tool_choice without tools errors
+ * and removes undefined values that cause SDK issues
+ */
+function sanitizeOpenAIPayload(payload: any): any {
+  const cleaned = { ...payload }
+  
+  // Remove tool_choice if no tools are present
+  if (!cleaned.tools || (Array.isArray(cleaned.tools) && cleaned.tools.length === 0)) {
+    delete cleaned.tool_choice
+    delete cleaned.tools
+  }
+  
+  // Remove undefined/null values that cause SDK errors
+  Object.keys(cleaned).forEach(key => {
+    if (cleaned[key] === undefined || cleaned[key] === null) {
+      delete cleaned[key]
+    }
+  })
+  
+  return cleaned
+}
+
 // Module-scope client reuse for better performance
 const client = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY!,
@@ -17,6 +40,11 @@ interface RequestPayload {
   input?: string | { text: string; role?: 'system' | 'user' | 'assistant' }[]
   max_tokens?: number
   max_output_tokens?: number
+  temperature?: number
+  tool_choice?: string | object
+  response_format?: object
+  stream?: boolean
+  [key: string]: any // Allow additional properties
 }
 
 // Fast model configuration helper
@@ -26,7 +54,7 @@ export function getFastModel(): string {
     (process.env.OPENAI_MODEL || 'gpt-4o')
 }
 
-export async function createChatCompletion(payload: RequestPayload) {
+export async function createChatCompletion(payload: RequestPayload, options?: { signal?: AbortSignal }) {
   const model = payload.model || getFastModel()
   const isResponses = isResponsesModel(model) || !!payload.input
   const limit =
@@ -38,26 +66,35 @@ export async function createChatCompletion(payload: RequestPayload) {
   while (true) {
     try {
       if (isResponses) {
-        const params: any = { model, max_output_tokens: limit }
-        if (payload.messages) params.messages = payload.messages
-        if (payload.input) params.input = payload.input
-        const resp: any = await client.responses.create(params, {
-          signal: AbortSignal.timeout(95000)
+        let responsesParams: any = (({model,input,max_output_tokens,tool_choice,response_format,temperature,stream}) => 
+          ({model,input,max_output_tokens,tool_choice,response_format,temperature,stream}))(payload)
+        // Override with computed values
+        responsesParams.model = model
+        responsesParams.max_output_tokens = limit
+        // Sanitize the payload
+        responsesParams = sanitizeOpenAIPayload(responsesParams)
+        
+        const resp: any = await client.responses.create(responsesParams, {
+          signal: options?.signal || AbortSignal.timeout(95000)
         })
         const content = resp.output_text ?? resp.content?.[0]?.text ?? ''
         return { content: String(content).trim(), model, usage: resp.usage }
       } else {
-        const params: any = {
-          model,
-          messages: payload.messages || [],
-          max_tokens: limit
-        }
-        const resp: any = await client.chat.completions.create(params, {
-          signal: AbortSignal.timeout(95000)
+        let chatParams: any = (({model,messages,max_tokens,tool_choice,response_format,temperature,stream}) => 
+          ({model,messages,max_tokens,tool_choice,response_format,temperature,stream}))(payload)
+        // Override with computed values  
+        chatParams.model = model
+        chatParams.messages = payload.messages || []
+        chatParams.max_tokens = limit
+        // Sanitize the payload
+        chatParams = sanitizeOpenAIPayload(chatParams)
+        
+        const resp: any = await client.chat.completions.create(chatParams, {
+          signal: options?.signal || AbortSignal.timeout(95000)
         })
-        const content = resp.choices?.[0]?.message?.content ?? ''
+        const content = String(resp.choices?.[0]?.message?.content ?? '').trim()
         return {
-          content: String(content).trim(),
+          content,
           model: resp.model || model,
           usage: resp.usage
         }

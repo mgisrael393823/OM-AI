@@ -340,7 +340,10 @@ export class PDFParserAgent implements IPDFParserAgent {
               }
             }
           } catch (error) {
-            console.warn(`[PDFParserAgent] Canvas loading failed for page ${pageNumber}:`, error)
+            // Suppress canvas warnings when useCanvas is false (fast processing mode)
+            if (config?.useCanvas !== false) {
+              console.warn(`[PDFParserAgent] Canvas loading failed for page ${pageNumber}:`, error)
+            }
           }
         }
       }

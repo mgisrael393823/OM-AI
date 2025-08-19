@@ -49,7 +49,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
   
   if (!isDev && !isMemoryMode && !kvStore.isKvAvailable()) {
     structuredLog('error', 'KV store unavailable in production', {
-      documentId: 'none',
+      documentId: undefined,
       userId,
       kvWrite: false,
       adapter: kvStore.getAdapter(),
@@ -231,7 +231,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
             )
             
             structuredLog('info', 'Deal points extracted and cached (async)', {
-              documentId: documentId || 'none',
+              documentId,
               userId,
               contentHash,
               bulletsCount: dealPoints.bullets.length,
@@ -241,7 +241,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
             })
           } else {
             structuredLog('info', 'Deal points extraction returned null (async)', {
-              documentId: documentId || 'none',
+              documentId,
               userId,
               contentHash,
               source: 'async_extraction',
@@ -250,7 +250,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
           }
         } catch (extractionError) {
           structuredLog('error', 'Async deal points extraction failed', {
-            documentId: documentId || 'none',
+            documentId,
             userId,
             contentHash,
             error: extractionError instanceof Error ? extractionError.message : 'Unknown error',
@@ -309,7 +309,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
     }
     
     structuredLog('error', 'PDF processing failed', {
-      documentId: typeof documentId !== 'undefined' ? documentId : 'none',
+      documentId: typeof documentId !== 'undefined' ? documentId : undefined,
       userId,
       kvWrite: false,
       adapter: kvStore.getAdapter(),

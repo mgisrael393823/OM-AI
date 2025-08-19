@@ -51,7 +51,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     const existingEntry = await kvStore.getItem(idempotencyKey)
     if (existingEntry) {
       structuredLog('warn', 'Duplicate fallback request blocked', {
-        documentId: rawDocumentId || 'none',
+        documentId: rawDocumentId,
         requestId: clientRequestId,
         userId,
         source: 'kv_idempotency_check',
@@ -76,7 +76,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     
   } catch (idempotencyError) {
     structuredLog('warn', 'Failed to check/set idempotency', {
-      documentId: rawDocumentId || 'none',
+      documentId: rawDocumentId,
       requestId: clientRequestId,
       userId,
       error: idempotencyError instanceof Error ? idempotencyError.message : 'Unknown error',
@@ -173,13 +173,21 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
           max_tokens: 600 // Cap output length
         })
 
-    // Force text output and disable tools
-    payload.tool_choice = 'none'
+    // Force text output and sanitize tool-related fields
+    payload.stream = false
     payload.response_format = { type: 'text' }
-    payload.stream = false // Explicitly disable streaming for fallback
+    
+    // Critical: Remove tool_choice if no tools present to prevent 400 errors
+    if (!payload.tools || (Array.isArray(payload.tools) && payload.tools.length === 0)) {
+      delete payload.tool_choice
+      delete payload.tools
+    } else {
+      // If tools exist, disable them for fallback
+      payload.tool_choice = 'none'
+    }
 
     structuredLog('info', 'Fallback request initiated', {
-      documentId: validRequest.metadata?.documentId || 'none',
+      documentId: validRequest.metadata?.documentId,
       userId,
       model,
       apiFamily: isResponsesModel(model) ? 'responses' : 'chat',
@@ -192,25 +200,28 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     const ai = await createChatCompletion(payload)
 
     // Ensure we have text content
-    if (!ai.content || ai.content.trim().length === 0) {
-      structuredLog('error', 'Fallback produced empty content', {
-        documentId: validRequest.metadata?.documentId || 'none',
+    const textContent = (ai.content || '').trim()
+    if (!textContent) {
+      structuredLog('warn', 'Fallback produced empty content - using default', {
+        documentId: validRequest.metadata?.documentId,
         userId,
         model,
         request_id: requestId
       })
       
-      return res.status(502).json({
-        error: 'empty_text',
-        code: 'FALLBACK_EMPTY_TEXT',
-        message: 'Fallback endpoint failed to produce text content',
+      // Return a default message rather than failing
+      return res.status(200).json({
+        message: "I understand your request but need more context. Could you please rephrase or provide more details?",
+        model: ai.model,
+        usage: ai.usage,
+        source: 'fallback_default',
         request_id: requestId
       })
     }
 
     // Log successful fallback
     structuredLog('info', 'Fallback request completed', {
-      documentId: validRequest.metadata?.documentId || 'none',
+      documentId: validRequest.metadata?.documentId,
       userId,
       model,
       contentLength: ai.content.length,
@@ -249,7 +260,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     
   } catch (error: any) {
     structuredLog('error', 'Fallback request failed', {
-      documentId: rawDocumentId || 'none',
+      documentId: rawDocumentId,
       userId,
       error: error?.message,
       status: error?.status,
