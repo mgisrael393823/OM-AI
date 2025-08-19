@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
 import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-middleware'
-import { createChatCompletion } from '@/lib/services/openai'
+import { createChatCompletion, fixResponseFormat } from '@/lib/services/openai'
 import { chatCompletion as buildChatCompletion, responses as buildResponses } from '@/lib/services/openai/builders'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
@@ -165,7 +165,8 @@ async function runTextFallback(
   if (originalPayload.temperature !== undefined) {
     fallbackPayload.temperature = originalPayload.temperature
   }
-  
+
+  fixResponseFormat(fallbackPayload)
   const fallbackResult = await createChatCompletion(fallbackPayload, { signal })
   
   return {
@@ -737,6 +738,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         const startTime = Date.now()
         let stageAResult
         try {
+          fixResponseFormat(stageAPayload)
           stageAResult = await createChatCompletion(stageAPayload, { signal })
         } catch (schemaError: any) {
           // Fast-fail on 4xx schema validation errors - jump to fallback
@@ -820,8 +822,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               
               stageBPayload.response_format = { type: 'text' }
               stageBPayload.stream = false
-              
+
               const stageBStart = Date.now()
+              fixResponseFormat(stageBPayload)
               const stageBResult = await createChatCompletion(stageBPayload, { signal })
               const stageBTime = Date.now() - stageBStart
               
@@ -1012,6 +1015,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     // Call OpenAI with proper error handling and performance monitoring
     const callStartTime = Date.now()
+    fixResponseFormat(payload)
     const ai = await createChatCompletion(payload, { signal })
     const firstTokenTime = Date.now() - callStartTime
     
@@ -1069,8 +1073,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       fallbackPayload.tool_choice = 'none'
       fallbackPayload.response_format = { type: 'text' }
       fallbackPayload.stream = false
-      
+
       try {
+        fixResponseFormat(fallbackPayload)
         const fallbackAi = await createChatCompletion(fallbackPayload, { signal })
         
         if (fallbackAi.content && fallbackAi.content.trim().length > 0) {
