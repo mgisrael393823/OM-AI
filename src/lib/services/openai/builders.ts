@@ -9,9 +9,11 @@ export interface ResponsesPayload {
   messages?: { role: 'system' | 'user' | 'assistant'; content: string }[]
   input?: string | { content: string; role?: 'system' | 'user' | 'assistant' }[]
   max_output_tokens?: number
+  /** Optional text format (e.g. 'markdown', 'html') */
+  format?: string
 }
 
-export function chatCompletion(payload: ChatCompletionPayload) {
+export function buildChatCompletionPayload(payload: ChatCompletionPayload) {
   return {
     model: payload.model,
     messages: payload.messages,
@@ -20,7 +22,7 @@ export function chatCompletion(payload: ChatCompletionPayload) {
   }
 }
 
-export function responses(payload: ResponsesPayload) {
+export function buildResponsesPayload(payload: ResponsesPayload) {
   const built: any = {
     model: payload.model,
     max_output_tokens:
@@ -28,5 +30,11 @@ export function responses(payload: ResponsesPayload) {
   }
   if (payload.messages) built.messages = payload.messages
   if (payload.input) built.input = payload.input
+  if (payload.format) {
+    built.response_format = {
+      type: 'text',
+      text: { format: payload.format }
+    }
+  }
   return built
 }

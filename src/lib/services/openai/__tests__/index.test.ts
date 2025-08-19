@@ -14,7 +14,7 @@ jest.mock('openai', () => {
   return MockOpenAI
 })
 
-import { chatCompletion, responses } from '../builders'
+import { buildChatCompletionPayload, buildResponsesPayload } from '../builders'
 import { createChatCompletion } from '..'
 
 describe('OpenAI Service', () => {
@@ -33,7 +33,7 @@ describe('OpenAI Service', () => {
   })
 
   it('chatCompletion builder constructs payload', () => {
-    const built = chatCompletion({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }] })
+    const built = buildChatCompletionPayload({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }] })
     expect(built).toEqual({
       model: 'gpt-4',
       messages: [{ role: 'user', content: 'hi' }],
@@ -42,11 +42,21 @@ describe('OpenAI Service', () => {
   })
 
   it('responses builder constructs payload', () => {
-    const built = responses({ model: 'gpt-5', messages: [{ role: 'user', content: 'hi' }] })
+    const built = buildResponsesPayload({ model: 'gpt-5', messages: [{ role: 'user', content: 'hi' }] })
     expect(built).toEqual({
       model: 'gpt-5',
       messages: [{ role: 'user', content: 'hi' }],
       max_output_tokens: 2000
+    })
+  })
+
+  it('responses builder emits text.format when provided', () => {
+    const built = buildResponsesPayload({ model: 'gpt-5', messages: [{ role: 'user', content: 'hi' }], format: 'markdown' })
+    expect(built).toEqual({
+      model: 'gpt-5',
+      messages: [{ role: 'user', content: 'hi' }],
+      max_output_tokens: 2000,
+      response_format: { type: 'text', text: { format: 'markdown' } }
     })
   })
 
@@ -59,7 +69,7 @@ describe('OpenAI Service', () => {
     mockChatCreate.mockResolvedValueOnce(mockResp)
 
     const result = await createChatCompletion(
-      chatCompletion({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }], max_tokens: 100 })
+      buildChatCompletionPayload({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }], max_tokens: 100 })
     )
 
     expect(mockChatCreate).toHaveBeenCalledWith(
@@ -77,7 +87,7 @@ describe('OpenAI Service', () => {
       .mockResolvedValueOnce({ choices: [{ message: { content: 'retry' } }], usage: {}, model: 'gpt-4' })
 
     const result = await createChatCompletion(
-      chatCompletion({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }] })
+      buildChatCompletionPayload({ model: 'gpt-4', messages: [{ role: 'user', content: 'hi' }] })
     )
 
     expect(mockChatCreate).toHaveBeenCalledTimes(2)
@@ -89,7 +99,7 @@ describe('OpenAI Service', () => {
     mockResponsesCreate.mockResolvedValueOnce(mockResp)
 
     const result = await createChatCompletion(
-      responses({ model: 'gpt-5', messages: [{ role: 'user', content: 'hi' }] })
+      buildResponsesPayload({ model: 'gpt-5', messages: [{ role: 'user', content: 'hi' }] })
     )
 
     expect(mockResponsesCreate).toHaveBeenCalledTimes(1)
