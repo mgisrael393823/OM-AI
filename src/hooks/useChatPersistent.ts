@@ -563,8 +563,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
             body: JSON.stringify({
               ...cleanPayload,
               stream: false,
-              tool_choice: 'none',
-              response_format: { type: 'text' }
+              tool_choice: 'none'
             })
           })
           

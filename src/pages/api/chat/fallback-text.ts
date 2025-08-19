@@ -175,7 +175,6 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
 
     // Force text output and sanitize tool-related fields
     payload.stream = false
-    payload.response_format = { type: 'text' }
     
     // Critical: Remove tool_choice if no tools present to prevent 400 errors
     if (!payload.tools || (Array.isArray(payload.tools) && payload.tools.length === 0)) {
@@ -199,8 +198,13 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     // Call OpenAI with forced text output
     const ai = await createChatCompletion(payload)
 
+    // Guard against null/undefined AI response
+    if (!ai || typeof ai !== 'object') {
+      throw new Error('Invalid AI response: received null or non-object response')
+    }
+
     // Ensure we have text content
-    const textContent = (ai.content || '').trim()
+    const textContent = (ai?.content || '').trim()
     if (!textContent) {
       structuredLog('warn', 'Fallback produced empty content - using default', {
         documentId: validRequest.metadata?.documentId,
@@ -212,8 +216,8 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       // Return a default message rather than failing
       return res.status(200).json({
         message: "I understand your request but need more context. Could you please rephrase or provide more details?",
-        model: ai.model,
-        usage: ai.usage,
+        model: ai?.model || model,
+        usage: ai?.usage || {},
         source: 'fallback_default',
         request_id: requestId
       })
@@ -224,8 +228,8 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       documentId: validRequest.metadata?.documentId,
       userId,
       model,
-      contentLength: ai.content.length,
-      usage: ai.usage,
+      contentLength: ai?.content?.length || 0,
+      usage: ai?.usage || {},
       request_id: requestId
     })
 
@@ -236,11 +240,11 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
         await supabase.from('messages').insert({
           chat_session_id: validRequest.sessionId,
           role: 'assistant',
-          content: ai.content,
+          content: ai?.content || '',
           metadata: { 
             requestId, 
-            usage: ai.usage, 
-            model: ai.model,
+            usage: ai?.usage || {}, 
+            model: ai?.model || model,
             apiFamily: isResponsesModel(model) ? 'responses' : 'chat',
             source: 'fallback'
           }
@@ -251,9 +255,9 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     }
 
     return res.status(200).json({ 
-      message: ai.content,
-      model: ai.model,
-      usage: ai.usage,
+      message: ai?.content || '',
+      model: ai?.model || model,
+      usage: ai?.usage || {},
       source: 'fallback',
       request_id: requestId
     })
