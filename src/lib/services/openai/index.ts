@@ -1,6 +1,29 @@
 import OpenAI from 'openai'
 import { isResponsesModel } from './modelUtils'
 
+/**
+ * Sanitizes OpenAI payloads to prevent tool_choice without tools errors
+ * Removes undefined values that cause SDK issues
+ */
+function sanitizeOpenAIPayload(payload: any): any {
+  const cleaned = { ...payload }
+
+  // Remove tool_choice if no tools are present
+  if (!cleaned.tools || (Array.isArray(cleaned.tools) && cleaned.tools.length === 0)) {
+    delete cleaned.tool_choice
+    delete cleaned.tools
+  }
+
+  // Remove undefined/null values that cause SDK errors
+  Object.keys(cleaned).forEach(key => {
+    if (cleaned[key] === undefined || cleaned[key] === null) {
+      delete cleaned[key]
+    }
+  })
+
+  return cleaned
+}
+
 // Module-scope client reuse for better performance
 const client = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY!,
@@ -43,8 +66,10 @@ export async function createChatCompletion(payload: RequestPayload, options?: { 
   while (true) {
     try {
       if (isResponses) {
-        const responsesParams: any = (({model,input,max_output_tokens,tool_choice,response_format,temperature,stream}) => 
-          ({model,input,max_output_tokens,tool_choice,response_format,temperature,stream}))(payload)
+        const responsesParams: any = sanitizeOpenAIPayload(
+          (({model,input,max_output_tokens,tool_choice,response_format,temperature,stream}) =>
+            ({model,input,max_output_tokens,tool_choice,response_format,temperature,stream}))(payload)
+        )
         // Override with computed values
         responsesParams.model = model
         responsesParams.max_output_tokens = limit
@@ -59,9 +84,11 @@ export async function createChatCompletion(payload: RequestPayload, options?: { 
         const content = resp.output_text ?? resp.content?.[0]?.text ?? ''
         return { content: String(content).trim(), model, usage: resp.usage }
       } else {
-        const chatParams: any = (({model,messages,max_tokens,tool_choice,response_format,temperature,stream}) => 
-          ({model,messages,max_tokens,tool_choice,response_format,temperature,stream}))(payload)
-        // Override with computed values  
+        const chatParams: any = sanitizeOpenAIPayload(
+          (({model,messages,max_tokens,tool_choice,response_format,temperature,stream}) =>
+            ({model,messages,max_tokens,tool_choice,response_format,temperature,stream}))(payload)
+        )
+        // Override with computed values
         chatParams.model = model
         chatParams.messages = payload.messages || []
         chatParams.max_tokens = limit
