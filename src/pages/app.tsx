@@ -45,7 +45,9 @@ export default function AppPage() {
     createNewChat,
     loadChatSession,
     deleteChatSession,
-    renameChatSession
+    renameChatSession,
+    isTyping,
+    isThinking
   } = useChatPersistent(selectedDocumentId)
 
   // Handle review upload button click
@@ -193,6 +195,8 @@ export default function AppPage() {
               ref={scrollContainerRef}
               messages={messages}
               isLoading={isLoading}
+              isTyping={isTyping}
+              isThinking={isThinking}
               userInitials={userDisplayData.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
               onStartChat={handleStartChat}
               onUploadDocument={() => setShowUpload(true)}

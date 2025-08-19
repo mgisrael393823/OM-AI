@@ -6,6 +6,8 @@ import { Message } from './types'
 interface ChatMessagesProps {
   messages: Message[]
   isLoading: boolean
+  isTyping?: boolean
+  isThinking?: boolean
   userInitials: string
   onStartChat: () => void
   onUploadDocument: () => void
@@ -20,6 +22,8 @@ export const ChatMessages = forwardRef<ChatMessagesRef, ChatMessagesProps>(
   function ChatMessages({
     messages,
     isLoading,
+    isTyping = false,
+    isThinking = false,
     userInitials,
     onStartChat,
     onUploadDocument,
@@ -49,6 +53,8 @@ export const ChatMessages = forwardRef<ChatMessagesRef, ChatMessagesProps>(
                 <MessageGroup
                   messages={messages}
                   isLoading={isLoading}
+                  isTyping={isTyping}
+                  isThinking={isThinking}
                   userInitials={userInitials}
                   onCopy={onCopyMessage}
                 />

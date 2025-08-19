@@ -9,6 +9,8 @@ export interface MessageBubbleProps {
   role: "user" | "assistant"
   content: string
   isLoading?: boolean
+  isTyping?: boolean
+  isThinking?: boolean
   userInitials?: string
 }
 
@@ -16,32 +18,41 @@ export function MessageBubble({
   role, 
   content, 
   isLoading = false,
+  isTyping = false,
+  isThinking = false,
   userInitials = "U"
 }: MessageBubbleProps) {
   const isUser = role === "user"
   
   // Safely convert content to string with fallback
   const safeContent = React.useMemo(() => {
+    let processedContent = content
+    
+    // Temporary fix: strip BOM and start## prefix for assistant messages
+    if (role === 'assistant' && typeof processedContent === 'string') {
+      processedContent = processedContent.replace(/^\uFEFF?start#+\s*/, '')
+    }
+    
     // If content is already a string, return it
-    if (typeof content === 'string') {
-      return content
+    if (typeof processedContent === 'string') {
+      return processedContent
     }
     
     // Log warning in development for debugging
-    if (process.env.NODE_ENV === 'development' && content !== null && content !== undefined) {
-      console.warn('⚠️ MessageBubble received non-string content:', typeof content, content)
+    if (process.env.NODE_ENV === 'development' && processedContent !== null && processedContent !== undefined) {
+      console.warn('⚠️ MessageBubble received non-string content:', typeof processedContent, processedContent)
     }
     
     // Handle null or undefined
-    if (content == null) {
+    if (processedContent == null) {
       return ""
     }
     
     // Try to safely convert to string
     try {
       // If it's an object, try to extract meaningful content
-      if (typeof content === 'object') {
-        const obj = content as any // Safe cast for runtime checks
+      if (typeof processedContent === 'object') {
+        const obj = processedContent as any // Safe cast for runtime checks
         // Check for common content fields
         if ('message' in obj && typeof obj.message === 'string') {
           return obj.message
@@ -54,11 +65,11 @@ export function MessageBubble({
         }
         
         // Last resort: stringify the object
-        return JSON.stringify(content, null, 2)
+        return JSON.stringify(processedContent, null, 2)
       }
       
       // For primitives, convert to string
-      return String(content)
+      return String(processedContent)
     } catch (error) {
       // Fallback for any conversion errors
       if (process.env.NODE_ENV === 'development') {
@@ -66,7 +77,7 @@ export function MessageBubble({
       }
       return "Error displaying message content"
     }
-  }, [content])
+  }, [content, role])
 
 
   return (
@@ -108,15 +119,17 @@ export function MessageBubble({
             </p>
           )}
           
-          {/* Loading indicator for streaming */}
-          {isLoading && !isUser && (
+          {/* Typing/Loading indicator for streaming */}
+          {!isUser && (isLoading || isTyping || isThinking) && (
             <div className="grid grid-cols-[auto_auto] items-center gap-2" aria-live="polite">
-              <div className="animate-pulse grid grid-cols-3 gap-1" role="status" aria-label="AI is thinking">
+              <div className="animate-pulse grid grid-cols-3 gap-1" role="status" aria-label="AI is responding">
                 <div className="w-2 h-2 bg-current rounded-full opacity-40"></div>
                 <div className="w-2 h-2 bg-current rounded-full opacity-60 animation-delay-200"></div>
                 <div className="w-2 h-2 bg-current rounded-full opacity-80 animation-delay-400"></div>
               </div>
-              <span className={`opacity-70 ${componentTypography.chat.systemMessage}`}>Thinking...</span>
+              <span className={`opacity-70 ${componentTypography.chat.systemMessage}`}>
+                {isThinking ? 'Thinking...' : isTyping ? 'Typing...' : 'Processing...'}
+              </span>
             </div>
           )}
         </div>
