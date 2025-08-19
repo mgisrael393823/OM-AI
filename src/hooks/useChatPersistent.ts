@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { useAuth } from "@/contexts/AuthContext"
 import { useChatSessions, type ChatSession } from "@/hooks/useChatSessions"
 import { isChatModel, isResponsesModel } from "@/lib/services/openai/modelUtils"
+import { useTypingIndicator } from "@/hooks/useTypingIndicator"
 import { supabase } from "@/lib/supabase"
 
 export interface Message {
@@ -89,11 +90,19 @@ function safelyExtractMessageContent(input: any): string {
   return "I apologize, but I received an unexpected response format. Please try again."
 }
 
+// Generate correlation ID for request tracking
+function generateCorrelationId(): string {
+  return `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+}
+
 export function useChatPersistent(selectedDocumentId?: string | null) {
   const { user, session } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  
+  // Typing indicator with 600ms thinking timeout
+  const typingIndicator = useTypingIndicator(600)
   
   // Use centralized sessions hook
   const { sessions: chatSessions, isLoading: isLoadingHistory, refresh: refreshSessions } = useChatSessions()
@@ -216,8 +225,8 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         payload.input = content.trim()
         const maxTokens = process.env.NEXT_PUBLIC_MAX_TOKENS_RESPONSES
         if (maxTokens) payload.max_output_tokens = Number(maxTokens)
-        // Only add stream for Responses API if supported
-        payload.stream = false // Disable streaming for Responses API for now
+        // Enable streaming for Responses API
+        payload.stream = true
       } else {
         // Chat Completions API format: {model, messages, max_tokens?, stream?}
         const chatHistory = messages.map(msg => ({
@@ -253,6 +262,9 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         payload.context = { docIds: contextDocIds }
       }
       
+      // Add cache busting and correlation ID for streaming
+      payload.correlationId = generateCorrelationId()
+      
       // Remove any null or undefined fields from payload
       const cleanPayload = Object.fromEntries(
         Object.entries(payload).filter(([_, value]) => value !== null && value !== undefined)
@@ -276,14 +288,19 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         return fetch(`${window.location.origin}/api/chat`, {
           method: "POST",
           credentials: 'include',
+          cache: 'no-store', // Bypass service worker caching
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
+            "Authorization": `Bearer ${token}`,
+            "X-Correlation-ID": cleanPayload.correlationId
           },
           body: JSON.stringify(cleanPayload),
         })
       }
 
+      // Start typing indicator
+      typingIndicator.startTyping()
+      
       const token = await getAuthToken()
       let response = await makeRequest(token)
 
@@ -296,13 +313,46 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         }
       }
       
-      // Handle 409 (document processing or not found)
-      if (response.status === 409) {
+      // Handle 409 (document processing or not found) and 424 (context unavailable)
+      if (response.status === 409 || response.status === 424) {
         const errorData = await response.json()
         console.log('⏳ Document context issue:', errorData)
         
-        // If document is still processing, show message and retry
-        if (errorData.status === 'processing') {
+        // Handle 424 context unavailable with auto-retry
+        if (response.status === 424) {
+          const retryDelay = errorData.retryAfterMs || 1500
+          
+          // Show context loading message
+          const contextMessage: Message = {
+            id: (Date.now() + 2).toString(),
+            role: "assistant",
+            content: "PDF context is loading. Retrying...",
+            timestamp: new Date()
+          }
+          setMessages(prev => [...prev, contextMessage])
+          
+          // Auto-retry after specified delay
+          await new Promise(resolve => setTimeout(resolve, retryDelay))
+          response = await makeRequest(token)
+          
+          // Remove context loading message
+          setMessages(prev => prev.filter(msg => msg.id !== contextMessage.id))
+          
+          // If still 424, show final error
+          if (response.status === 424) {
+            const finalError = await response.json()
+            const errorMessage: Message = {
+              id: (Date.now() + 3).toString(),
+              role: "assistant",
+              content: "PDF context is still loading. Please try again in a moment or upload a new document.",
+              timestamp: new Date()
+            }
+            setMessages(prev => [...prev, errorMessage])
+            return
+          }
+        }
+        // Handle 409 document processing
+        else if (errorData.status === 'processing') {
           // Show indexing message
           const indexingMessage: Message = {
             id: (Date.now() + 2).toString(),
@@ -369,6 +419,12 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       const isJson = contentType.includes('application/json')
       const isSSE = contentType.includes('text/event-stream')
       const isPlainText = contentType.includes('text/plain')
+      
+      // Track streaming state for fallback detection
+      let hadText = false
+      let hadToolCalls = false
+      let fallbackTriggered = false
+      let textBytesEmitted = 0
 
       // Debug: Log response details
       debugLog('Response received:', {
@@ -449,6 +505,9 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         }
 
         setMessages(prev => [...prev, assistantMessage])
+        
+        // Stop typing indicator for non-streaming responses
+        typingIndicator.stopTyping()
         return
       }
 
@@ -472,96 +531,202 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       }
 
       setMessages(prev => [...prev, assistantMessage])
+      
+      // Stream started - first token timeout is handled by typing indicator
 
       const reader = response.body?.getReader()
       if (!reader) {
+        typingIndicator.stopTyping()
         throw new Error('Response body is not readable')
       }
 
       const decoder = new TextDecoder()
       let buffer = ''
       
+      // Helper function to handle tool-only response fallback
+      const handleToolOnlyFallback = async () => {
+        if (fallbackTriggered) return false
+        fallbackTriggered = true
+        
+        debugLog('Tool-only response detected, triggering fallback')
+        
+        try {
+          const fallbackResponse = await fetch(`${window.location.origin}/api/chat/fallback-text`, {
+            method: 'POST',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+              'X-Correlation-ID': cleanPayload.correlationId
+            },
+            body: JSON.stringify({
+              ...cleanPayload,
+              stream: false,
+              tool_choice: 'none',
+              response_format: { type: 'text' }
+            })
+          })
+          
+          if (fallbackResponse.ok) {
+            const fallbackData = await fallbackResponse.json()
+            const fallbackText = safelyExtractMessageContent(fallbackData)
+            
+            if (fallbackText) {
+              // Update the last assistant message with fallback text
+              setMessages(prev => {
+                const newMessages = [...prev]
+                const lastIndex = newMessages.length - 1
+                if (lastIndex >= 0 && newMessages[lastIndex].role === 'assistant') {
+                  newMessages[lastIndex] = {
+                    ...newMessages[lastIndex],
+                    content: fallbackText
+                  }
+                }
+                return newMessages
+              })
+              return true
+            }
+          }
+        } catch (fallbackError) {
+          debugLog('Fallback request failed:', fallbackError)
+        }
+        
+        return false
+      }
+      
+      // Dual-mode SSE parsing with event buffering
+      const abortController = new AbortController()
+      let eventBuffer = ''
+      let eventCount = 0
+      let streamCompleted = false
+      
+      // Helper function to append delta to message
+      const appendDeltaToMessage = (delta: string) => {
+        // Mark first token received for typing indicator
+        if (!typingIndicator.hasReceivedFirstToken) {
+          typingIndicator.onFirstToken()
+        }
+        
+        // Track bytes emitted for fallback gating
+        textBytesEmitted += new TextEncoder().encode(delta).length
+        
+        setMessages(prev => {
+          const newMessages = prev.map((msg, index) => {
+            if (index === prev.length - 1 && msg.role === "assistant") {
+              return {
+                ...msg,
+                content: msg.content + delta
+              }
+            }
+            return { ...msg }
+          })
+          return newMessages
+        })
+      }
+      
+      // Helper function to process each SSE event
+      const processSSEEvent = async (payload: string, eventNum: number) => {
+        try {
+          const parsed = JSON.parse(payload)
+          
+          // Responses API format
+          if (parsed.type === 'response.output_text.delta') {
+            if (eventNum <= 3 || eventNum % 20 === 0) {
+              debugLog(`Event ${eventNum}: type=${parsed.type}`)
+            }
+            const delta = parsed.delta || parsed.response?.output_text?.delta
+            if (delta && delta.trim()) {
+              hadText = true
+              appendDeltaToMessage(delta)
+            }
+          }
+          // Responses API tool calls
+          else if (parsed.type?.startsWith('response.tool_calls.')) {
+            if (eventNum <= 3 || eventNum % 20 === 0) {
+              debugLog(`Event ${eventNum}: type=${parsed.type}`)
+            }
+            hadToolCalls = true
+          }
+          // Responses API completion
+          else if (parsed.type === 'response.completed') {
+            debugLog(`Event ${eventNum}: response.completed`)
+            streamCompleted = true
+          }
+          // Chat Completions API format
+          else if (parsed.object === 'chat.completion.chunk') {
+            if (eventNum <= 3 || eventNum % 20 === 0) {
+              debugLog(`Event ${eventNum}: object=chat.completion.chunk`)
+            }
+            const choices = parsed.choices || []
+            let chunkContent = ''
+            
+            for (const choice of choices) {
+              if (choice.delta?.content) {
+                chunkContent += choice.delta.content
+              }
+              if (choice.delta?.tool_calls || choice.delta?.function_call) {
+                hadToolCalls = true
+              }
+              if (choice.finish_reason) {
+                streamCompleted = true
+              }
+            }
+            
+            if (chunkContent) {
+              hadText = true
+              appendDeltaToMessage(chunkContent)
+            }
+          }
+          // Chat Completions final response
+          else if (parsed.object === 'chat.completion' && parsed.choices?.[0]?.finish_reason) {
+            debugLog(`Event ${eventNum}: chat.completion (final)`)
+            streamCompleted = true
+          }
+          // Ignore other frame types silently
+          
+        } catch (parseError) {
+          debugLog(`Event ${eventNum}: JSON parse failed`, {
+            error: parseError,
+            payloadPreview: payload.slice(0, 200)
+          })
+          // Continue without crashing
+        }
+      }
+      
       try {
-        while (true) {
+        while (true && !streamCompleted) {
           const { done, value } = await reader.read()
           if (done) break
 
-          buffer += decoder.decode(value, { stream: true })
+          eventBuffer += decoder.decode(value, { stream: true })
           
           if (isSSE) {
-            // Process SSE format: data: {"content": "text"}\n\n
-            const lines = buffer.split('\n')
-            buffer = lines.pop() || '' // Keep incomplete line in buffer
+            // Split into complete events on blank lines
+            const eventParts = eventBuffer.split(/\n\n/)
+            eventBuffer = eventParts.pop() || '' // Keep incomplete event
             
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6) // Remove 'data: ' prefix
-                
-                try {
-                  const parsed = JSON.parse(data)
-                  debugLog('SSE chunk parsed:', safeLogData(parsed, 200))
-                  
-                  // Use helper function to safely extract content
-                  const contentChunk = safelyExtractMessageContent(parsed)
-                  
-                  if (contentChunk) {
-                    debugLog('SSE content chunk extracted:', {
-                      chunkLength: contentChunk.length,
-                      chunkPreview: safeLogData(contentChunk, 100)
-                    })
-                    
-                    setMessages(prev => {
-                      // Create new array and clone all messages
-                      const newMessages = prev.map((msg, index) => {
-                        if (index === prev.length - 1 && msg.role === "assistant") {
-                          // For the last assistant message, append the content as plain text
-                          return {
-                            ...msg,
-                            content: msg.content + contentChunk
-                          }
-                        }
-                        return { ...msg }
-                      })
-                      return newMessages
-                    })
-                  } else if (parsed.done) {
-                    debugLog('SSE stream completed')
-                    break
-                  } else if (parsed.error) {
-                    debugLog('SSE stream error, continuing:', parsed.error)
-                    // Don't throw error, just log it and continue
-                  }
-                } catch (parseError) {
-                  debugLog('Invalid SSE JSON, trying as plain text:', {
-                    originalData: safeLogData(data, 100),
-                    error: parseError
-                  })
-                  
-                  // Fallback: treat the data as plain text content
-                  if (data && data.trim()) {
-                    const textContent = safelyExtractMessageContent(data)
-                    if (textContent) {
-                      debugLog('SSE fallback text content extracted:', {
-                        textLength: textContent.length,
-                        textPreview: safeLogData(textContent, 100)
-                      })
-                      
-                      setMessages(prev => {
-                        const newMessages = prev.map((msg, index) => {
-                          if (index === prev.length - 1 && msg.role === "assistant") {
-                            return {
-                              ...msg,
-                              content: msg.content + textContent
-                            }
-                          }
-                          return { ...msg }
-                        })
-                        return newMessages
-                      })
-                    }
-                  }
-                }
+            for (const eventData of eventParts) {
+              if (!eventData.trim()) continue
+              
+              // Extract data: lines only, ignore control lines
+              const lines = eventData.split(/\n/)
+              const dataLines = lines
+                .filter(line => line.startsWith('data:') && !line.startsWith(':'))
+                .map(line => line.slice(5).trim())
+              
+              if (dataLines.length === 0) continue
+              
+              // Join multi-line data: content for single event
+              const eventPayload = dataLines.join('\n').replace(/^\uFEFF/, '')
+              if (!eventPayload || eventPayload === '[DONE]') {
+                // Handle [DONE] for Chat Completions
+                streamCompleted = true
+                break
               }
+              
+              eventCount++
+              await processSSEEvent(eventPayload, eventCount)
             }
           } else if (isPlainText || contentType.includes('text/')) {
             // Process plain text format: direct text chunks
@@ -578,6 +743,14 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
               const textContent = safelyExtractMessageContent(currentBuffer)
               
               if (textContent) {
+                hadText = true
+                // Track bytes emitted for fallback gating
+                textBytesEmitted += new TextEncoder().encode(textContent).length
+                
+                if (!typingIndicator.hasReceivedFirstToken) {
+                  typingIndicator.onFirstToken()
+                }
+                
                 debugLog('Plain text content extracted:', {
                   textLength: textContent.length,
                   textPreview: safeLogData(textContent, 100)
@@ -638,10 +811,72 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
             }
           }
         }
+        
+        // Stream completed - stop typing indicator
+        typingIndicator.stopTyping()
+        
+        // CRITICAL: Hard-gate fallback - only trigger if absolutely zero text was emitted
+        const finalMessageContent = messages[messages.length - 1]?.content || ''
+        const actualContentLength = finalMessageContent.length
+        
+        debugLog('Final fallback gating check:', {
+          hadText,
+          textBytesEmitted,
+          actualContentLength,
+          fallbackTriggered,
+          streamCompleted
+        })
+        
+        // Triple-check: hadText false AND zero bytes emitted AND zero actual content
+        if (!hadText && textBytesEmitted === 0 && actualContentLength === 0 && !fallbackTriggered) {
+          // Server verification as final gate
+          const serverBytes = parseInt(response.headers.get('X-Text-Bytes') || '0')
+          
+          debugLog('Evaluating STRICT fallback conditions:', {
+            hadText,
+            textBytesEmitted,
+            actualContentLength,
+            serverBytes,
+            fallbackTriggered,
+            decision: serverBytes === 0 ? 'TRIGGER_FALLBACK' : 'SKIP_FALLBACK'
+          })
+          
+          if (serverBytes === 0) {
+            debugLog('TRIGGERING FALLBACK: All conditions met - absolutely no text received')
+            await handleToolOnlyFallback()
+          } else {
+            debugLog('SKIPPING FALLBACK: Server reports text bytes', { serverBytes })
+          }
+        } else {
+          debugLog('SKIPPING FALLBACK: Text was received', {
+            hadText,
+            textBytesEmitted,
+            actualContentLength,
+            reason: hadText ? 'hadText=true' : textBytesEmitted > 0 ? 'textBytesEmitted>0' : actualContentLength > 0 ? 'actualContent>0' : 'fallbackTriggered=true'
+          })
+        }
+        
+        debugLog('Final stream status:', { 
+          hadText, 
+          hadToolCalls, 
+          eventCount, 
+          streamCompleted,
+          textBytesEmitted,
+          finalMessageLength: messages[messages.length - 1]?.content?.length || 0
+        })
+        
       } catch (streamError) {
         debugLog('Stream reading error:', streamError)
+        typingIndicator.stopTyping()
         
-        // Instead of throwing, update the assistant message with an error message
+        // Abort request and surface user-visible error
+        try {
+          abortController.abort()
+        } catch (e) {
+          // AbortController already aborted
+        }
+        
+        // Update assistant message with error message
         setMessages(prev => {
           const result = prev.map((msg, index) => {
             if (index === prev.length - 1 && msg.role === "assistant" && !msg.content) {
@@ -654,6 +889,13 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
           })
           return result
         })
+      } finally {
+        // Ensure reader lock is released
+        try {
+          reader.releaseLock()
+        } catch (e) {
+          // Reader already released
+        }
       }
       
 
@@ -674,6 +916,7 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       setMessages(prev => [...prev, errorMessage])
     } finally {
       setIsLoading(false)
+      typingIndicator.stopTyping()
     }
   }, [currentSessionId, isLoading, user, session, getAuthToken, refreshSessions])
 
@@ -781,6 +1024,9 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
     createNewChat,
     loadChatSession,
     deleteChatSession,
-    renameChatSession
+    renameChatSession,
+    // Typing indicator state
+    isTyping: typingIndicator.isTyping,
+    isThinking: typingIndicator.isThinking
   }
 }

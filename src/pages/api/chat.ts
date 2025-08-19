@@ -9,6 +9,13 @@ import { retrieveTopK } from '@/lib/rag/retriever'
 import { augmentMessagesWithContext } from '@/lib/rag/augment'
 import * as kvStore from '@/lib/kv-store'
 import { structuredLog, generateRequestId } from '@/lib/log'
+import crypto from 'crypto'
+
+// System message for structured output
+const STRUCTURED_OUTPUT_SYSTEM_MESSAGE = {
+  role: 'system' as const,
+  content: 'You are a helpful assistant for commercial real estate analysis. Always provide clear, structured responses using markdown formatting. Use short headings (## or ###), bold lead phrases for key points, and bullet lists where appropriate. Always include a brief natural-language answer even when tools are used. Be concise but thorough, and limit responses to essential information.'
+}
 
 // Force Node.js runtime for singleton consistency
 export const runtime = 'nodejs'
@@ -81,6 +88,51 @@ type Message = z.infer<typeof MessageSchema>
 const RESPONSES_MODEL_PATTERN = /^(gpt-5($|-)|gpt-4\.1($|-)|o4|o3)/i
 const isResponsesModel = (model: string) => RESPONSES_MODEL_PATTERN.test(model)
 
+// Deal points intent detection
+const DEAL_POINTS_INTENTS = [
+  'deal points',
+  'highlights', 
+  'key terms',
+  'summary',
+  'at-a-glance',
+  'deal terms',
+  'transaction summary',
+  'investment highlights',
+  'offering highlights',
+  'executive summary',
+  'terms summary'
+]
+
+/**
+ * Detect if query is asking for deal points/highlights
+ */
+function isDealPointsQuery(query: string): boolean {
+  const lowerQuery = query.toLowerCase()
+  return DEAL_POINTS_INTENTS.some(intent => 
+    lowerQuery.includes(intent)
+  )
+}
+
+/**
+ * Get content hash from document metadata or compute from context
+ */
+async function getDocumentHash(documentId: string, userId: string): Promise<string | null> {
+  try {
+    // For mem- documents, try to get existing context and compute hash
+    if (documentId.startsWith('mem-')) {
+      const context = await kvStore.getContext(documentId, userId)
+      if (context && context.chunks) {
+        const contentText = context.chunks.map(c => c.text || '').join('')
+        return crypto.createHash('sha256').update(contentText).digest('hex').substring(0, 40)
+      }
+    }
+    return null
+  } catch (error) {
+    console.warn('[getDocumentHash] Failed to compute hash:', error)
+    return null
+  }
+}
+
 /**
  * Chat endpoint handler that supports both Chat Completions and Responses API
  */
@@ -93,6 +145,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
   const requestId = generateRequestId('chat')
   const userId = req.user?.id || 'anonymous'
+  let correlationId: string = (req.headers['x-correlation-id'] as string) || requestId
+  let requestBody: any
   
   try {
     if (req.method !== 'POST') {
@@ -103,7 +157,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
     }
 
-    let requestBody = req.body ?? {}
+    requestBody = req.body ?? {}
     
     // Reject legacy {message} format - require proper schema
     if (requestBody.message && typeof requestBody.message === 'string') {
@@ -307,6 +361,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       }
     }
 
+    // Correlation ID already extracted at function start
+    
     // Normalize request data based on API family
     let messages: Message[] = []
     let max_output_tokens: number | undefined
@@ -317,7 +373,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       const responsesReq = validRequest as z.infer<typeof ResponsesAPISchema> | z.infer<typeof AutoDetectSchema>
       model = responsesReq.model || process.env.OPENAI_MODEL || process.env.OPENAI_FALLBACK_MODEL || 'gpt-5'
       sessionId = responsesReq.sessionId
-      max_output_tokens = responsesReq.max_output_tokens
+      max_output_tokens = Math.min(responsesReq.max_output_tokens || 600, 600) // Cap at 600 tokens
       
       if (responsesReq.messages) {
         // Convert messages to internal format
@@ -350,14 +406,94 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       messages = chatReq.messages!
       model = chatReq.model || process.env.OPENAI_MODEL || process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o-2024-08-06'
       sessionId = chatReq.sessionId
-      max_output_tokens = 'max_tokens' in chatReq ? chatReq.max_tokens : undefined
+      max_output_tokens = 'max_tokens' in chatReq ? Math.min(chatReq.max_tokens || 600, 600) : 600 // Cap at 600 tokens
       normalizedPath = 'chat-messages'
     }
 
-    // Document context augmentation with KV retry logic
+    // Document context augmentation with fast path for deal points
     if (requestBody.metadata?.documentId) {
       const documentId = requestBody.metadata.documentId
       const latestUser = [...messages].reverse().find(m => m.role === 'user')
+      const userQuery = latestUser?.content || ''
+      
+      // Fast path: Check for deal points intent and cached results
+      if (isDealPointsQuery(userQuery)) {
+        const docHash = await getDocumentHash(documentId, userId)
+        if (docHash) {
+          const dealPointsKey = `dealPoints:${docHash}`
+          const cachedDealPoints = await kvStore.getItem(dealPointsKey)
+          
+          if (cachedDealPoints && cachedDealPoints.bullets && cachedDealPoints.bullets.length > 0) {
+            structuredLog('info', 'Fast path cache hit for deal points', {
+              correlationId,
+              documentId,
+              userId,
+              contentHash: docHash,
+              cacheHit: true,
+              bulletsCount: cachedDealPoints.bullets.length,
+              request_id: requestId
+            })
+            
+            // Format cached results as bullet list with page citations
+            let fastPathResponse = '## Key Deal Points\n\n'
+            for (let i = 0; i < cachedDealPoints.bullets.length; i++) {
+              const bullet = cachedDealPoints.bullets[i]
+              const citation = cachedDealPoints.citations?.[i]
+              const pageRef = citation?.page ? ` (Page ${citation.page})` : ''
+              fastPathResponse += `• ${bullet}${pageRef}\n`
+            }
+            
+            // Add metadata footer
+            fastPathResponse += `\n*Source: ${cachedDealPoints.source || 'document analysis'}*`
+            
+            // Set X-Text-Bytes header for fallback gating
+            const responseBytes = new TextEncoder().encode(fastPathResponse).length
+            res.setHeader('X-Text-Bytes', responseBytes.toString())
+            
+            // Best-effort persistence if session provided
+            if (sessionId) {
+              try {
+                const supabase = getSupabaseAdmin()
+                await supabase.from('messages').insert({
+                  chat_session_id: sessionId,
+                  role: 'assistant',
+                  content: fastPathResponse,
+                  metadata: { 
+                    requestId, 
+                    correlationId,
+                    model: 'fast-path-cache',
+                    apiFamily: 'cache',
+                    source: 'dealPoints',
+                    cacheHit: true,
+                    contentHash: docHash
+                  }
+                })
+              } catch (persistErr) {
+                console.warn(`[${requestId}] Failed to persist fast path message:`, persistErr)
+              }
+            }
+            
+            structuredLog('info', 'Fast path response completed', {
+              correlationId,
+              documentId,
+              userId,
+              contentLength: fastPathResponse.length,
+              responseBytes,
+              source: 'cache',
+              request_id: requestId
+            })
+            
+            return res.status(200).json({ 
+              message: fastPathResponse,
+              model: 'fast-path-cache',
+              source: 'dealPoints',
+              cacheHit: true,
+              correlationId,
+              request_id: requestId
+            })
+          }
+        }
+      }
       
       // Check status first
       const status = await kvStore.getStatus(documentId, userId)
@@ -426,17 +562,19 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         })
       }
       
-      // Retrieve chunks from KV
+      // Retrieve chunks from KV (reduced to 3 for performance)
       const chunks = await retrieveTopK({
         documentId,
         query: latestUser?.content || '',
-        k: 8,
+        k: 3,
         maxCharsPerChunk: 1000,
-        userId // Pass userId for security check
+        userId, // Pass userId for security check
+        docHash: await getDocumentHash(documentId, userId) // For cache coherence
       })
 
+      // Context gating: return 424 when no chunks found to prevent AI hallucination
       if (!chunks.length) {
-        structuredLog('warn', 'No chunks found after status check', {
+        structuredLog('warn', 'No chunks found - context unavailable', {
           documentId,
           userId,
           kvRead: true,
@@ -444,16 +582,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           request_id: requestId
         })
         
-        const allowWithoutContext = process.env.ALLOW_CHAT_WITHOUT_CONTEXT === 'true'
-        if (!allowWithoutContext) {
-          return res.status(409).json({
-            error: 'Document context not found',
-            code: 'DOCUMENT_CONTEXT_NOT_FOUND',
-            details: 'The document context exists but contains no chunks.',
-            documentId,
-            request_id: requestId
-          })
-        }
+        return res.status(424).json({
+          error: 'context_unavailable',
+          code: 'CONTEXT_UNAVAILABLE',
+          message: 'PDF context is not available for this request. Please try again in a moment.',
+          documentId,
+          retryAfterMs: 1500,
+          request_id: requestId
+        })
       } else {
         structuredLog('info', 'Document chunks retrieved', {
           documentId,
@@ -469,9 +605,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       }
     }
 
-    // Log structured information about the request
-    console.log(`[chat] Request ${requestId}:`, {
-      schemaMatched: apiFamily === 'chat' ? 'ChatCompletionSchema' : 'ResponsesAPISchema',
+    // Enhanced structured logging with correlation ID
+    structuredLog('info', 'Chat request initiated', {
+      correlationId,
+      documentId: requestBody.metadata?.documentId,
       userId: req.user?.id || 'anonymous',
       apiFamily,
       model,
@@ -479,18 +616,227 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       messages_count: messages.length,
       max_output_tokens: max_output_tokens || 'default',
       sessionId: sessionId || 'none',
-      runtime: 'nodejs',
-      pid: process.pid,
-      // Sanitized fields (no sensitive content)
-      sanitized: {
-        hasDocumentId: !!(requestBody.metadata?.documentId),
-        streamEnabled: !!requestBody.stream,
-        messageRoles: messages.map(m => m.role),
-        firstMessageLength: messages[0]?.content?.length || 0
-      }
+      hasDocumentId: !!(requestBody.metadata?.documentId),
+      streamEnabled: true,
+      messageRoles: messages.map(m => m.role),
+      firstMessageLength: messages[0]?.content?.length || 0,
+      request_id: requestId
     })
 
-    // Build request for selected API family
+    // Ensure structured output system message is present
+    if (!messages.some(m => m.role === 'system')) {
+      messages.unshift(STRUCTURED_OUTPUT_SYSTEM_MESSAGE)
+    }
+    
+    // Model cascade for deal points queries when fast path cache miss
+    let cascadeResult: any = null
+    const isDeepAnalysisQuery = isDealPointsQuery(latestUser?.content || '') && requestBody.metadata?.documentId
+    
+    if (isDeepAnalysisQuery) {
+      try {
+        // Stage A: Fast extraction with gpt-4o-mini in parallel with any remaining retrieval
+        const stageAPayload = {
+          model: 'gpt-4o-mini',
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
+          response_format: { 
+            type: 'json_object' as const,
+            schema: {
+              type: 'object',
+              properties: {
+                bullets: { type: 'array', items: { type: 'string' } },
+                citations: { 
+                  type: 'array', 
+                  items: { 
+                    type: 'object',
+                    properties: {
+                      page: { type: 'number' },
+                      text: { type: 'string' }
+                    }
+                  }
+                },
+                confidence: { type: 'boolean' },
+                distinctPages: { type: 'number' }
+              }
+            }
+          },
+          max_tokens: 350,
+          temperature: 0.1
+        }
+        
+        const startTime = Date.now()
+        const stageAResult = await createChatCompletion(stageAPayload)
+        const stageATime = Date.now() - startTime
+        
+        if (stageAResult.content) {
+          try {
+            const parsed = JSON.parse(stageAResult.content)
+            const distinctPages = parsed.distinctPages || (parsed.citations?.length || 0)
+            
+            structuredLog('info', 'Stage A completed', {
+              correlationId,
+              documentId: requestBody.metadata?.documentId,
+              userId,
+              stageATime,
+              distinctPages,
+              bulletsCount: parsed.bullets?.length || 0,
+              confidence: parsed.confidence,
+              request_id: requestId
+            })
+            
+            // Stage B gating: only run if Stage A cites <3 distinct pages
+            if (distinctPages < 3 && parsed.confidence !== false) {
+              // Stage B: Verification with main model
+              const stageBMessages = [
+                ...messages,
+                {
+                  role: 'user' as const,
+                  content: `Based on the document analysis, verify and refine these extracted deal points:\n\n${JSON.stringify(parsed, null, 2)}\n\nProvide a clean bullet list with page numbers. Be concise and factual.`
+                }
+              ]
+              
+              const stageBPayload = apiFamily === 'responses'
+                ? buildResponses({ 
+                    model, 
+                    input: stageBMessages.map(m => ({ content: m.content, role: m.role })), 
+                    max_output_tokens: Math.min(max_output_tokens || 400, 400)
+                  })
+                : buildChatCompletion({ model, messages: stageBMessages, max_tokens: Math.min(max_output_tokens || 400, 400) })
+              
+              stageBPayload.response_format = { type: 'text' }
+              stageBPayload.stream = false
+              
+              const stageBStart = Date.now()
+              const stageBResult = await createChatCompletion(stageBPayload)
+              const stageBTime = Date.now() - stageBStart
+              
+              if (stageBResult.content?.trim()) {
+                cascadeResult = {
+                  content: stageBResult.content,
+                  model: stageBResult.model || model,
+                  usage: {
+                    total_tokens: (stageAResult.usage?.total_tokens || 0) + (stageBResult.usage?.total_tokens || 0),
+                    prompt_tokens: (stageAResult.usage?.prompt_tokens || 0) + (stageBResult.usage?.prompt_tokens || 0),
+                    completion_tokens: (stageAResult.usage?.completion_tokens || 0) + (stageBResult.usage?.completion_tokens || 0)
+                  },
+                  cascade: {
+                    stageA: { time: stageATime, model: 'gpt-4o-mini', distinctPages },
+                    stageB: { time: stageBTime, model: stageBResult.model || model }
+                  }
+                }
+                
+                structuredLog('info', 'Stage B completed', {
+                  correlationId,
+                  documentId: requestBody.metadata?.documentId,
+                  userId,
+                  stageBTime,
+                  totalCascadeTime: stageATime + stageBTime,
+                  contentLength: stageBResult.content.length,
+                  request_id: requestId
+                })
+              }
+            } else {
+              // Use Stage A result directly (sufficient distinct pages or low confidence)
+              let stageAResponse = '## Key Deal Points\n\n'
+              if (parsed.bullets && Array.isArray(parsed.bullets)) {
+                for (let i = 0; i < parsed.bullets.length; i++) {
+                  const bullet = parsed.bullets[i]
+                  const citation = parsed.citations?.[i]
+                  const pageRef = citation?.page ? ` (Page ${citation.page})` : ''
+                  stageAResponse += `• ${bullet}${pageRef}\n`
+                }
+              }
+              
+              cascadeResult = {
+                content: stageAResponse,
+                model: 'gpt-4o-mini',
+                usage: stageAResult.usage,
+                cascade: {
+                  stageA: { time: stageATime, model: 'gpt-4o-mini', distinctPages },
+                  stageBSkipped: 'sufficient_pages_or_low_confidence'
+                }
+              }
+              
+              structuredLog('info', 'Stage B skipped', {
+                correlationId,
+                documentId: requestBody.metadata?.documentId,
+                userId,
+                reason: distinctPages >= 3 ? 'sufficient_pages' : 'low_confidence',
+                distinctPages,
+                totalTime: stageATime,
+                request_id: requestId
+              })
+            }
+          } catch (parseError) {
+            structuredLog('warn', 'Stage A JSON parse failed', {
+              correlationId,
+              documentId: requestBody.metadata?.documentId,
+              userId,
+              error: parseError instanceof Error ? parseError.message : 'Unknown error',
+              request_id: requestId
+            })
+          }
+        }
+      } catch (cascadeError) {
+        structuredLog('error', 'Model cascade failed', {
+          correlationId,
+          documentId: requestBody.metadata?.documentId,
+          userId,
+          error: cascadeError instanceof Error ? cascadeError.message : 'Unknown error',
+          request_id: requestId
+        })
+      }
+    }
+    
+    // If cascade produced result, use it
+    if (cascadeResult) {
+      // Set X-Text-Bytes header for fallback gating
+      const responseBytes = new TextEncoder().encode(cascadeResult.content).length
+      res.setHeader('X-Text-Bytes', responseBytes.toString())
+      
+      // Best-effort persistence
+      if (sessionId) {
+        try {
+          const supabase = getSupabaseAdmin()
+          await supabase.from('messages').insert({
+            chat_session_id: sessionId,
+            role: 'assistant',
+            content: cascadeResult.content,
+            metadata: { 
+              requestId, 
+              correlationId,
+              usage: cascadeResult.usage, 
+              model: cascadeResult.model,
+              apiFamily: 'cascade',
+              cascade: cascadeResult.cascade
+            }
+          })
+        } catch (persistErr) {
+          console.warn(`[${requestId}] Failed to persist cascade message:`, persistErr)
+        }
+      }
+      
+      structuredLog('info', 'Model cascade completed', {
+        correlationId,
+        documentId: requestBody.metadata?.documentId,
+        userId,
+        model: cascadeResult.model,
+        usage: cascadeResult.usage,
+        cascade: cascadeResult.cascade,
+        contentLength: cascadeResult.content.length,
+        request_id: requestId
+      })
+      
+      return res.status(200).json({ 
+        message: cascadeResult.content,
+        model: cascadeResult.model,
+        usage: cascadeResult.usage,
+        cascade: cascadeResult.cascade,
+        correlationId,
+        request_id: requestId
+      })
+    }
+    
+    // Build request for selected API family with streaming enabled
     const payload = apiFamily === 'responses'
       ? buildResponses({ 
           model, 
@@ -498,9 +844,112 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           max_output_tokens 
         })
       : buildChatCompletion({ model, messages, max_tokens: max_output_tokens })
+    
+    // Configure for user-facing responses: enable tools but ensure text output
+    payload.stream = true
+    payload.response_format = { type: 'text' }
+    // Keep tools enabled but add natural language requirement in system message
 
-    // Call OpenAI with proper error handling
+    // Set complete SSE headers for streaming
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Headers', 'Cache-Control, Content-Type, X-Correlation-ID')
+    res.setHeader('Access-Control-Expose-Headers', 'X-Correlation-ID')
+    res.setHeader('X-Accel-Buffering', 'no') // Disable nginx buffering
+    res.setHeader('X-Correlation-ID', correlationId)
+    res.setHeader('Vary', 'Authorization, Cookie')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Expires', '0')
+    
+    // Call OpenAI with proper error handling and performance monitoring
+    const callStartTime = Date.now()
     const ai = await createChatCompletion(payload)
+    const firstTokenTime = Date.now() - callStartTime
+    
+    // Performance budget monitoring (tightened thresholds)
+    if (firstTokenTime > 1500) {
+      structuredLog('warn', 'PERF_BUDGET_WARNING', {
+        correlationId,
+        documentId: requestBody.metadata?.documentId,
+        userId,
+        t_first_token: firstTokenTime,
+        budget_target: 1200,
+        threshold_warning: 1500,
+        request_id: requestId
+      })
+    }
+    
+    if (firstTokenTime > 2000) {
+      structuredLog('error', 'PERF_BUDGET_MISS', {
+        correlationId,
+        documentId: requestBody.metadata?.documentId,
+        userId,
+        t_first_token: firstTokenTime,
+        budget_target: 1200,
+        threshold_error: 2000,
+        request_id: requestId
+      })
+    }
+    
+    // Check for tool-only responses (empty text content)
+    const hadText = !!(ai.content && ai.content.trim().length > 0)
+    const hadToolCalls = !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0)
+    
+    // Handle empty-text fallback for tool-only responses
+    if (!hadText && hadToolCalls) {
+      structuredLog('info', 'Tool-only response detected, generating fallback text', {
+        correlationId,
+        documentId: requestBody.metadata?.documentId,
+        userId: req.user?.id || 'anonymous',
+        model,
+        hadToolCalls: true,
+        hadText: false,
+        request_id: requestId
+      })
+      
+      // Build fallback request with same context
+      const fallbackPayload = apiFamily === 'responses'
+        ? buildResponses({ 
+            model, 
+            input: messages.map(m => ({ content: m.content, role: m.role })), 
+            max_output_tokens: Math.min(max_output_tokens || 600, 600)
+          })
+        : buildChatCompletion({ model, messages, max_tokens: Math.min(max_output_tokens || 600, 600) })
+      
+      // Force text output and disable tools
+      fallbackPayload.tool_choice = 'none'
+      fallbackPayload.response_format = { type: 'text' }
+      fallbackPayload.stream = false
+      
+      try {
+        const fallbackAi = await createChatCompletion(fallbackPayload)
+        
+        if (fallbackAi.content && fallbackAi.content.trim().length > 0) {
+          structuredLog('info', 'Fallback text generated successfully', {
+            correlationId,
+            documentId: requestBody.metadata?.documentId,
+            userId: req.user?.id || 'anonymous',
+            fallbackContentLength: fallbackAi.content.length,
+            request_id: requestId
+          })
+          
+          // Use fallback content
+          ai.content = fallbackAi.content
+          ;(ai as any).finish_reason = 'fallback_text'
+        }
+      } catch (fallbackError) {
+        structuredLog('error', 'Fallback text generation failed', {
+          correlationId,
+          documentId: requestBody.metadata?.documentId,
+          userId: req.user?.id || 'anonymous',
+          error: fallbackError instanceof Error ? fallbackError.message : 'Unknown error',
+          request_id: requestId
+        })
+        // Continue with original response
+      }
+    }
 
     // Best-effort persistence (non-fatal on error)
     if (sessionId) {
@@ -512,10 +961,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           content: ai.content,
           metadata: { 
             requestId, 
+            correlationId,
             usage: ai.usage, 
             model: ai.model,
             apiFamily,
-            path: normalizedPath
+            path: normalizedPath,
+            finish_reason: (ai as any).finish_reason || 'unknown',
+            hadToolCalls: !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0),
+            hadText: !!(ai.content && ai.content.trim().length > 0)
           }
         })
       } catch (persistErr) {
@@ -523,10 +976,54 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       }
     }
 
+    // Set X-Text-Bytes header for fallback gating
+    const responseBytes = new TextEncoder().encode(ai.content || '').length
+    res.setHeader('X-Text-Bytes', responseBytes.toString())
+    
+    // Enhanced response logging with performance metrics
+    const totalTime = Date.now() - callStartTime
+    structuredLog('info', 'Chat request completed', {
+      correlationId,
+      documentId: requestBody.metadata?.documentId,
+      userId: req.user?.id || 'anonymous',
+      model: ai.model,
+      usage: ai.usage,
+      finish_reason: (ai as any).finish_reason || 'unknown',
+      hadToolCalls: !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0),
+      hadText: !!(ai.content && ai.content.trim().length > 0),
+      contentLength: ai.content?.length || 0,
+      t_first_token: firstTokenTime,
+      t_total: totalTime,
+      responseBytes,
+      used_fallback: false,
+      request_id: requestId
+    })
+    
+    // Check for empty content after completion
+    if (!ai.content || ai.content.trim().length === 0) {
+      structuredLog('error', 'Empty content in non-streaming response', {
+        correlationId,
+        documentId: requestBody.metadata?.documentId,
+        userId: req.user?.id || 'anonymous',
+        model: ai.model,
+        finish_reason: (ai as any).finish_reason,
+        hadToolCalls: !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0),
+        request_id: requestId
+      })
+      
+      return res.status(502).json({
+        error: 'empty_text',
+        code: 'EMPTY_RESPONSE',
+        message: 'The AI response was empty. Please try again.',
+        request_id: requestId
+      })
+    }
+    
     return res.status(200).json({ 
       message: ai.content,
       model: ai.model,
       usage: ai.usage,
+      correlationId,
       request_id: requestId
     })
     
@@ -541,12 +1038,17 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
     }
     
-    // Log upstream error once with stable tag, no stack traces in prod
-    console.error(`[chat-upstream-error] ${requestId}:`, {
-      message: error?.message,
+    // Enhanced error logging with correlation ID
+    const finalCorrelationId = correlationId || requestId
+    structuredLog('error', 'Chat request failed', {
+      correlationId: finalCorrelationId,
+      documentId: requestBody?.metadata?.documentId,
+      userId: req.user?.id || 'anonymous',
+      error: error?.message,
       status: error?.status,
       code: error?.code,
       type: error?.type,
+      request_id: requestId,
       ...(process.env.NODE_ENV === 'development' && { stack: error?.stack })
     })
     
@@ -563,6 +1065,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       code: errorType,
       type: error?.type || 'api_error',
       message: error?.message || 'Chat processing failed',
+      correlationId: finalCorrelationId,
       request_id: error?.request_id || requestId
     })
   }

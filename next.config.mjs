@@ -120,8 +120,8 @@ const nextConfig = {
   
   // Optimize build performance
   experimental: {
-    // Disable Turbopack in development for better HMR stability
-    // turbo: {},
+    // Note: Use 'next dev --turbo' to enable Turbopack in development
+    // Removed turbopack config option to prevent webpack hot-update.json 404s
   },
   // Canvas external package removed - text-only PDF processing
   

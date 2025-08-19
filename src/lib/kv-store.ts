@@ -7,9 +7,13 @@
  * - User isolation and security
  * - Retry logic with exponential backoff
  * - Structured logging
+ * - GlobalThis singleton for Next.js hot reload survival
+ * - Bidirectional file persistence for local development
  */
 
 import { structuredLog } from './log'
+import fs from 'fs'
+import path from 'path'
 
 // Determine adapter based on environment
 const vercelEnv = process.env.VERCEL_ENV
@@ -20,30 +24,199 @@ let kvClient: any = null
 let kvAvailable = false
 let adapter: 'vercel-kv' | 'memory' = 'memory'
 
-// Memory storage implementation for development/fallback
-const memoryStore = new Map<string, any>()
-const memoryTTL = new Map<string, NodeJS.Timeout>()
+// GlobalThis declarations for Next.js hot reload survival
+declare global {
+  var __omKv: DevKv | undefined
+  var __omKvCleanupStarted: boolean | undefined
+}
 
-// Memory adapter functions
-function memorySet(key: string, value: any, options?: { ex?: number }): boolean {
+interface DevKv {
+  store: Map<string, any>
+  ttl: Map<string, NodeJS.Timeout>
+}
+
+// File persistence constants
+const PERSISTENCE_DIR = '.next/om-ai-kv'
+const DEFAULT_TTL_MS = 1800 * 1000 // 30 minutes in milliseconds
+
+// Initialize global store for development
+function getGlobalStore(): DevKv {
+  if (!globalThis.__omKv) {
+    globalThis.__omKv = {
+      store: new Map<string, any>(),
+      ttl: new Map<string, NodeJS.Timeout>()
+    }
+  }
+  return globalThis.__omKv
+}
+
+// File operations with error handling
+function ensurePersistenceDir(): void {
   try {
-    // Clear existing TTL if present
-    if (memoryTTL.has(key)) {
-      clearTimeout(memoryTTL.get(key)!)
-      memoryTTL.delete(key)
+    if (!fs.existsSync(PERSISTENCE_DIR)) {
+      fs.mkdirSync(PERSISTENCE_DIR, { recursive: true })
+    }
+  } catch (error) {
+    console.warn('[KV Store] Failed to create persistence directory:', error)
+  }
+}
+
+function sanitizeKey(key: string): string {
+  return key.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
+function saveToFile(key: string, value: any, expiryTime?: number): void {
+  try {
+    ensurePersistenceDir()
+    const safeKey = sanitizeKey(key)
+    const tempPath = path.join(PERSISTENCE_DIR, `${safeKey}.tmp`)
+    const finalPath = path.join(PERSISTENCE_DIR, `${safeKey}.json`)
+    
+    const data = {
+      value,
+      timestamp: Date.now(),
+      expiryTime: expiryTime || (Date.now() + DEFAULT_TTL_MS)
     }
     
-    // Store value
-    memoryStore.set(key, value)
+    // Atomic write: temp file + rename
+    fs.writeFileSync(tempPath, JSON.stringify(data))
+    fs.renameSync(tempPath, finalPath)
+  } catch (error) {
+    console.warn('[KV Store] Failed to save to file:', error)
+  }
+}
+
+function loadFromFile(key: string): any | null {
+  try {
+    const safeKey = sanitizeKey(key)
+    const filePath = path.join(PERSISTENCE_DIR, `${safeKey}.json`)
+    
+    if (!fs.existsSync(filePath)) {
+      return null
+    }
+    
+    const fileContent = fs.readFileSync(filePath, 'utf8')
+    const data = JSON.parse(fileContent)
+    
+    // Check expiry
+    if (data.expiryTime && Date.now() > data.expiryTime) {
+      fs.unlinkSync(filePath) // Clean up expired file
+      return null
+    }
+    
+    return data.value
+  } catch (error) {
+    console.warn('[KV Store] Failed to load from file:', error)
+    return null
+  }
+}
+
+function deleteFile(key: string): void {
+  try {
+    const safeKey = sanitizeKey(key)
+    const filePath = path.join(PERSISTENCE_DIR, `${safeKey}.json`)
+    
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+    }
+  } catch (error) {
+    console.warn('[KV Store] Failed to delete file:', error)
+  }
+}
+
+// Start cleanup timer (guarded against multiple starts)
+function startCleanupTimer(): void {
+  if (globalThis.__omKvCleanupStarted) {
+    return
+  }
+  
+  globalThis.__omKvCleanupStarted = true
+  
+  const cleanup = () => {
+    try {
+      const store = getGlobalStore()
+      const now = Date.now()
+      
+      // Clean up expired entries and files
+      if (fs.existsSync(PERSISTENCE_DIR)) {
+        const files = fs.readdirSync(PERSISTENCE_DIR)
+        
+        for (const file of files) {
+          if (file.endsWith('.json')) {
+            const filePath = path.join(PERSISTENCE_DIR, file)
+            
+            try {
+              const fileContent = fs.readFileSync(filePath, 'utf8')
+              const data = JSON.parse(fileContent)
+              
+              if (data.expiryTime && now > data.expiryTime) {
+                fs.unlinkSync(filePath)
+              }
+            } catch (error) {
+              // Invalid file, remove it
+              fs.unlinkSync(filePath)
+            }
+          }
+        }
+      }
+      
+      // Schedule next cleanup
+      setTimeout(cleanup, 5 * 60 * 1000) // Every 5 minutes
+    } catch (error) {
+      console.warn('[KV Store] Cleanup failed:', error)
+      // Still schedule next cleanup
+      setTimeout(cleanup, 5 * 60 * 1000)
+    }
+  }
+  
+  // Start first cleanup after 5 minutes
+  setTimeout(cleanup, 5 * 60 * 1000)
+}
+
+// Memory storage implementation with globalThis singleton and file persistence
+const memoryStore = getGlobalStore().store
+const memoryTTL = getGlobalStore().ttl
+
+// Memory adapter functions with file persistence
+function memorySet(key: string, value: any, options?: { ex?: number }): boolean {
+  try {
+    const store = getGlobalStore()
+    const ttlMap = store.ttl
+    const storeMap = store.store
+    
+    // Clear existing TTL if present
+    if (ttlMap.has(key)) {
+      clearTimeout(ttlMap.get(key)!)
+      ttlMap.delete(key)
+    }
+    
+    // Store value in memory
+    storeMap.set(key, value)
+    
+    // Calculate expiry time
+    const expiryTime = options?.ex ? Date.now() + (options.ex * 1000) : Date.now() + DEFAULT_TTL_MS
+    
+    // Save to file for persistence
+    saveToFile(key, value, expiryTime)
     
     // Set TTL if provided
     if (options?.ex && options.ex > 0) {
       const timeoutId = setTimeout(() => {
-        memoryStore.delete(key)
-        memoryTTL.delete(key)
+        storeMap.delete(key)
+        ttlMap.delete(key)
+        deleteFile(key)
       }, options.ex * 1000) // Convert seconds to milliseconds
       
-      memoryTTL.set(key, timeoutId)
+      ttlMap.set(key, timeoutId)
+    } else {
+      // Set default TTL
+      const timeoutId = setTimeout(() => {
+        storeMap.delete(key)
+        ttlMap.delete(key)
+        deleteFile(key)
+      }, DEFAULT_TTL_MS)
+      
+      ttlMap.set(key, timeoutId)
     }
     
     return true
@@ -55,7 +228,36 @@ function memorySet(key: string, value: any, options?: { ex?: number }): boolean 
 
 function memoryGet(key: string): any | null {
   try {
-    return memoryStore.get(key) || null
+    const store = getGlobalStore()
+    const storeMap = store.store
+    const ttlMap = store.ttl
+    
+    // Check memory first
+    let value = storeMap.get(key)
+    
+    if (value !== undefined) {
+      return value
+    }
+    
+    // Memory miss - try to reload from file
+    const fileValue = loadFromFile(key)
+    
+    if (fileValue !== null) {
+      // Repopulate memory with default TTL
+      storeMap.set(key, fileValue)
+      
+      const timeoutId = setTimeout(() => {
+        storeMap.delete(key)
+        ttlMap.delete(key)
+        deleteFile(key)
+      }, DEFAULT_TTL_MS)
+      
+      ttlMap.set(key, timeoutId)
+      
+      return fileValue
+    }
+    
+    return null
   } catch (error) {
     console.error('[Memory Store] Get failed:', error)
     return null
@@ -64,13 +266,21 @@ function memoryGet(key: string): any | null {
 
 function memoryDel(key: string): boolean {
   try {
+    const store = getGlobalStore()
+    const storeMap = store.store
+    const ttlMap = store.ttl
+    
     // Clear TTL if present
-    if (memoryTTL.has(key)) {
-      clearTimeout(memoryTTL.get(key)!)
-      memoryTTL.delete(key)
+    if (ttlMap.has(key)) {
+      clearTimeout(ttlMap.get(key)!)
+      ttlMap.delete(key)
     }
     
-    return memoryStore.delete(key)
+    // Delete from memory and file
+    const memoryDeleted = storeMap.delete(key)
+    deleteFile(key)
+    
+    return memoryDeleted
   } catch (error) {
     console.error('[Memory Store] Delete failed:', error)
     return false
@@ -81,7 +291,8 @@ function memoryDel(key: string): boolean {
 if (!vercelEnv || (vercelEnv === 'preview' && fallbackPreview)) {
   adapter = 'memory'
   kvAvailable = true // Memory is always available
-  console.log(`[KV Store] Using memory adapter (${!vercelEnv ? 'local dev' : 'preview fallback'})`)
+  startCleanupTimer() // Start file cleanup for memory mode
+  console.log(`[KV Store] Using memory adapter with file persistence (${!vercelEnv ? 'local dev' : 'preview fallback'})`)
 } else {
   // Try to initialize KV for preview/production
   try {
@@ -668,4 +879,127 @@ export async function findByContentHash(
   // For now, return null (no deduplication)
   // Could be implemented with an additional KV key: hash:{contentHash} -> documentId
   return null
+}
+
+/**
+ * Generic set item with TTL support
+ */
+export async function setItem(
+  key: string,
+  value: any,
+  ttlMs?: number
+): Promise<boolean> {
+  if (!isKvAvailable()) {
+    structuredLog('warn', 'Storage unavailable for generic set', {
+      documentId: 'generic',
+      userId: 'system',
+      kvWrite: false,
+      adapter,
+      key,
+      request_id: `set-${Date.now()}`
+    })
+    return false
+  }
+
+  try {
+    const valueJson = JSON.stringify(value)
+    const ttlSeconds = ttlMs ? Math.floor(ttlMs / 1000) : TTL_SECONDS
+    
+    if (adapter === 'memory') {
+      const success = memorySet(key, valueJson, { ex: ttlSeconds })
+      
+      structuredLog('info', 'Item set', {
+        documentId: 'generic',
+        userId: 'system',
+        kvWrite: success,
+        adapter,
+        key,
+        ttl: ttlSeconds,
+        request_id: `set-${Date.now()}`
+      })
+      
+      return success
+    } else {
+      await retryKvOperation(
+        async () => {
+          await kvClient.set(key, valueJson, { ex: ttlSeconds })
+          return true
+        },
+        key,
+        'write'
+      )
+      
+      structuredLog('info', 'Item set', {
+        documentId: 'generic',
+        userId: 'system',
+        kvWrite: true,
+        adapter,
+        key,
+        ttl: ttlSeconds,
+        request_id: `set-${Date.now()}`
+      })
+      
+      return true
+    }
+  } catch (error) {
+    structuredLog('error', 'Failed to set item', {
+      documentId: 'generic',
+      userId: 'system',
+      kvWrite: false,
+      adapter,
+      key,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      request_id: `set-${Date.now()}`
+    })
+    return false
+  }
+}
+
+/**
+ * Generic get item
+ */
+export async function getItem(key: string): Promise<any | null> {
+  if (!isKvAvailable()) {
+    return null
+  }
+
+  try {
+    const result = adapter === 'memory'
+      ? memoryGet(key)
+      : await retryKvOperation(
+          async () => kvClient.get(key),
+          key,
+          'read'
+        )
+    
+    if (!result) {
+      return null
+    }
+    
+    const parsed = typeof result === 'string'
+      ? JSON.parse(result)
+      : result
+    
+    structuredLog('info', 'Item retrieved', {
+      documentId: 'generic',
+      userId: 'system',
+      kvRead: true,
+      adapter,
+      key,
+      request_id: `get-${Date.now()}`
+    })
+    
+    return parsed
+  } catch (error) {
+    structuredLog('error', 'Failed to get item', {
+      documentId: 'generic',
+      userId: 'system',
+      kvRead: false,
+      adapter,
+      key,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      request_id: `get-${Date.now()}`
+    })
+    return null
+  }
 }
