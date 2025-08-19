@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
 import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-middleware'
-import { createChatCompletion } from '@/lib/services/openai'
+import { createChatCompletion, fixResponseFormat } from '@/lib/services/openai'
 import { chatCompletion as buildChatCompletion, responses as buildResponses } from '@/lib/services/openai/builders'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
@@ -155,18 +155,11 @@ async function runTextFallback(
         messages,
         max_tokens: Math.min(originalPayload.max_tokens || 600, 600)
       })
-
-  // Force text output and disable tools
+  
+  // Force text output and disable tools if present
   if (fallbackPayload.tools && Array.isArray(fallbackPayload.tools) && fallbackPayload.tools.length > 0) {
     fallbackPayload.tool_choice = 'none'
   }
-  
-  // API-specific response format handling
-  if (apiFamily === 'responses') {
-    fallbackPayload.text = { format: 'plain' }
-  }
-  // For chat completions, omit response_format entirely
-  
   fallbackPayload.stream = false
   
   // Preserve temperature from original (if any)
@@ -174,6 +167,7 @@ async function runTextFallback(
     fallbackPayload.temperature = originalPayload.temperature
   }
 
+  fixResponseFormat(fallbackPayload)
   const fallbackResult = await createChatCompletion(fallbackPayload, { signal })
 
   return {
@@ -745,6 +739,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         const startTime = Date.now()
         let stageAResult
         try {
+          fixResponseFormat(stageAPayload)
           stageAResult = await createChatCompletion(stageAPayload, { signal })
         } catch (schemaError: any) {
           // Fast-fail on 4xx schema validation errors - jump to fallback
@@ -826,10 +821,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
                   })
                 : buildChatCompletion({ model, messages: stageBMessages, max_tokens: Math.min(max_output_tokens || 400, 400) })
               
-              stageBPayload.response_format = { type: 'text' }
               stageBPayload.stream = false
-              
+
               const stageBStart = Date.now()
+              fixResponseFormat(stageBPayload)
               const stageBResult = await createChatCompletion(stageBPayload, { signal })
               const stageBTime = Date.now() - stageBStart
               
@@ -1020,8 +1015,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     // Call OpenAI with proper error handling and performance monitoring
     const callStartTime = Date.now()
+    fixResponseFormat(payload)
     const ai = await createChatCompletion(payload, { signal })
     const firstTokenTime = Date.now() - callStartTime
+    
+    // Guard against null/undefined AI response properties
+    if (!ai || typeof ai !== 'object') {
+      throw new Error('Invalid AI response: received null or non-object response')
+    }
     
     // Performance budget monitoring (tightened thresholds)
     if (firstTokenTime > 1500) {
@@ -1049,8 +1050,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     }
     
     // Check for tool-only responses (empty text content)
-    const hadText = !!(ai.content && ai.content.trim().length > 0)
-    const hadToolCalls = !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0)
+    const hadText = !!(ai?.content && ai.content.trim().length > 0)
+    const hadToolCalls = !!((ai as any)?.tool_calls && (ai as any).tool_calls.length > 0)
     
     // Handle empty-text fallback for tool-only responses
     if (!hadText && hadToolCalls) {
@@ -1073,15 +1074,17 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           })
         : buildChatCompletion({ model, messages, max_tokens: Math.min(max_output_tokens || 600, 600) })
       
-      // Force text output and disable tools
-      fallbackPayload.tool_choice = 'none'
-      fallbackPayload.response_format = { type: 'text' }
+      // Force text output and disable tools if present
+      if (fallbackPayload.tools && Array.isArray(fallbackPayload.tools) && fallbackPayload.tools.length > 0) {
+        fallbackPayload.tool_choice = 'none'
+      }
       fallbackPayload.stream = false
-      
+
       try {
+        fixResponseFormat(fallbackPayload)
         const fallbackAi = await createChatCompletion(fallbackPayload, { signal })
         
-        if (fallbackAi.content && fallbackAi.content.trim().length > 0) {
+        if (fallbackAi?.content && fallbackAi.content.trim().length > 0) {
           structuredLog('info', 'Fallback text generated successfully', {
             correlationId,
             documentId: requestBody.metadata?.documentId,
@@ -1091,7 +1094,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           })
           
           // Use fallback content
-          ai.content = fallbackAi.content
+          ai.content = fallbackAi.content || ''
           ;(ai as any).finish_reason = 'fallback_text'
         }
       } catch (fallbackError) {
@@ -1107,18 +1110,18 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     }
 
     // Set X-Text-Bytes header for fallback gating
-    const responseBytes = new TextEncoder().encode(ai.content || '').length
+    const responseBytes = new TextEncoder().encode(ai?.content || '').length
     res.setHeader('X-Text-Bytes', responseBytes.toString())
     
     // Check for empty content after completion - route to fallback instead of 502
-    const hasToolCalls = !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0)
-    if ((!ai.content || ai.content.trim().length === 0) && !hasToolCalls && !signal.aborted) {
+    const hasToolCalls = !!((ai as any)?.tool_calls && (ai as any).tool_calls.length > 0)
+    if ((!ai?.content || ai.content.trim().length === 0) && !hasToolCalls && !signal.aborted) {
       structuredLog('warn', 'Empty content detected - routing to fallback', {
         correlationId,
         documentId: requestBody.metadata?.documentId,
         userId: req.user?.id || 'anonymous',
-        model: ai.model,
-        finish_reason: (ai as any).finish_reason,
+        model: ai?.model || 'unknown',
+        finish_reason: (ai as any)?.finish_reason || 'unknown',
         hasToolCalls,
         request_id: requestId
       })
@@ -1138,9 +1141,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         failure_cause = 'empty_content'
         
         // Use fallback content and continue with response
-        ai.content = fallbackResult.content
-        ai.model = fallbackResult.model
-        ai.usage = fallbackResult.usage
+        ai.content = fallbackResult.content || ''
+        ai.model = fallbackResult.model || model
+        ai.usage = fallbackResult.usage || {}
         ;(ai as any).fallback_reason = 'empty_content'
       } catch (fallbackError) {
         clearTimeout(fallbackTimeout)
@@ -1156,9 +1159,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     // Send response first
     const response = res.status(200).json({ 
-      message: ai.content,
-      model: ai.model,
-      usage: ai.usage,
+      message: ai?.content || '',
+      model: ai?.model || model,
+      usage: ai?.usage || {},
       correlationId,
       request_id: requestId
     })
@@ -1171,18 +1174,18 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           await supabase.from('messages').insert({
             chat_session_id: sessionId,
             role: 'assistant',
-            content: ai.content,
+            content: ai?.content || '',
             metadata: { 
               requestId, 
               correlationId,
-              usage: ai.usage, 
-              model: ai.model,
+              usage: ai?.usage || {}, 
+              model: ai?.model || model,
               apiFamily,
               path: normalizedPath,
-              finish_reason: (ai as any).finish_reason || 'unknown',
-              hadToolCalls: !!((ai as any).tool_calls && (ai as any).tool_calls.length > 0),
-              hadText: !!(ai.content && ai.content.trim().length > 0),
-              fallback_reason: (ai as any).fallback_reason
+              finish_reason: (ai as any)?.finish_reason || 'unknown',
+              hadToolCalls: !!((ai as any)?.tool_calls && (ai as any).tool_calls.length > 0),
+              hadText: !!(ai?.content && ai.content.trim().length > 0),
+              fallback_reason: (ai as any)?.fallback_reason
             }
           })
         } catch (persistErr) {
@@ -1190,6 +1193,17 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         }
       })
     }
+    
+    // Log successful completion
+    structuredLog('info', 'Chat request completed', {
+      documentId: requestBody?.metadata?.documentId,
+      userId,
+      outcome,
+      failure_cause,
+      latency_ms: Date.now() - startTime,
+      correlationId,
+      request_id: requestId
+    })
     
     return response
     
@@ -1235,6 +1249,17 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       outcome = 'fallback'  
       failure_cause = 'error'
     }
+    
+    // Log failure before returning error response
+    structuredLog('error', 'Chat request failed', {
+      documentId: requestBody?.metadata?.documentId,
+      userId,
+      outcome,
+      failure_cause,
+      latency_ms: Date.now() - startTime,
+      correlationId,
+      request_id: requestId
+    })
 
     return res.status(statusCode).json({ 
       code: errorType,
@@ -1244,19 +1269,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       request_id: error?.request_id || requestId
     })
   } finally {
-    // Clean up timeout and emit terminal log
+    // Clean up timeout
     clearTimeout(primaryTimeout)
-    
-    // Single terminal log per request
-    structuredLog('info', 'Chat request completed', {
-      documentId: requestBody?.metadata?.documentId,
-      userId,
-      outcome,
-      failure_cause,
-      latency_ms: Date.now() - startTime,
-      correlationId,
-      request_id: requestId
-    })
   }
 }
 
