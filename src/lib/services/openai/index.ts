@@ -2,6 +2,18 @@ import OpenAI from 'openai'
 import { isResponsesModel } from './modelUtils'
 
 /**
+ * Removes response_format when set to text. The current OpenAI SDK
+ * doesn't require an explicit text response format and will throw
+ * errors if the field is provided. We keep the response_format for
+ * other types like json_schema.
+ */
+export function fixResponseFormat(payload: any) {
+  if (payload?.response_format?.type === 'text') {
+    delete payload.response_format
+  }
+}
+
+/**
  * Sanitizes OpenAI payloads to prevent tool_choice without tools errors
  * and removes undefined values that cause SDK issues
  */
@@ -38,6 +50,7 @@ interface RequestPayload {
   model: string
   messages?: { role: 'system' | 'user' | 'assistant'; content: string }[]
   input?: string | { text: string; role?: 'system' | 'user' | 'assistant' }[]
+  text?: string
   max_tokens?: number
   max_output_tokens?: number
   temperature?: number
@@ -55,6 +68,7 @@ export function getFastModel(): string {
 }
 
 export async function createChatCompletion(payload: RequestPayload, options?: { signal?: AbortSignal }) {
+  fixResponseFormat(payload)
   const model = payload.model || getFastModel()
   const isResponses = isResponsesModel(model) || !!payload.input
   const limit =
@@ -66,8 +80,8 @@ export async function createChatCompletion(payload: RequestPayload, options?: { 
   while (true) {
     try {
       if (isResponses) {
-        let responsesParams: any = (({model,input,max_output_tokens,tool_choice,response_format,temperature,stream}) => 
-          ({model,input,max_output_tokens,tool_choice,response_format,temperature,stream}))(payload)
+        let responsesParams: any = (({model,input,text,max_output_tokens,tool_choice,response_format,temperature,stream}) =>
+          ({model,input,text,max_output_tokens,tool_choice,response_format,temperature,stream}))(payload)
         // Override with computed values
         responsesParams.model = model
         responsesParams.max_output_tokens = limit
