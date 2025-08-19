@@ -25,12 +25,12 @@ let kvAvailable = false
 let adapter: 'vercel-kv' | 'memory' = 'memory'
 
 // GlobalThis declarations for Next.js hot reload survival
+/* eslint-disable no-var */
 declare global {
-  // eslint-disable-next-line no-var
   var __omKv: DevKv | undefined
-  // eslint-disable-next-line no-var
   var __omKvCleanupStarted: boolean | undefined
 }
+/* eslint-enable no-var */
 
 interface DevKv {
   store: Map<string, any>

@@ -51,7 +51,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     const existingEntry = await kvStore.getItem(idempotencyKey)
     if (existingEntry) {
       structuredLog('warn', 'Duplicate fallback request blocked', {
-        documentId: rawDocumentId || 'none',
+        documentId: rawDocumentId,
         requestId: clientRequestId,
         userId,
         source: 'kv_idempotency_check',
@@ -76,7 +76,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     
   } catch (idempotencyError) {
     structuredLog('warn', 'Failed to check/set idempotency', {
-      documentId: rawDocumentId || 'none',
+      documentId: rawDocumentId,
       requestId: clientRequestId,
       userId,
       error: idempotencyError instanceof Error ? idempotencyError.message : 'Unknown error',
@@ -179,7 +179,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     payload.stream = false // Explicitly disable streaming for fallback
 
     structuredLog('info', 'Fallback request initiated', {
-      documentId: validRequest.metadata?.documentId || 'none',
+      documentId: validRequest.metadata?.documentId,
       userId,
       model,
       apiFamily: isResponsesModel(model) ? 'responses' : 'chat',
@@ -194,7 +194,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     // Ensure we have text content
     if (!ai.content || ai.content.trim().length === 0) {
       structuredLog('error', 'Fallback produced empty content', {
-        documentId: validRequest.metadata?.documentId || 'none',
+        documentId: validRequest.metadata?.documentId,
         userId,
         model,
         request_id: requestId
@@ -210,7 +210,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
 
     // Log successful fallback
     structuredLog('info', 'Fallback request completed', {
-      documentId: validRequest.metadata?.documentId || 'none',
+      documentId: validRequest.metadata?.documentId,
       userId,
       model,
       contentLength: ai.content.length,
@@ -249,7 +249,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     
   } catch (error: any) {
     structuredLog('error', 'Fallback request failed', {
-      documentId: rawDocumentId || 'none',
+      documentId: rawDocumentId,
       userId,
       error: error?.message,
       status: error?.status,
