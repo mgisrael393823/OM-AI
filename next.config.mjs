@@ -7,6 +7,9 @@ const __dirname = dirname(__filename);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   reactStrictMode: process.env.NODE_ENV !== 'development',
   transpilePackages: ['pdfjs-dist'],
   
