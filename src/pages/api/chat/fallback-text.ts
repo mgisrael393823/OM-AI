@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
 import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-middleware'
-import { createChatCompletion } from '@/lib/services/openai'
+import { createChatCompletion, fixResponseFormat } from '@/lib/services/openai'
 import { chatCompletion as buildChatCompletion, responses as buildResponses } from '@/lib/services/openai/builders'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { isResponsesModel } from '@/lib/services/openai/modelUtils'
@@ -173,17 +173,13 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
           max_tokens: 600 // Cap output length
         })
 
-    // Force text output and sanitize tool-related fields
-    payload.stream = false
-    
-    // Critical: Remove tool_choice if no tools present to prevent 400 errors
-    if (!payload.tools || (Array.isArray(payload.tools) && payload.tools.length === 0)) {
-      delete payload.tool_choice
-      delete payload.tools
-    } else {
-      // If tools exist, disable them for fallback
+    // Force text output and disable tools if present
+    if (payload.tools && Array.isArray(payload.tools) && payload.tools.length > 0) {
       payload.tool_choice = 'none'
     }
+    payload.stream = false
+    
+    fixResponseFormat(payload)
 
     structuredLog('info', 'Fallback request initiated', {
       documentId: validRequest.metadata?.documentId,

@@ -53,7 +53,8 @@ jest.mock('@/lib/services/openai', () => ({
     content: 'fallback response',
     model: 'gpt-mock',
     usage: {}
-  }))
+  })),
+  fixResponseFormat: jest.fn()
 }))
 
 describe('Fallback safety integration', () => {
