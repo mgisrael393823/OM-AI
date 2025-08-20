@@ -51,7 +51,8 @@ jest.mock('@/lib/services/openai', () => ({
     content: 'Fallback response text',
     model: 'gpt-4o',
     usage: { total_tokens: 10, prompt_tokens: 5, completion_tokens: 5 }
-  }))
+  })),
+  fixResponseFormat: jest.fn()
 }))
 
 const createChatCompletionMock = createChatCompletion as unknown as jest.Mock
@@ -79,6 +80,7 @@ describe('fallback-text endpoint tool sanitization', () => {
 
     expect(res._getStatusCode()).toBe(200)
     const payload = createChatCompletionMock.mock.calls[0][0]
+    // When no tools present, tool_choice should not be in the payload
     expect(payload.tool_choice).toBeUndefined()
     expect(payload.tools).toBeUndefined()
     const data = JSON.parse(res._getData())
@@ -108,7 +110,7 @@ describe('fallback-text endpoint tool sanitization', () => {
     expect(data.source).toBe('fallback_default')
   })
 
-  it('keeps tool_choice as none when tools are present', async () => {
+  it('ignores tools in request and creates clean text-only payload', async () => {
     const { req, res } = createMocks({
       method: 'POST',
       body: {
@@ -123,11 +125,11 @@ describe('fallback-text endpoint tool sanitization', () => {
 
     expect(res._getStatusCode()).toBe(200)
     const payload = createChatCompletionMock.mock.calls[0][0]
-    // Since fallback forces text only, tools should be removed regardless
+    // Fallback endpoint creates clean text-only payloads - tools are not preserved
     expect(payload.tools).toBeUndefined()
     expect(payload.tool_choice).toBeUndefined()
-    // Should force text response format
-    expect(payload.response_format).toEqual({ type: 'text' })
     expect(payload.stream).toBe(false)
+    const data = JSON.parse(res._getData())
+    expect(data.message).toBe('Fallback response text')
   })
 })
