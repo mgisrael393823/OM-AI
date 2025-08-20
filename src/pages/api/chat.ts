@@ -9,6 +9,8 @@ import { retrieveTopK } from '@/lib/rag/retriever'
 import { augmentMessagesWithContext } from '@/lib/rag/augment'
 import * as kvStore from '@/lib/kv-store'
 import { structuredLog, generateRequestId } from '@/lib/log'
+import { callOpenAIWithFallback } from '@/lib/services/openai/client-wrapper'
+import { getModelConfiguration, validateModel, generateRequestId as generateReqId } from '@/lib/config/validate-models'
 import crypto from 'crypto'
 
 // System message for structured output
@@ -334,8 +336,22 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
     }
     
+    // Get model configuration
+    const modelConfig = getModelConfiguration()
+
+    // Use configured model or request-specific model
+    const requestModel = requestBody.model || modelConfig.main
+
+    // Log configuration if debugging
+    if (process.env.DEBUG_MODELS === 'true') {
+      console.log('[MODEL_CONFIG]', {
+        configured: modelConfig,
+        requested: requestModel,
+        request_id: requestId
+      })
+    }
+
     // Filter temperature for gpt-4.1 and Responses models
-    const requestModel = requestBody.model || process.env.OPENAI_MODEL || 'gpt-4o'
     if ((requestModel.startsWith('gpt-4.1') || isResponsesModelUtil(requestModel)) && requestBody.temperature !== undefined) {
       delete requestBody.temperature
     }
@@ -403,7 +419,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       apiFamily = 'chat'
     } else {
       // Auto-detect based on model or request structure
-      const requestModel = validRequest.model || process.env.OPENAI_MODEL
+      const requestModel = validRequest.model || modelConfig.main
       
       // Only use responses API if explicitly indicated
       if (requestModel && isResponsesModelUtil(requestModel)) {
@@ -427,7 +443,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     if (apiFamily === 'responses') {
       const responsesReq = validRequest as z.infer<typeof ResponsesAPISchema> | z.infer<typeof AutoDetectSchema>
-      model = responsesReq.model || process.env.OPENAI_MODEL || process.env.OPENAI_FALLBACK_MODEL || 'gpt-5'
+      model = responsesReq.model || modelConfig.main
       sessionId = responsesReq.sessionId
       max_output_tokens = Math.min(responsesReq.max_output_tokens || 600, 600) // Cap at 600 tokens
       
@@ -460,7 +476,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       // Chat Completions API
       const chatReq = validRequest as z.infer<typeof ChatCompletionSchema> | z.infer<typeof AutoDetectSchema>
       messages = chatReq.messages!
-      model = chatReq.model || process.env.OPENAI_MODEL || process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o-2024-08-06'
+      model = chatReq.model || modelConfig.main
       sessionId = chatReq.sessionId
       max_output_tokens = 'max_tokens' in chatReq ? Math.min(chatReq.max_tokens || 600, 600) : 600 // Cap at 600 tokens
       normalizedPath = 'chat-messages'

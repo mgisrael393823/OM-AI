@@ -1,7 +1,9 @@
 /**
  * Shared model family detection utilities for OpenAI API routing
- * Centralizes model classification to avoid duplication across frontend and backend
+ * Updated to handle GPT-5 family correctly
  */
+
+import { detectAPIType } from '@/lib/config/validate-models';
 
 /**
  * Determines if a model should use the Chat Completions API
@@ -9,7 +11,7 @@
  * @returns true if model should use Chat Completions API
  */
 export const isChatModel = (model: string): boolean => {
-  return /^gpt-4o/.test(model)
+  return detectAPIType(model) === 'chat';
 }
 
 /**
@@ -18,7 +20,7 @@ export const isChatModel = (model: string): boolean => {
  * @returns true if model should use Responses API
  */
 export const isResponsesModel = (model: string): boolean => {
-  return /^(gpt-5|o4|gpt-4\.1)/.test(model)
+  return detectAPIType(model) === 'responses';
 }
 
 /**
@@ -27,5 +29,5 @@ export const isResponsesModel = (model: string): boolean => {
  * @returns 'chat' for Chat Completions API, 'responses' for Responses API
  */
 export const getAPIFamily = (model: string): 'chat' | 'responses' => {
-  return isResponsesModel(model) ? 'responses' : 'chat'
+  return detectAPIType(model);
 }

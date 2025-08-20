@@ -404,9 +404,11 @@ export async function processInMemory(
 
   let analysis = ''
   try {
+    const { getModelConfiguration } = await import('@/lib/config/validate-models')
+    const modelConfig = getModelConfiguration()
     const analysisResult = await analyzeWithOpenAI({
       chunks: chunksForAnalysis,
-      model: process.env.OPENAI_MODEL
+      model: modelConfig.main
     });
     analysis = analysisResult.content || '[WARN] Analysis not available';
   } catch (e: any) {
@@ -501,7 +503,9 @@ function toStructured(resp: any) {
 }
 
 async function analyzeWithOpenAI(input: { chunks: any[]; model?: string }) {
-  const model = input.model || process.env.OPENAI_MODEL || 'gpt-4o-mini-2024-07-18';
+  const { getModelConfiguration } = await import('@/lib/config/validate-models')
+  const modelConfig = getModelConfiguration()
+  const model = input.model || modelConfig.main;
   
   // Prepare context from chunks
   const context = input.chunks.map((chunk, idx) => 

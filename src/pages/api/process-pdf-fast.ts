@@ -490,11 +490,13 @@ async function extractDealPoints(chunks: any[], contentHash: string) {
       .join('\n\n')
       .substring(0, 8000) // Limit for model context
     
-    // Use gpt-4o-mini for extraction
+    // Use fast model for extraction
     const { createChatCompletion } = await import('@/lib/services/openai')
+    const { getModelConfiguration } = await import('@/lib/config/validate-models')
     
+    const modelConfig = getModelConfiguration()
     const extractionPayload = {
-      model: 'gpt-4o-mini',
+      model: modelConfig.fast,
       messages: [
         {
           role: 'system',

@@ -7,6 +7,8 @@ import { withAuth, AuthenticatedRequest } from '@/lib/auth-middleware'
 import { isFeatureEnabled } from '@/lib/feature-flags'
 import { WEB_TOOLS_FUNCTIONS } from '@/lib/services/web-tools/tool-definitions'
 import { executeWebToolsFunction, formatWebToolsResponse, resetToolBudget } from '@/lib/services/web-tools/function-handler'
+import { callOpenAIWithFallback } from '@/lib/services/openai/client-wrapper'
+import { getModelConfiguration, validateModel, generateRequestId } from '@/lib/config/validate-models'
 
 // KV storage for recent documents
 let kvStore: any = null
@@ -65,6 +67,20 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse) {
 
   const { messages, documentId, context } = validation.data
   const safeDocId = documentId && isValidDocumentId(documentId) ? documentId : undefined
+
+  // Get model configuration
+  const modelConfig = getModelConfiguration()
+  const requestId = generateRequestId('conv')
+
+  // Use fast model if specified
+  const useFastModel = process.env.USE_FAST_MODEL === 'true'
+  const model = useFastModel ? modelConfig.fast : modelConfig.main
+
+  console.log('[CHAT-CONV]', {
+    model,
+    use_fast: useFastModel,
+    request_id: requestId
+  })
 
   // SSE headers with immediate flush
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
@@ -156,7 +172,7 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse) {
         
         try {
           const first = await openai.chat.completions.create({
-            model: process.env.OPENAI_MODEL || 'gpt-4o',
+            model,
             messages: baseMsgs,
             tools,
             stream: false
@@ -233,7 +249,7 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse) {
         ]
         
         const finalStream = await openai.chat.completions.create({
-          model: process.env.OPENAI_MODEL || 'gpt-4o',
+          model,
           messages: finalMsgs,
           stream: true,
           tools: undefined
@@ -265,12 +281,6 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse) {
     // Single streaming pass (no tools or tools not enabled)
     console.log('[CHAT] calling OpenAI…');
     const t0 = Date.now();
-    
-    // Environment-gated model selection
-    const useFastModel = process.env.USE_FAST_MODEL === 'true'
-    const model = useFastModel ? 
-      (process.env.CHAT_MODEL_FAST || 'gpt-4o-mini') : 
-      (process.env.OPENAI_MODEL || 'gpt-4o')
     
     const stream = await openai.chat.completions.create({
       model,

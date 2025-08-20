@@ -9,6 +9,7 @@ import { retrieveTopK } from '@/lib/rag/retriever'
 import { augmentMessagesWithContext } from '@/lib/rag/augment'
 import * as kvStore from '@/lib/kv-store'
 import { structuredLog, generateRequestId } from '@/lib/log'
+import { getModelConfiguration } from '@/lib/config/validate-models'
 
 // Force Node.js runtime for singleton consistency
 export const runtime = 'nodejs'
@@ -110,7 +111,8 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     }
 
     const validRequest = parseResult.data
-    const model = validRequest.model || process.env.OPENAI_MODEL || 'gpt-4o'
+    const modelConfig = getModelConfiguration()
+    const model = validRequest.model || modelConfig.main
     
     // Build messages for processing
     let messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = []
