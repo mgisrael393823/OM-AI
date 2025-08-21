@@ -191,8 +191,21 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return conversationalHandler(req, res)
   }
 
+  // Flagged path: delegate to refactored router when enabled
+  if (process.env.USE_REFACTORED_CHAT === '1') {
+    const { handle } = await import('@/lib/chat/router')
+    return handle(req, res)
+  }
+
   // GUARANTEED: Generate single requestId for entire request lifecycle - NEVER regenerate
-  const requestId = generateReqId('chat')
+  const requestIdHeader =
+    (req.headers['x-request-id'] as string) ||
+    (req.query.request_id as string) ||
+    (req.query.requestId as string)
+  const requestId = requestIdHeader || generateReqId('chat')
+  if (!req.headers['x-request-id']) {
+    req.headers['x-request-id'] = requestId
+  }
   const userId = req.user?.id || 'anonymous'
   let correlationId: string = (req.headers['x-correlation-id'] as string) || requestId
   let requestBody: any

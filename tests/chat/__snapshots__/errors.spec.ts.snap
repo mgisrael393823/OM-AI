@@ -1,0 +1,12 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`produces nested error shape 1`] = `
+{
+  "error": {
+    "code": "TEST_CODE",
+    "message": "Test message",
+    "requestId": "req-123",
+    "type": "api_error",
+  },
+}
+`;

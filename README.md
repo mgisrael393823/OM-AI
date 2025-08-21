@@ -267,8 +267,25 @@ The endpoint accepts two valid request formats. **Never send null values** - omi
 - ✅ **Model routing**: API automatically detects format based on model family
 
 > **Migration Notice**
-> Endpoints `/api/chat-v2` and `/api/chat-enhanced` are deprecated as of 2025-01-25 and will be removed on 2025-04-01.
+> Endpoints `/api/chat-v2` and `/api/chat-enhanced` were removed on 2025-04-01.
 > Legacy `{message: string}` format is no longer supported. Use the formats above.
+
+### Feature Flags
+
+- `USE_REFACTORED_CHAT=1` enables the new router path.
+- `USE_GPT5=1` routes eligible models through the Responses API.
+
+To try the refactored path locally:
+
+```bash
+npm run enable:refactor
+```
+
+For GPT-5 models during development:
+
+```bash
+USE_GPT5=1 USE_REFACTORED_CHAT=1 npm run dev
+```
 
 #### POST `/api/upload`
 Upload a PDF document

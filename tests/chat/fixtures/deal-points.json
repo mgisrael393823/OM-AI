@@ -1,0 +1,5 @@
+{
+  "messages": [{ "role": "user", "content": "Summarize deal points" }],
+  "model": "gpt-4o",
+  "stream": false
+}

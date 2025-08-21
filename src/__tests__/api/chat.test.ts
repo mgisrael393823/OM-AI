@@ -181,7 +181,7 @@ describe.skip('/api/chat (unified endpoint)', () => {
     })
   })
 
-  describe('Complex Format (chat-v2 compatibility)', () => {
+  describe('Complex Format (legacy compatibility)', () => {
     test('should handle complex message format', async () => {
       const { req, res } = createMocks({
         method: 'POST',
@@ -241,66 +241,6 @@ describe.skip('/api/chat (unified endpoint)', () => {
     })
   })
 
-  describe('Backward Compatibility', () => {
-    test('should detect deprecated endpoint usage', async () => {
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
-      
-      const { req, res } = createMocks({
-        method: 'POST',
-        headers: {
-          'x-deprecated-endpoint': 'chat-enhanced'
-        },
-        body: {
-          message: 'Test message'
-        }
-      })
-
-      await handler(req, res)
-
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'Deprecated endpoint used: /api/chat-enhanced',
-        expect.objectContaining({
-          userId: 'test-user-id'
-        })
-      )
-
-      consoleSpy.mockRestore()
-    })
-
-    test('should use SSE format for deprecated endpoints', async () => {
-      const { req, res } = createMocks({
-        method: 'POST',
-        headers: {
-          'x-deprecated-endpoint': 'chat-enhanced'
-        },
-        body: {
-          message: 'Test message',
-          options: { stream: true }
-        }
-      })
-
-      await handler(req, res)
-
-      const headers = res.getHeaders()
-      expect(headers['content-type']).toBe('text/event-stream')
-      expect(headers['x-accel-buffering']).toBe('no')
-    })
-
-    test('should handle legacy document_id field', async () => {
-      const { req, res } = createMocks({
-        method: 'POST',
-        body: {
-          message: 'Analyze this document',
-          document_id: 'legacy-doc-id' // legacy field name
-        }
-      })
-
-      await handler(req, res)
-
-      expect(res._getStatusCode()).toBe(200)
-    })
-  })
-
   describe('Error Handling', () => {
     test('should reject non-POST methods', async () => {
       const { req, res } = createMocks({
@@ -346,49 +286,6 @@ describe.skip('/api/chat (unified endpoint)', () => {
       await handler(req, res)
 
       expect(res._getStatusCode()).toBe(500)
-    })
-  })
-
-  describe('Migration Helper Function', () => {
-    test('should normalize chat-enhanced format', () => {
-      const body = {
-        message: 'Test message',
-        chat_session_id: 'session-123',
-        document_id: 'doc-456'
-      }
-
-      // Access the internal normalize function (would need export in actual implementation)
-      // This tests the logic conceptually
-      const normalized = {
-        message: body.message,
-        sessionId: body.chat_session_id,
-        documentId: body.document_id,
-        options: {}
-      }
-
-      expect(normalized.message).toBe('Test message')
-      expect(normalized.sessionId).toBe('session-123')
-      expect(normalized.documentId).toBe('doc-456')
-    })
-
-    test('should normalize chat-v2 format', () => {
-      const body = {
-        messages: [{ role: 'user', content: 'Test' }],
-        sessionId: 'session-123',
-        documentContext: { documentIds: ['doc-1'] },
-        options: { temperature: 0.8 }
-      }
-
-      const normalized = {
-        messages: body.messages,
-        sessionId: body.sessionId,
-        documentContext: body.documentContext,
-        options: body.options
-      }
-
-      expect(normalized.messages).toEqual([{ role: 'user', content: 'Test' }])
-      expect(normalized.sessionId).toBe('session-123')
-      expect(normalized.options?.temperature).toBe(0.8)
     })
   })
 

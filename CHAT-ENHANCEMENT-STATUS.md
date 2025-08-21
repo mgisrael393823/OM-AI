@@ -287,7 +287,7 @@ These can be added after the core conversational experience is proven.
 **GOAL**: Eliminate ALL complexity and achieve single endpoint architecture
 
 After Phase 1 is proven in production:
-- Delete `/api/chat-enhanced.ts` and `/api/chat-v2.ts`
+- Deleted `/api/chat-enhanced.ts` and `/api/chat-v2.ts`
 - Remove all OpenAI abstractions (builders, modelUtils, types)
 - Consolidate to single prompt system
 - Reduce codebase by ~80%
