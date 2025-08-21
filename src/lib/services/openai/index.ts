@@ -140,11 +140,21 @@ export async function createChatCompletion(
         // Sanitize the payload
         responsesParams = sanitizeOpenAIPayload(responsesParams)
         
+        // DEBUG: Log token parameter selection
+        console.debug({ model: responsesParams.model, tokenParamKey: "max_output_tokens", tokenValue: responsesParams.max_output_tokens, requestId: reqId })
+        
         const resp: any = await client.responses.create(responsesParams, {
           signal: combinedSignal
         })
-        // Parse Responses API format: resp.output[0].content[0].text or resp.output_text
-        const content = resp.output?.[0]?.content?.[0]?.text ?? resp.output_text ?? ''
+        // Parse Responses API format: find message type in output and extract text
+        let content = resp.output_text ?? ''
+        if (!content && resp.output) {
+          // Find the message output (not reasoning)
+          const messageOutput = resp.output.find((item: any) => item.type === 'message')
+          if (messageOutput?.content?.[0]?.text) {
+            content = messageOutput.content[0].text
+          }
+        }
         return { content: String(content).trim(), model, usage: resp.usage }
       } else {
         let chatParams: any = (({model,messages,max_tokens,tool_choice,response_format,temperature,stream}) => 
@@ -158,6 +168,9 @@ export async function createChatCompletion(
         }
         // Sanitize the payload
         chatParams = sanitizeOpenAIPayload(chatParams)
+        
+        // DEBUG: Log token parameter selection
+        console.debug({ model: chatParams.model, tokenParamKey: "max_tokens", tokenValue: chatParams.max_tokens, requestId: reqId })
         
         const resp: any = await client.chat.completions.create(chatParams, {
           signal: combinedSignal
