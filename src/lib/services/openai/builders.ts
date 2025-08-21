@@ -1,7 +1,10 @@
+import { getTokenParamForModel, getMaxTokensParam } from '@/lib/config/validate-models'
+
 export interface ChatCompletionPayload {
   model: string
   messages: { role: 'system' | 'user' | 'assistant'; content: string }[]
   max_tokens?: number
+  max_completion_tokens?: number
 }
 
 export interface ResponsesPayload {
@@ -9,22 +12,27 @@ export interface ResponsesPayload {
   messages?: { role: 'system' | 'user' | 'assistant'; content: string }[]
   input?: string | { content: string; role?: 'system' | 'user' | 'assistant' }[]
   max_output_tokens?: number
+  max_completion_tokens?: number
 }
 
 export function chatCompletion(payload: ChatCompletionPayload) {
+  const tokenValue = payload.max_tokens || payload.max_completion_tokens || Number(process.env.CHAT_MAX_TOKENS ?? 2000)
+  const tokenParam = getMaxTokensParam(payload.model, tokenValue)
+  
   return {
     model: payload.model,
     messages: payload.messages,
-    max_tokens:
-      payload.max_tokens ?? Number(process.env.CHAT_MAX_TOKENS ?? 2000)
+    ...tokenParam
   }
 }
 
 export function responses(payload: ResponsesPayload) {
+  const tokenValue = payload.max_output_tokens || payload.max_completion_tokens || Number(process.env.CHAT_MAX_TOKENS ?? 2000)
+  const tokenParam = getMaxTokensParam(payload.model, tokenValue)
+  
   const built: any = {
     model: payload.model,
-    max_output_tokens:
-      payload.max_output_tokens ?? Number(process.env.CHAT_MAX_TOKENS ?? 2000)
+    ...tokenParam
   }
   if (payload.messages) built.messages = payload.messages
   if (payload.input) built.input = payload.input

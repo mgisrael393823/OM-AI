@@ -79,7 +79,7 @@ async function handler(req: AuthenticatedRequest, res: NextApiResponse) {
   console.log('[CHAT-CONV]', {
     model,
     use_fast: useFastModel,
-    request_id: requestId
+    requestId: requestId
   })
 
   // SSE headers with immediate flush

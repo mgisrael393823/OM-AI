@@ -46,7 +46,7 @@ jest.mock('@/lib/services/openai', () => ({
       content: 'Test response from API',
       model: 'gpt-4o',
       usage: { total_tokens: 100, prompt_tokens: 50, completion_tokens: 50 },
-      request_id: 'test-req-123'
+      requestId: 'test-req-123'
     })
   )
 }))

@@ -13,7 +13,12 @@ export interface LogFields {
   parts?: number
   status?: string
   error?: string
-  request_id: string
+  
+  // BACKWARD COMPATIBILITY: Support both naming conventions
+  requestId?: string        // Preferred field (new)
+  /** @deprecated Use requestId instead. Will be removed in next major version. */
+  request_id?: string      // Legacy field for backward compatibility
+  
   [key: string]: any // Allow additional fields for backward compatibility
 }
 
@@ -47,28 +52,59 @@ function toCleanRecord(entry: LogEntry): Record<string, unknown> {
 }
 
 /**
+ * Normalizes log fields to handle backward compatibility between requestId and request_id
+ * CRITICAL: Prevents crashes from mixed naming conventions during migration
+ * @param fields LogFields with potential mixed naming
+ * @returns Normalized fields with proper requestId/request_id handling
+ */
+function normalizeLogFields(fields: LogFields): LogFields {
+  const normalized = { ...fields };
+  
+  // CRITICAL: Handle backward compatibility - migrate request_id → requestId
+  if (normalized.request_id && !normalized.requestId) {
+    normalized.requestId = normalized.request_id;
+    // Keep request_id for log output compatibility
+  }
+  
+  // If only requestId is provided, also set request_id for legacy log consumers
+  if (normalized.requestId && !normalized.request_id) {
+    normalized.request_id = normalized.requestId;
+  }
+  
+  // Require at least one request ID field
+  if (!normalized.requestId && !normalized.request_id) {
+    throw new Error('LogFields must include requestId (or legacy request_id)');
+  }
+  
+  return normalized;
+}
+
+/**
  * Emit structured log with consistent format
+ * Supports both requestId (preferred) and request_id (legacy) fields
  */
 export function structuredLog(
   level: LogLevel,
   message: string,
   fields: LogFields
 ): void {
+  // CRITICAL: Normalize fields to prevent crashes from mixed naming
+  const normalizedFields = normalizeLogFields(fields);
   // Build strongly typed log entry
   const base: LogEntry = {
-    documentId: fields.documentId,
-    userId: fields.userId,
+    documentId: normalizedFields.documentId,
+    userId: normalizedFields.userId,
     pid: process.pid,
     timestamp: new Date().toISOString(),
     level,
     message,
-    request_id: fields.request_id,
-    kvWrite: fields.kvWrite,
-    kvRead: fields.kvRead,
-    parts: fields.parts,
-    status: fields.status,
-    error: fields.error,
-    adapter: fields.adapter as ('vercel-kv' | 'memory' | undefined)
+    request_id: normalizedFields.request_id,
+    kvWrite: normalizedFields.kvWrite,
+    kvRead: normalizedFields.kvRead,
+    parts: normalizedFields.parts,
+    status: normalizedFields.status,
+    error: normalizedFields.error,
+    adapter: normalizedFields.adapter as ('vercel-kv' | 'memory' | undefined)
   }
   
   // Convert to clean record without undefined values

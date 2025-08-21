@@ -44,7 +44,7 @@ export async function callOpenAIWithFallback(
         from_model: primaryModel,
         to_model: fallbackModel,
         error_status: error.status,
-        request_id: requestId
+        requestId: requestId
       });
       
       return await callOpenAI(fallbackModel, options, requestId, 'fallback');

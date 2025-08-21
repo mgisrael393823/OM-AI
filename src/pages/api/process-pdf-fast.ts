@@ -54,7 +54,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       kvWrite: false,
       adapter: kvStore.getAdapter(),
       status: 'error',
-      request_id: requestId
+      requestId: requestId
     })
     return res.status(503).json({
       error: 'Ephemeral store unavailable',
@@ -105,7 +105,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       userId,
       kvWrite: true,
       status: 'processing',
-      request_id: requestId
+      requestId: requestId
     })
 
     // Fast parse: first 15 pages only
@@ -205,7 +205,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
           kvWrite: false,
           adapter: kvStore.getAdapter(),
           status: 'error',
-          request_id: requestId
+          requestId: requestId
         })
         
         // For memory mode, continue with warning instead of failing
@@ -237,7 +237,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
               bulletsCount: dealPoints.bullets.length,
               citationsCount: dealPoints.citations.length,
               source: 'async_extraction',
-              request_id: requestId
+              requestId: requestId
             })
           } else {
             structuredLog('info', 'Deal points extraction returned null (async)', {
@@ -245,7 +245,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
               userId,
               contentHash,
               source: 'async_extraction',
-              request_id: requestId
+              requestId: requestId
             })
           }
         } catch (extractionError) {
@@ -255,7 +255,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
             contentHash,
             error: extractionError instanceof Error ? extractionError.message : 'Unknown error',
             source: 'async_extraction',
-            request_id: requestId
+            requestId: requestId
           })
           // Don't throw - this is fire-and-forget
         }
@@ -280,7 +280,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
         adapter: kvStore.getAdapter(),
         status: 'ready',
         parts: 1, // Will be updated if multi-part
-        request_id: requestId
+        requestId: requestId
       })
 
       const response: ProcessPdfResponse = {
@@ -315,7 +315,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       adapter: kvStore.getAdapter(),
       status: 'error',
       error: error instanceof Error ? error.message : 'Unknown error',
-      request_id: requestId
+      requestId: requestId
     })
     
     return apiError(res, 500, 'PDF processing failed', 'PROCESSING_ERROR',

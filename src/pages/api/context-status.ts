@@ -35,7 +35,7 @@ async function contextStatusHandler(
       userId,
       kvRead: false,
       status: 'invalid',
-      request_id: requestId
+      requestId: requestId
     })
     
     return res.status(400).json({
@@ -51,7 +51,7 @@ async function contextStatusHandler(
       userId,
       kvRead: false,
       status: 'invalid',
-      request_id: requestId
+      requestId: requestId
     })
     
     return res.status(400).json({
@@ -70,7 +70,7 @@ async function contextStatusHandler(
       kvRead: true,
       status: status.status,
       parts: status.parts,
-      request_id: requestId
+      requestId: requestId
     })
     
     // Return status response
@@ -90,7 +90,7 @@ async function contextStatusHandler(
       kvRead: false,
       status: 'error',
       error: error instanceof Error ? error.message : 'Unknown error',
-      request_id: requestId
+      requestId: requestId
     })
     
     return res.status(500).json({

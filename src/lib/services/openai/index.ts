@@ -67,16 +67,64 @@ export function getFastModel(): string {
     (process.env.OPENAI_MODEL || 'gpt-4o')
 }
 
-export async function createChatCompletion(payload: RequestPayload, options?: { signal?: AbortSignal }) {
-  fixResponseFormat(payload)
-  const model = payload.model || getFastModel()
-  const isResponses = isResponsesModel(model) || !!payload.input
-  const limit =
-    payload.max_output_tokens ??
-    payload.max_tokens ??
-    Number(process.env.CHAT_MAX_TOKENS ?? 1500) // Reduced for speed
+// Safe signal combining helper
+function combineAbortSignals(signals: (AbortSignal | undefined)[]): AbortSignal {
+  const validSignals = signals.filter(Boolean) as AbortSignal[]
+  
+  if (validSignals.length === 0) {
+    return new AbortController().signal
+  }
+  
+  if (validSignals.length === 1) {
+    return validSignals[0]
+  }
+  
+  // Feature detect AbortSignal.any
+  if (typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(validSignals)
+  }
+  
+  // Fallback for environments without AbortSignal.any
+  const controller = new AbortController()
+  
+  for (const signal of validSignals) {
+    if (signal.aborted) {
+      controller.abort()
+      break
+    }
+    signal.addEventListener('abort', () => controller.abort(), { once: true })
+  }
+  
+  return controller.signal
+}
 
-  let attempt = 0
+export async function createChatCompletion(
+  payload: RequestPayload, 
+  options?: { signal?: AbortSignal, requestId?: string }
+) {
+  // GUARANTEED: Use provided requestId, never generate new one
+  const reqId = options?.requestId
+  if (!reqId) {
+    const error = new Error('requestId is required for createChatCompletion')
+    ;(error as any).code = 'MISSING_REQUEST_ID'
+    throw error
+  }
+  
+  const timeoutController = new AbortController()
+  const timeoutId = setTimeout(() => timeoutController.abort(), 12000) // Reduced from 27s to 12s
+  
+  try {
+    const combinedSignal = combineAbortSignals([options?.signal, timeoutController.signal])
+    
+    fixResponseFormat(payload)
+    const model = payload.model || getFastModel()
+    const isResponses = isResponsesModel(model) || !!payload.input
+    const limit =
+      payload.max_output_tokens ??
+      payload.max_tokens ??
+      Number(process.env.CHAT_MAX_TOKENS ?? 1500) // Reduced for speed
+
+    let attempt = 0
   while (true) {
     try {
       if (isResponses) {
@@ -89,7 +137,7 @@ export async function createChatCompletion(payload: RequestPayload, options?: { 
         responsesParams = sanitizeOpenAIPayload(responsesParams)
         
         const resp: any = await client.responses.create(responsesParams, {
-          signal: options?.signal || AbortSignal.timeout(95000)
+          signal: combinedSignal
         })
         const content = resp.output_text ?? resp.content?.[0]?.text ?? ''
         return { content: String(content).trim(), model, usage: resp.usage }
@@ -104,7 +152,7 @@ export async function createChatCompletion(payload: RequestPayload, options?: { 
         chatParams = sanitizeOpenAIPayload(chatParams)
         
         const resp: any = await client.chat.completions.create(chatParams, {
-          signal: options?.signal || AbortSignal.timeout(95000)
+          signal: combinedSignal
         })
         const content = String(resp.choices?.[0]?.message?.content ?? '').trim()
         return {
@@ -121,8 +169,53 @@ export async function createChatCompletion(payload: RequestPayload, options?: { 
         attempt++
         continue
       }
+      
+      // Convert to proper Error object with requestId
+      if (typeof e === 'object' && e !== null && !(e instanceof Error)) {
+        const error = new Error(e.message || 'OpenAI API error')
+        error.name = 'OpenAIError'
+        ;(error as any).code = e.code || 'UPSTREAM_ERROR'
+        ;(error as any).status = e.status
+        ;(error as any).requestId = reqId
+        throw error
+      }
+      
+      // Attach requestId to existing errors
+      if (e instanceof Error && !(e as any).requestId) {
+        ;(e as any).requestId = reqId
+      }
+      
       throw e
     }
+  }
+  } catch (error: any) {
+    // Handle timeout specifically
+    if (error.name === 'AbortError') {
+      const timeoutError = new Error('Upstream timeout')
+      timeoutError.name = 'UpstreamTimeoutError'
+      ;(timeoutError as any).code = 'UPSTREAM_ERROR'
+      ;(timeoutError as any).requestId = reqId
+      throw timeoutError
+    }
+    
+    // Re-throw other errors as real Error objects if they aren't already
+    if (typeof error === 'object' && error !== null && !(error instanceof Error)) {
+      const realError = new Error(error.message || 'OpenAI API error')
+      realError.name = 'OpenAIError'
+      ;(realError as any).code = error.code || 'UPSTREAM_ERROR'
+      ;(realError as any).status = error.status
+      ;(realError as any).requestId = reqId
+      throw realError
+    }
+    
+    // Attach requestId to existing errors
+    if (error instanceof Error && !(error as any).requestId) {
+      ;(error as any).requestId = reqId
+    }
+    
+    throw error
+  } finally {
+    clearTimeout(timeoutId)  // Always clear timeout
   }
 }
 

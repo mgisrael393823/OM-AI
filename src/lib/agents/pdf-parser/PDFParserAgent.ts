@@ -1,7 +1,5 @@
-// PDF.js polyfill for browser compatibility - guard against SSR
-if (typeof window !== 'undefined') {
-  require('path2d')
-}
+// Canvas polyfills only loaded when useCanvas is enabled
+// This prevents DOMMatrix/Path2D warnings in text-only mode
 
 // Side-effect import to ensure worker is bundled
 import 'pdfjs-dist/legacy/build/pdf.worker.js';
@@ -98,8 +96,8 @@ export class PDFParserAgent implements IPDFParserAgent {
       // Configure pdf.js for text-only mode when canvas is disabled
       const loadingOptions: any = {
         data,
-        // Text-only optimizations when USE_CANVAS=false
-        disableFontFace: !config.useCanvas,  // Skip font loading in text-only mode
+        // Enforce text-only mode settings
+        disableFontFace: true,                // Always true for text-only
         isEvalSupported: false,               // Disable eval for security
         useSystemFonts: false,                // Don't use system fonts
         useWorkerFetch: false,                // Avoid worker font fetching
@@ -107,13 +105,24 @@ export class PDFParserAgent implements IPDFParserAgent {
         cMapUrl: null,                        // Skip character map loading
         disableAutoFetch: true,               // Don't auto-fetch resources
         disableStream: false,                 // Keep streaming for performance
-        verbosity: config.useCanvas ? 1 : 0   // Suppress warnings in text-only mode (0 = errors only)
+        verbosity: 0                          // Suppress warnings (0 = errors only)
       };
+      
+      // Load canvas polyfills only when needed
+      if (config.useCanvas) {
+        try {
+          if (typeof window !== 'undefined') {
+            require('path2d')
+          }
+        } catch (error: any) {
+          console.debug('[PDFParserAgent] Canvas polyfill not available:', error.message)
+        }
+      }
       
       console.log('[PDFParserAgent] Loading document with options:', {
         disableFontFace: loadingOptions.disableFontFace,
         verbosity: loadingOptions.verbosity,
-        mode: config.useCanvas ? 'enhanced' : 'text-only'
+        mode: 'text-only'
       });
       
       const loadingTask = pdfjsLib.getDocument(loadingOptions);
@@ -340,8 +349,8 @@ export class PDFParserAgent implements IPDFParserAgent {
               }
             }
           } catch (error) {
-            // Suppress canvas warnings when useCanvas is false (fast processing mode)
-            if (config?.useCanvas !== false) {
+            // Only log canvas errors when canvas is actually enabled
+            if (config?.useCanvas === true) {
               console.warn(`[PDFParserAgent] Canvas loading failed for page ${pageNumber}:`, error)
             }
           }

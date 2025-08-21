@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next'
 import { createClient } from '@supabase/supabase-js'
+import { getModelConfiguration } from '../../lib/config/validate-models'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -14,6 +15,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       version: string
       services: Record<string, string>
       details: Record<string, string>
+      models?: {
+        primary: string
+        fast: string
+        fallback: string
+        useGPT5: boolean
+        timestamp: string
+      }
       summary?: {
         healthy: number
         total: number
@@ -156,6 +164,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       checks.status = 'healthy'
     } else {
       checks.status = 'degraded'
+    }
+
+    // Add model configuration
+    const modelConfig = getModelConfiguration()
+    checks.models = {
+      primary: modelConfig.main,
+      fast: modelConfig.fast,
+      fallback: modelConfig.fallback,
+      useGPT5: modelConfig.useGPT5,
+      timestamp: new Date().toISOString()
     }
 
     // Add summary for CI

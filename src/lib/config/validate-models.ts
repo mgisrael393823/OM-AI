@@ -1,10 +1,13 @@
 import { randomUUID } from 'crypto';
 
-// Official OpenAI model catalog
+// Official OpenAI model catalog - exactly 4 models allowed
 const VALID_MODELS = {
-  responses: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4.1', 'o4', 'o3'],
-  chat: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo']
+  gpt5: ['gpt-5', 'gpt-5-mini'],
+  gpt4: ['gpt-4o', 'gpt-4o-mini'] 
 };
+
+// Strict model allowlist - exactly 4 models total
+const ALL_VALID_MODELS = [...VALID_MODELS.gpt5, ...VALID_MODELS.gpt4];
 
 // Model detection patterns
 const RESPONSES_MODEL_PATTERN = /^(gpt-5($|-mini|-nano)|gpt-4\.1|o[34])/i;
@@ -18,36 +21,36 @@ export interface ModelConfig {
 }
 
 /**
- * Validate and configure model settings
+ * Validate and configure model settings with strict allowlist
  */
 export function validateModel(model: string): ModelConfig {
-  // Check for chat-latest variants first
-  if (CHAT_LATEST_PATTERN.test(model)) {
+  // Strict validation - model must be exactly in allowlist
+  if (!ALL_VALID_MODELS.includes(model)) {
     return {
-      valid: true,
-      apiType: 'chat',
-      paramKey: 'max_completion_tokens',
-      endpoint: '/v1/chat/completions'
+      valid: false,
+      apiType: null,
+      paramKey: null,
+      endpoint: null
     };
   }
   
-  // Check Responses API models
-  if (VALID_MODELS.responses.some(m => model.startsWith(m))) {
+  // GPT-5 family uses Responses API with max_completion_tokens
+  if (VALID_MODELS.gpt5.includes(model)) {
+    return {
+      valid: true,
+      apiType: 'responses',
+      paramKey: 'max_completion_tokens',
+      endpoint: '/v1/responses'
+    };
+  }
+  
+  // GPT-4o family uses Responses API with max_output_tokens
+  if (VALID_MODELS.gpt4.includes(model)) {
     return {
       valid: true,
       apiType: 'responses',
       paramKey: 'max_output_tokens',
       endpoint: '/v1/responses'
-    };
-  }
-  
-  // Check Chat Completions API models
-  if (VALID_MODELS.chat.some(m => model.startsWith(m))) {
-    return {
-      valid: true,
-      apiType: 'chat',
-      paramKey: 'max_completion_tokens',
-      endpoint: '/v1/chat/completions'
     };
   }
   
@@ -76,16 +79,68 @@ export function detectAPIType(model: string): 'responses' | 'chat' {
 }
 
 /**
- * Get the correct token parameter for the model
+ * Get the correct token parameter for the model (exclusive usage)
  */
 export function getMaxTokensParam(model: string, value: number): Record<string, number> {
   const config = validateModel(model);
   
-  if (config.apiType === 'responses') {
-    return { max_output_tokens: value };
-  } else {
+  if (!config.valid) {
+    throw new Error(`Invalid model: ${model}. Must be one of: ${ALL_VALID_MODELS.join(', ')}`);
+  }
+  
+  // GPT-5 family uses max_completion_tokens
+  if (VALID_MODELS.gpt5.includes(model)) {
     return { max_completion_tokens: value };
   }
+  
+  // GPT-4o family uses max_output_tokens
+  if (VALID_MODELS.gpt4.includes(model)) {
+    return { max_output_tokens: value };
+  }
+  
+  throw new Error(`MODEL_UNAVAILABLE: ${model}`);
+}
+
+/**
+ * Model to parameter mapping helper for exclusive usage
+ */
+export function getTokenParamForModel(model: string): { paramKey: string, apiType: 'responses' | 'chat' } {
+  if (!ALL_VALID_MODELS.includes(model)) {
+    throw new Error(`MODEL_UNAVAILABLE: ${model}. Must be one of: ${ALL_VALID_MODELS.join(', ')}`);
+  }
+  
+  // GPT-5 family uses max_completion_tokens
+  if (VALID_MODELS.gpt5.includes(model)) {
+    return { paramKey: 'max_completion_tokens', apiType: 'responses' };
+  }
+  
+  // GPT-4o family uses max_output_tokens  
+  if (VALID_MODELS.gpt4.includes(model)) {
+    return { paramKey: 'max_output_tokens', apiType: 'responses' };
+  }
+  
+  throw new Error(`MODEL_UNAVAILABLE: ${model}`);
+}
+
+/**
+ * Clean token parameter selection for API usage
+ */
+export function selectTokenParam(model: string): { paramKey: string, apiType: string } {
+  if (!ALL_VALID_MODELS.includes(model)) {
+    throw new Error(`MODEL_UNAVAILABLE: ${model}. Must be one of: ${ALL_VALID_MODELS.join(', ')}`);
+  }
+  
+  // GPT-5 family → max_completion_tokens
+  if (VALID_MODELS.gpt5.includes(model)) {
+    return { paramKey: 'max_completion_tokens', apiType: 'responses' };
+  }
+  
+  // GPT-4o family → max_output_tokens  
+  if (VALID_MODELS.gpt4.includes(model)) {
+    return { paramKey: 'max_output_tokens', apiType: 'responses' };
+  }
+  
+  throw new Error(`MODEL_UNAVAILABLE: ${model}`);
 }
 
 /**
@@ -96,17 +151,50 @@ export function generateRequestId(prefix: string = 'req'): string {
 }
 
 /**
- * Get configured models from environment
+ * Get configured models from environment with proper defaults
  */
 export function getModelConfiguration() {
   const useGPT5 = process.env.USE_GPT5 === 'true';
   
   return {
-    main: useGPT5 ? (process.env.OPENAI_MODEL || 'gpt-5') : 'gpt-4o',
-    fast: useGPT5 ? (process.env.OPENAI_FAST_MODEL || 'gpt-5-mini') : 'gpt-4o-mini',
-    fallback: process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o',
+    main: process.env.OPENAI_MODEL || (useGPT5 ? 'gpt-5' : 'gpt-4o'),
+    fast: process.env.OPENAI_FAST_MODEL || (useGPT5 ? 'gpt-5-mini' : 'gpt-4o-mini'),
+    fallback: process.env.OPENAI_FALLBACK_MODEL || 'gpt-4o-mini',
     useGPT5
   };
+}
+
+/**
+ * Validate environment model configuration at startup
+ * Throws error for invalid models to fail fast
+ */
+export function validateEnvironmentModels() {
+  const config = getModelConfiguration();
+  const models = [config.main, config.fast, config.fallback];
+  
+  for (const model of models) {
+    if (!ALL_VALID_MODELS.includes(model)) {
+      throw new Error(
+        `Invalid model in environment: ${model}. Must be one of: ${ALL_VALID_MODELS.join(', ')}`
+      );
+    }
+  }
+  
+  return config;
+}
+
+/**
+ * Validate model for request-time use (for tests and runtime validation)
+ * Returns error info instead of throwing for graceful handling
+ */
+export function validateRequestModel(model: string): { valid: boolean; error?: string } {
+  if (!ALL_VALID_MODELS.includes(model)) {
+    return {
+      valid: false,
+      error: `Model '${model}' is not supported. Must be one of: ${ALL_VALID_MODELS.join(', ')}`
+    };
+  }
+  return { valid: true };
 }
 
 /**
@@ -126,7 +214,7 @@ export function logAPICall(details: {
     endpoint: details.endpoint,
     streamed: details.streamed,
     param_key: details.paramKey,
-    request_id: details.requestId,
+    requestId: details.requestId,
     attempt: details.attempt || 'primary'
   }));
 }

@@ -53,18 +53,18 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
     if (existingEntry) {
       structuredLog('warn', 'Duplicate fallback request blocked', {
         documentId: rawDocumentId,
-        requestId: clientRequestId,
+        requestId: requestId,
         userId,
         source: 'kv_idempotency_check',
         existingTimestamp: existingEntry.timestamp,
-        request_id: requestId
+        clientRequestId: clientRequestId
       })
       
       return res.status(409).json({
         error: 'Duplicate request',
         code: 'DUPLICATE_FALLBACK_REQUEST',
         message: 'This fallback request has already been processed',
-        request_id: requestId
+        requestId: requestId
       })
     }
     
@@ -81,7 +81,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       requestId: clientRequestId,
       userId,
       error: idempotencyError instanceof Error ? idempotencyError.message : 'Unknown error',
-      request_id: requestId
+      requestId: requestId
     })
     // Continue processing if KV fails - better to allow than block legitimate requests
   }
@@ -95,7 +95,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       return res.status(405).json({ 
         error: 'Method not allowed',
         code: 'METHOD_NOT_ALLOWED',
-        request_id: requestId
+        requestId: requestId
       })
     }
 
@@ -106,7 +106,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
         error: 'Invalid request format for fallback',
         code: 'INVALID_FALLBACK_REQUEST',
         details: parseResult.error.flatten().fieldErrors,
-        request_id: requestId
+        requestId: requestId
       })
     }
 
@@ -157,7 +157,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
           documentId,
           userId,
           error: contextError instanceof Error ? contextError.message : String(contextError),
-          request_id: requestId
+          requestId: requestId
         })
       }
     }
@@ -190,7 +190,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       apiFamily: isResponsesModel(model) ? 'responses' : 'chat',
       messageCount: messages.length,
       hasDocumentContext: !!(validRequest.metadata?.documentId),
-      request_id: requestId
+      requestId: requestId
     })
 
     // Call OpenAI with forced text output
@@ -208,7 +208,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
         documentId: validRequest.metadata?.documentId,
         userId,
         model,
-        request_id: requestId
+        requestId: requestId
       })
       
       // Return a default message rather than failing
@@ -217,7 +217,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
         model: ai?.model || model,
         usage: ai?.usage || {},
         source: 'fallback_default',
-        request_id: requestId
+        requestId: requestId
       })
     }
 
@@ -228,7 +228,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       model,
       contentLength: ai?.content?.length || 0,
       usage: ai?.usage || {},
-      request_id: requestId
+      requestId: requestId
     })
 
     // Best-effort persistence if session provided
@@ -257,7 +257,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       model: ai?.model || model,
       usage: ai?.usage || {},
       source: 'fallback',
-      request_id: requestId
+      requestId: requestId
     })
     
   } catch (error: any) {
@@ -266,7 +266,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       userId,
       error: error?.message,
       status: error?.status,
-      request_id: requestId
+      requestId: requestId
     })
     
     const statusCode = error?.status >= 500 || error?.message?.includes('OpenAI') ? 502 : 500
@@ -275,7 +275,7 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       error: 'Fallback request failed',
       code: 'FALLBACK_ERROR',
       message: error?.message || 'Unknown fallback error',
-      request_id: requestId
+      requestId: requestId
     })
   }
 }

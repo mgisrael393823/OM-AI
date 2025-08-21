@@ -10,7 +10,8 @@ import { augmentMessagesWithContext } from '@/lib/rag/augment'
 import * as kvStore from '@/lib/kv-store'
 import { structuredLog, generateRequestId } from '@/lib/log'
 import { callOpenAIWithFallback } from '@/lib/services/openai/client-wrapper'
-import { getModelConfiguration, validateModel, generateRequestId as generateReqId } from '@/lib/config/validate-models'
+import { getModelConfiguration, validateRequestModel, generateRequestId as generateReqId, getTokenParamForModel, selectTokenParam } from '@/lib/config/validate-models'
+import * as Sentry from '@sentry/nextjs'
 import crypto from 'crypto'
 
 // System message for structured output
@@ -19,8 +20,7 @@ const STRUCTURED_OUTPUT_SYSTEM_MESSAGE = {
   content: 'You are a helpful assistant for commercial real estate analysis. Always provide clear, structured responses using markdown formatting. Use short headings (## or ###), bold lead phrases for key points, and bullet lists where appropriate. Always include a brief natural-language answer even when tools are used. Be concise but thorough, and limit responses to essential information.'
 }
 
-// Force Node.js runtime for singleton consistency
-export const runtime = 'nodejs'
+// Runtime controlled by vercel.json
 
 // Message schema for validation
 const MessageSchema = z.object({
@@ -190,15 +190,17 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     return conversationalHandler(req, res)
   }
 
-  const requestId = generateRequestId('chat')
+  // GUARANTEED: Generate single requestId for entire request lifecycle - NEVER regenerate
+  const requestId = generateReqId('chat')
   const userId = req.user?.id || 'anonymous'
   let correlationId: string = (req.headers['x-correlation-id'] as string) || requestId
   let requestBody: any
+  let completed = false  // Track successful completion
   
-  // Unified 13s timeout budget: 9s primary + 4s fallback
-  const controller = new AbortController()
-  const primaryTimeout = setTimeout(() => controller.abort(), 9000) // 9s for primary
-  const signal = controller.signal
+  // Create AbortController for this request with production timeout
+  const abortController = new AbortController()
+  const primaryTimeout = setTimeout(() => abortController.abort(), 10000) // 10s production timeout
+  const signal = abortController.signal
   
   // Track timing and outcomes for terminal logging
   const startTime = Date.now()
@@ -206,96 +208,62 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   let failure_cause: string | undefined
   
   try {
+    // VALIDATION: Method check with structured error response
     if (req.method !== 'POST') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
       return res.status(405).json({ 
-        error: 'Method not allowed',
         code: 'METHOD_NOT_ALLOWED',
-        request_id: requestId
+        message: 'Only POST method is allowed for this endpoint',
+        requestId: requestId
       })
     }
 
     requestBody = req.body ?? {}
     
+    // VALIDATION: Require non-empty message content
+    if (!requestBody.messages || !Array.isArray(requestBody.messages) || requestBody.messages.length === 0) {
+      if (!requestBody.input || (typeof requestBody.input === 'string' && !requestBody.input.trim())) {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        return res.status(400).json({
+          code: 'BAD_REQUEST',
+          message: 'Request must include non-empty messages array or input string',
+          requestId: requestId
+        })
+      }
+    }
+    
+    // Check for empty message content in messages array
+    if (requestBody.messages && Array.isArray(requestBody.messages)) {
+      const hasEmptyMessage = requestBody.messages.some((msg: any) => 
+        !msg.content || (typeof msg.content === 'string' && !msg.content.trim())
+      )
+      if (hasEmptyMessage) {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        return res.status(400).json({
+          code: 'BAD_REQUEST', 
+          message: 'All messages must have non-empty content',
+          requestId: requestId
+        })
+      }
+    }
+    
     // Reject legacy {message} format - require proper schema
     if (requestBody.message && typeof requestBody.message === 'string') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
       return res.status(400).json({
-        error: 'Invalid request format',
         code: 'INVALID_REQUEST_FORMAT',
-        details: {
-          message: 'Legacy {message: string} format is not supported. Use Chat Completions or Responses API format.',
-          allowed_formats: [
-            {
-              name: 'Chat Completions API',
-              required: ['messages'],
-              optional: ['model', 'max_tokens', 'sessionId', 'stream', 'metadata'],
-              example: {
-                model: 'gpt-4o',
-                messages: [{role: 'user', content: 'What is the cap rate for this property?'}],
-                sessionId: 'optional-session-id',
-                stream: true
-              }
-            },
-            {
-              name: 'Responses API', 
-              required: ['input OR messages'],
-              optional: ['model', 'max_output_tokens', 'sessionId', 'stream', 'metadata'],
-              examples: [
-                {
-                  model: 'gpt-5',
-                  input: 'What is the cap rate for this property?',
-                  sessionId: 'optional-session-id',
-                  stream: true
-                },
-                {
-                  model: 'gpt-5', 
-                  messages: [{role: 'user', content: 'What is the cap rate for this property?'}],
-                  sessionId: 'optional-session-id',
-                  stream: true
-                }
-              ]
-            }
-          ]
-        },
-        request_id: requestId
+        message: 'Legacy {message: string} format is not supported. Use Chat Completions or Responses API format.',
+        requestId: requestId
       })
     }
     
     // Explicitly reject null sessionId
     if (requestBody.sessionId === null) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
       return res.status(400).json({
-        error: 'Invalid request format',
         code: 'INVALID_REQUEST_FORMAT',
-        details: {
-          message: 'sessionId cannot be null. Either omit the field or provide a valid string value.',
-          allowed_formats: [
-            {
-              name: 'Chat Completions API',
-              required: ['messages'],
-              optional: ['model', 'max_tokens', 'sessionId', 'stream', 'metadata'],
-              example: {
-                model: 'gpt-4o',
-                messages: [{role: 'user', content: 'What is the cap rate for this property?'}]
-              }
-            },
-            {
-              name: 'Responses API', 
-              required: ['input OR messages'],
-              optional: ['model', 'max_output_tokens', 'sessionId', 'stream', 'metadata'],
-              examples: [
-                {
-                  model: 'gpt-5',
-                  input: 'What is the cap rate for this property?'
-                },
-                {
-                  model: 'gpt-5', 
-                  messages: [{role: 'user', content: 'What is the cap rate for this property?'}]
-                }
-              ]
-            }
-          ],
-          note: 'Never send null values - omit fields that have no value'
-        },
-        request_id: requestId
+        message: 'sessionId cannot be null. Either omit the field or provide a valid string value.',
+        requestId: requestId
       })
     }
     
@@ -315,13 +283,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           userId,
           kvRead: false,
           status: 'invalid',
-          request_id: requestId
+          requestId: requestId
         })
         return res.status(400).json({
           error: 'Invalid document ID format',
           code: 'INVALID_DOCUMENT_ID',
           details: 'Document ID must be a server-generated ID starting with "mem-". Use the documentId returned from the upload endpoint.',
-          request_id: requestId
+          requestId: requestId
         })
       }
     }
@@ -332,7 +300,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         error: 'Cannot specify both messages and input',
         code: 'CONFLICTING_INPUT_FORMATS',
         details: 'Use either messages[] for Chat Completions API or input for Responses API, not both',
-        request_id: requestId
+        requestId: requestId
       })
     }
     
@@ -342,12 +310,24 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     // Use configured model or request-specific model
     const requestModel = requestBody.model || modelConfig.main
 
+    // Upfront model validation - fail fast on unsupported models
+    const modelValidation = validateRequestModel(requestModel)
+    if (!modelValidation.valid) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      return res.status(400).json({
+        code: 'MODEL_UNAVAILABLE',
+        message: modelValidation.error || `Model '${requestModel}' is not supported`,
+        requestId: requestId
+      })
+    }
+
     // Log configuration if debugging
     if (process.env.DEBUG_MODELS === 'true') {
       console.log('[MODEL_CONFIG]', {
         configured: modelConfig,
         requested: requestModel,
-        request_id: requestId
+        validation: modelValidation,
+        requestId: requestId
       })
     }
 
@@ -403,7 +383,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           validation_errors: errors.fieldErrors,
           received: requestBody
         },
-        request_id: requestId
+        requestId: requestId
       })
     }
 
@@ -469,7 +449,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         return res.status(400).json({
           error: 'Either input or messages required for Responses API',
           code: 'MISSING_INPUT',
-          request_id: requestId
+          requestId: requestId
         })
       }
     } else {
@@ -503,7 +483,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               contentHash: docHash,
               cacheHit: true,
               bulletsCount: cachedDealPoints.bullets.length,
-              request_id: requestId
+              requestId: requestId
             })
             
             // Format cached results as bullet list with page citations
@@ -554,7 +534,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               contentLength: fastPathResponse.length,
               responseBytes,
               source: 'cache',
-              request_id: requestId
+              requestId: requestId
             })
             
             return res.status(200).json({ 
@@ -563,7 +543,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               source: 'dealPoints',
               cacheHit: true,
               correlationId,
-              request_id: requestId
+              requestId: requestId
             })
           }
         }
@@ -579,7 +559,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           userId,
           kvRead: true,
           status: 'processing',
-          request_id: requestId
+          requestId: requestId
         })
         
         // Retry up to 3 times with 500ms delays
@@ -599,7 +579,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             userId,
             kvRead: true,
             status: 'processing',
-            request_id: requestId
+            requestId: requestId
           })
           
           return res.status(409).json({
@@ -608,7 +588,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             details: 'The document is still being processed. Please try again in a moment.',
             documentId,
             status: 'processing',
-            request_id: requestId
+            requestId: requestId
           })
         }
       }
@@ -621,7 +601,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           kvRead: true,
           status: status.status,
           error: status.error,
-          request_id: requestId
+          requestId: requestId
         })
         
         return res.status(409).json({
@@ -632,7 +612,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             : 'The specified document context is not available. It may have expired or was not properly uploaded.',
           documentId,
           status: status.status,
-          request_id: requestId
+          requestId: requestId
         })
       }
       
@@ -653,7 +633,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           userId,
           kvRead: true,
           status: 'empty',
-          request_id: requestId
+          requestId: requestId
         })
         
         return res.status(424).json({
@@ -662,7 +642,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           message: 'PDF context is not available for this request. Please try again in a moment.',
           documentId,
           retryAfterMs: 1500,
-          request_id: requestId
+          requestId: requestId
         })
       } else {
         structuredLog('info', 'Document chunks retrieved', {
@@ -671,7 +651,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           kvRead: true,
           status: 'ready',
           parts: status.parts || 1,
-          request_id: requestId
+          requestId: requestId
         })
         
         const augmented = augmentMessagesWithContext(chunks, messages)
@@ -694,7 +674,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       streamEnabled: true,
       messageRoles: messages.map(m => m.role),
       firstMessageLength: messages[0]?.content?.length || 0,
-      request_id: requestId
+      requestId: requestId
     })
 
     // Ensure structured output system message is present
@@ -765,7 +745,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               documentId: requestBody.metadata?.documentId,
               userId,
               error: schemaError.message,
-              request_id: requestId
+              requestId: requestId
             })
             
             // Clear primary timeout and start fallback budget  
@@ -790,7 +770,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
                 usage: fallbackResult.usage,
                 fallback_reason: 'schema_error',
                 correlationId,
-                request_id: requestId
+                requestId: requestId
               })
             } catch (fallbackError) {
               clearTimeout(fallbackTimeout)
@@ -815,7 +795,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               distinctPages,
               bulletsCount: parsed.bullets?.length || 0,
               confidence: parsed.confidence,
-              request_id: requestId
+              requestId: requestId
             })
             
             // Stage B gating: only run if Stage A cites <3 distinct pages
@@ -866,7 +846,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
                   stageBTime,
                   totalCascadeTime: stageATime + stageBTime,
                   contentLength: stageBResult.content.length,
-                  request_id: requestId
+                  requestId: requestId
                 })
               }
             } else {
@@ -898,7 +878,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
                 reason: distinctPages >= 3 ? 'sufficient_pages' : 'low_confidence',
                 distinctPages,
                 totalTime: stageATime,
-                request_id: requestId
+                requestId: requestId
               })
             }
           } catch (parseError) {
@@ -907,7 +887,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               documentId: requestBody.metadata?.documentId,
               userId,
               error: parseError instanceof Error ? parseError.message : 'Unknown error',
-              request_id: requestId
+              requestId: requestId
             })
             
             // Clear primary timeout and start fallback budget
@@ -932,7 +912,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
                 usage: fallbackResult.usage,
                 fallback_reason: 'json_parse',
                 correlationId,
-                request_id: requestId
+                requestId: requestId
               })
             } catch (fallbackError) {
               clearTimeout(fallbackTimeout)
@@ -946,7 +926,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           documentId: requestBody.metadata?.documentId,
           userId,
           error: cascadeError instanceof Error ? cascadeError.message : 'Unknown error',
-          request_id: requestId
+          requestId: requestId
         })
       }
     }
@@ -989,7 +969,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         usage: cascadeResult.usage,
         cascade: cascadeResult.cascade,
         contentLength: cascadeResult.content.length,
-        request_id: requestId
+        requestId: requestId
       })
       
       return res.status(200).json({ 
@@ -998,11 +978,11 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         usage: cascadeResult.usage,
         cascade: cascadeResult.cascade,
         correlationId,
-        request_id: requestId
+        requestId: requestId
       })
     }
     
-    // Build request for selected API family with streaming enabled
+    // Build request for selected API family with streaming toggle
     payload = apiFamily === 'responses'
       ? buildResponses({ 
           model, 
@@ -1011,34 +991,36 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         })
       : buildChatCompletion({ model, messages, max_tokens: max_output_tokens })
     
-    // Configure for user-facing responses: enable tools but ensure text output
-    payload.stream = true
+    // Configure streaming based on environment toggle
+    const enableStreaming = process.env.OPENAI_STREAM !== 'false'
+    payload.stream = enableStreaming
     payload.response_format = { type: 'text' }
     // Keep tools enabled but add natural language requirement in system message
 
-    // Set complete SSE headers for streaming
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
-    res.setHeader('Connection', 'keep-alive')
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Headers', 'Cache-Control, Content-Type, X-Correlation-ID')
-    res.setHeader('Access-Control-Expose-Headers', 'X-Correlation-ID')
-    res.setHeader('X-Accel-Buffering', 'no') // Disable nginx buffering
-    res.setHeader('X-Correlation-ID', correlationId)
-    res.setHeader('Vary', 'Authorization, Cookie')
-    res.setHeader('Pragma', 'no-cache')
-    res.setHeader('Expires', '0')
+    // Do not set headers until after successful upstream connection
     
-    // Call OpenAI with proper error handling and performance monitoring
+    // Call OpenAI with comprehensive error handling
     const callStartTime = Date.now()
-    fixResponseFormat(payload)
-    const ai = await createChatCompletion(payload, { signal })
-    const firstTokenTime = Date.now() - callStartTime
+    let ai: any
+    let didStreamSucceed = false
     
-    // Guard against null/undefined AI response properties
-    if (!ai || typeof ai !== 'object') {
-      throw new Error('Invalid AI response: received null or non-object response')
-    }
+    try {
+      fixResponseFormat(payload)
+      ai = await createChatCompletion(payload, { 
+        signal: abortController.signal,
+        requestId: requestId  // GUARANTEED: Pass requestId to prevent regeneration
+      })
+      const firstTokenTime = Date.now() - callStartTime
+    
+      // Guard against null/undefined AI response properties
+      if (!ai || typeof ai !== 'object') {
+        throw new Error('Invalid AI response: received null or non-object response')
+      }
+      
+      // Check if we got successful content
+      if (ai?.content && ai.content.trim().length > 0) {
+        didStreamSucceed = true
+      }
     
     // Performance budget monitoring (tightened thresholds)
     if (firstTokenTime > 1500) {
@@ -1049,7 +1031,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         t_first_token: firstTokenTime,
         budget_target: 1200,
         threshold_warning: 1500,
-        request_id: requestId
+        requestId: requestId
       })
     }
     
@@ -1061,7 +1043,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         t_first_token: firstTokenTime,
         budget_target: 1200,
         threshold_error: 2000,
-        request_id: requestId
+        requestId: requestId
       })
     }
     
@@ -1069,8 +1051,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     const hadText = !!(ai?.content && ai.content.trim().length > 0)
     const hadToolCalls = !!((ai as any)?.tool_calls && (ai as any).tool_calls.length > 0)
     
-    // Handle empty-text fallback for tool-only responses
-    if (!hadText && hadToolCalls) {
+    // Handle empty-text fallback for tool-only responses (only if stream didn't succeed)
+    if (!didStreamSucceed && !hadText && hadToolCalls) {
       structuredLog('info', 'Tool-only response detected, generating fallback text', {
         correlationId,
         documentId: requestBody.metadata?.documentId,
@@ -1078,7 +1060,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         model,
         hadToolCalls: true,
         hadText: false,
-        request_id: requestId
+        requestId: requestId
       })
       
       // Build fallback request with same context
@@ -1106,7 +1088,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             documentId: requestBody.metadata?.documentId,
             userId: req.user?.id || 'anonymous',
             fallbackContentLength: fallbackAi.content.length,
-            request_id: requestId
+            requestId: requestId
           })
           
           // Use fallback content
@@ -1119,7 +1101,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           documentId: requestBody.metadata?.documentId,
           userId: req.user?.id || 'anonymous',
           error: fallbackError instanceof Error ? fallbackError.message : 'Unknown error',
-          request_id: requestId
+          requestId: requestId
         })
         // Continue with original response
       }
@@ -1129,9 +1111,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     const responseBytes = new TextEncoder().encode(ai?.content || '').length
     res.setHeader('X-Text-Bytes', responseBytes.toString())
     
-    // Check for empty content after completion - route to fallback instead of 502
+    // Check for empty content after completion - route to fallback instead of 502 (only if stream didn't succeed)
     const hasToolCalls = !!((ai as any)?.tool_calls && (ai as any).tool_calls.length > 0)
-    if ((!ai?.content || ai.content.trim().length === 0) && !hasToolCalls && !signal.aborted) {
+    if (!didStreamSucceed && (!ai?.content || ai.content.trim().length === 0) && !hasToolCalls && !signal.aborted) {
       structuredLog('warn', 'Empty content detected - routing to fallback', {
         correlationId,
         documentId: requestBody.metadata?.documentId,
@@ -1139,7 +1121,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         model: ai?.model || 'unknown',
         finish_reason: (ai as any)?.finish_reason || 'unknown',
         hasToolCalls,
-        request_id: requestId
+        requestId: requestId
       })
       
       // Clear primary timeout and start fallback budget
@@ -1168,19 +1150,25 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
           error: 'empty_text',
           code: 'EMPTY_RESPONSE',
           message: 'The AI response was empty and fallback failed. Please try again.',
-          request_id: requestId
+          requestId: requestId
         })
       }
     }
     
-    // Send response first
-    const response = res.status(200).json({ 
+    // SUCCESS PATHS: JSON only for now to avoid SSE/JSON header mixing
+    // Set JSON headers only - no SSE headers to prevent corruption
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('X-Correlation-ID', correlationId)
+    
+    res.status(200).json({ 
       message: ai?.content || '',
       model: ai?.model || model,
       usage: ai?.usage || {},
       correlationId,
-      request_id: requestId
+      requestId: requestId  // Standardized key
     })
+    completed = true  // MARK: Set only after JSON response is sent
     
     // Fire-and-forget persistence (non-blocking)
     if (sessionId) {
@@ -1218,19 +1206,150 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       failure_cause,
       latency_ms: Date.now() - startTime,
       correlationId,
-      request_id: requestId
+      requestId: requestId
     })
     
-    return response
+    } catch (openAIError: any) {
+      // Handle OpenAI-specific errors with structured responses
+      clearTimeout(primaryTimeout)
+      
+      // HEADERS: Set Content-Type for error responses only if not already sent
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      }
+      
+      // Log the OpenAI error
+      structuredLog('error', 'OpenAI API call failed', {
+        correlationId,
+        documentId: requestBody?.metadata?.documentId,
+        userId,
+        model: requestModel,
+        error: openAIError?.message,
+        status: openAIError?.status,
+        code: openAIError?.code,
+        type: openAIError?.type,
+        requestId: requestId
+      })
+      
+      // CRITICAL: Check if headers already sent (mid-stream error)
+      if (res.headersSent) {
+        if (!res.writableEnded && !res.destroyed) {
+          try {
+            res.write(`event: error\n`)
+            res.write(`data: ${JSON.stringify({
+              code: openAIError?.code || 'UPSTREAM_ERROR',
+              message: openAIError?.message || 'AI service error',
+              requestId: requestId
+            })}\n\n`)
+            res.end()
+          } catch (writeError) {
+            // Write failed, just return
+          }
+        }
+        return
+      }
+      
+      // Pre-stream error - safe to send JSON
+      // Map OpenAI errors to structured responses
+      if (openAIError?.status === 401 || openAIError?.status === 403) {
+        return res.status(502).json({
+          code: 'UPSTREAM_AUTH',
+          message: 'Authentication failed with AI service. Please check your API configuration.',
+          requestId: requestId
+        })
+      }
+      
+      if (openAIError?.status === 404 || (openAIError?.status === 400 && openAIError?.message?.includes('model'))) {
+        return res.status(400).json({
+          code: 'MODEL_UNAVAILABLE', 
+          message: `Model '${requestModel}' is not available or accessible. Please try a different model.`,
+          requestId: requestId
+        })
+      }
+      
+      if (openAIError?.status === 429) {
+        return res.status(502).json({
+          code: 'UPSTREAM_ERROR',
+          message: 'AI service is currently rate limited. Please try again in a moment.',
+          requestId: requestId
+        })
+      }
+      
+      if (openAIError?.status >= 500 || openAIError?.name === 'AbortError' || signal.aborted) {
+        return res.status(502).json({
+          code: 'UPSTREAM_ERROR',
+          message: signal.aborted ? 'Request timeout - please try again with a shorter message.' : 'AI service is temporarily unavailable. Please try again.',
+          requestId: requestId
+        })
+      }
+      
+      // Generic upstream error
+      return res.status(502).json({
+        code: 'UPSTREAM_ERROR',
+        message: 'AI service error occurred. Please try again.',
+        requestId: requestId
+      })
+    }
     
   } catch (error: any) {
+    // CRITICAL: Check if headers already sent before attempting JSON response
+    if (res.headersSent) {
+      // Mid-stream error - emit SSE error event only if writable
+      if (!res.writableEnded && !res.destroyed) {
+        try {
+          res.write(`event: error\n`)
+          res.write(`data: ${JSON.stringify({
+            code: error.code || 'UPSTREAM_ERROR',
+            message: error.message || 'Service error',
+            requestId: requestId
+          })}\n\n`)
+          res.end()
+        } catch (writeError) {
+          // Write failed, connection already closed
+        }
+      }
+      return
+    }
+    
+    // Pre-stream error - safe to send JSON
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    
+    // Safe Sentry tagging with requestId, model, and tokenParam
+    Sentry.withScope((scope) => {
+      scope.setTag('requestId', requestId)
+      scope.setTag('model', requestBody?.model || getModelConfiguration().main)
+      
+      // Safe tokenParam handling
+      if (error.code === 'MODEL_UNAVAILABLE') {
+        scope.setTag('tokenParam', 'n/a')
+      } else {
+        try {
+          const modelToCheck = requestBody?.model || getModelConfiguration().main
+          scope.setTag('tokenParam', selectTokenParam(modelToCheck).paramKey)
+        } catch (e) {
+          scope.setTag('tokenParam', 'error')
+        }
+      }
+      
+      Sentry.captureException(error)
+    })
+    
     // Handle Zod errors that might occur during processing
     if (error instanceof z.ZodError) {
       return res.status(400).json({
-        error: 'Invalid request data',
-        code: 'VALIDATION_ERROR',
-        details: error.flatten().fieldErrors,
-        request_id: requestId
+        code: 'BAD_REQUEST',
+        message: 'Request validation failed',
+        requestId: requestId
+      })
+    }
+    
+    // Handle structured errors with proper status codes
+    if (error.code) {
+      const status = error.code === 'MODEL_UNAVAILABLE' ? 400 : 502
+      return res.status(status).json({
+        code: error.code,
+        message: error.message || 'Service error',
+        requestId: error.requestId || requestId
       })
     }
     
@@ -1244,18 +1363,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       status: error?.status,
       code: error?.code,
       type: error?.type,
-      request_id: requestId,
+      requestId: requestId,
       ...(process.env.NODE_ENV === 'development' && { stack: error?.stack })
     })
-    
-    // Determine if this is an upstream OpenAI error (return 502) or client error (return 4xx)
-    const isUpstreamError = error?.status >= 500 || 
-                           error?.message?.includes('OpenAI') ||
-                           error?.message?.includes('timeout') ||
-                           error?.message?.includes('ETIMEDOUT')
-    
-    const statusCode = isUpstreamError ? 502 : (error?.status || 500)
-    const errorType = isUpstreamError ? 'UPSTREAM_ERROR' : (error?.code || 'CHAT_ERROR')
     
     // Determine if timeout caused this error
     if (signal.aborted || error?.name === 'AbortError') {
@@ -1274,18 +1384,20 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       failure_cause,
       latency_ms: Date.now() - startTime,
       correlationId,
-      request_id: requestId
+      requestId: requestId
     })
 
-    return res.status(statusCode).json({ 
-      code: errorType,
-      type: error?.type || 'api_error',
-      message: error?.message || 'Chat processing failed',
-      correlationId: finalCorrelationId,
-      request_id: error?.request_id || requestId
+    return res.status(502).json({ 
+      code: 'UPSTREAM_ERROR',
+      message: error?.message || 'AI service temporarily unavailable',
+      requestId: requestId
     })
   } finally {
-    // Clean up timeout
+    // CONDITIONAL: Only abort if not completed successfully
+    if (!completed) {
+      abortController.abort()
+    }
+    // Always clear timeout
     clearTimeout(primaryTimeout)
   }
 }

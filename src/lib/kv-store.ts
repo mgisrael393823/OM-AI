@@ -424,7 +424,7 @@ async function retryKvOperation<T>(
         kvRead: operationType === 'read',
         kvWrite: operationType === 'write',
         error: error instanceof Error ? error.message : 'Unknown error',
-        request_id: `kv-${Date.now()}`
+        requestId: `kv-${Date.now()}`
       })
       
       if (isLastAttempt) {
@@ -452,7 +452,7 @@ export async function setStatus(
       userId: 'system',
       kvWrite: false,
       adapter,
-      request_id: `status-${Date.now()}`
+      requestId: `status-${Date.now()}`
     })
     return false
   }
@@ -472,7 +472,7 @@ export async function setStatus(
         userId: 'system',
         kvWrite: success,
         adapter,
-        request_id: `status-${Date.now()}`
+        requestId: `status-${Date.now()}`
       })
       
       return success
@@ -491,7 +491,7 @@ export async function setStatus(
         userId: 'system',
         kvWrite: true,
         adapter,
-        request_id: `status-${Date.now()}`
+        requestId: `status-${Date.now()}`
       })
       
       return result ?? false
@@ -503,7 +503,7 @@ export async function setStatus(
       kvWrite: false,
       adapter,
       error: error instanceof Error ? error.message : 'Unknown error',
-      request_id: `status-${Date.now()}`
+      requestId: `status-${Date.now()}`
     })
     return false
   }
@@ -569,7 +569,7 @@ export async function getStatus(
       userId: userId || 'unknown',
       kvRead: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-      request_id: `status-${Date.now()}`
+      requestId: `status-${Date.now()}`
     })
     return { status: 'error', error: 'Failed to retrieve status' }
   }
@@ -589,7 +589,7 @@ export async function setContext(
       userId,
       kvWrite: false,
       adapter,
-      request_id: `ctx-${Date.now()}`
+      requestId: `ctx-${Date.now()}`
     })
     return false
   }
@@ -611,7 +611,7 @@ export async function setContext(
           kvWrite: success,
           adapter,
           parts: 1,
-          request_id: `ctx-${Date.now()}`
+          requestId: `ctx-${Date.now()}`
         })
         
         return success
@@ -631,7 +631,7 @@ export async function setContext(
           kvWrite: true,
           adapter,
           parts: 1,
-          request_id: `ctx-${Date.now()}`
+          requestId: `ctx-${Date.now()}`
         })
         
         return true
@@ -676,7 +676,7 @@ export async function setContext(
           kvWrite: true,
           adapter,
           parts: parts.length,
-          request_id: `ctx-${Date.now()}`
+          requestId: `ctx-${Date.now()}`
         })
         
         return true
@@ -709,7 +709,7 @@ export async function setContext(
           kvWrite: true,
           adapter,
           parts: parts.length,
-          request_id: `ctx-${Date.now()}`
+          requestId: `ctx-${Date.now()}`
         })
         
         return true
@@ -722,7 +722,7 @@ export async function setContext(
       kvWrite: false,
       adapter,
       error: error instanceof Error ? error.message : 'Unknown error',
-      request_id: `ctx-${Date.now()}`
+      requestId: `ctx-${Date.now()}`
     })
     return false
   }
@@ -741,7 +741,7 @@ export async function getContext(
       userId,
       kvRead: false,
       adapter,
-      request_id: `ctx-${Date.now()}`
+      requestId: `ctx-${Date.now()}`
     })
     return null
   }
@@ -766,7 +766,7 @@ export async function getContext(
           userId,
           kvRead: true,
           status: 'forbidden',
-          request_id: `ctx-${Date.now()}`
+          requestId: `ctx-${Date.now()}`
         })
         return null
       }
@@ -801,7 +801,7 @@ export async function getContext(
         kvRead: true,
         parts: index.parts,
         status: 'ready',
-        request_id: `ctx-${Date.now()}`
+        requestId: `ctx-${Date.now()}`
       })
       
       return {
@@ -826,7 +826,7 @@ export async function getContext(
           userId,
           kvRead: true,
           status: 'missing',
-          request_id: `ctx-${Date.now()}`
+          requestId: `ctx-${Date.now()}`
         })
         return null
       }
@@ -842,7 +842,7 @@ export async function getContext(
           userId,
           kvRead: true,
           status: 'forbidden',
-          request_id: `ctx-${Date.now()}`
+          requestId: `ctx-${Date.now()}`
         })
         return null
       }
@@ -853,7 +853,7 @@ export async function getContext(
         kvRead: true,
         parts: 1,
         status: 'ready',
-        request_id: `ctx-${Date.now()}`
+        requestId: `ctx-${Date.now()}`
       })
       
       return context
@@ -864,7 +864,7 @@ export async function getContext(
       userId,
       kvRead: false,
       error: error instanceof Error ? error.message : 'Unknown error',
-      request_id: `ctx-${Date.now()}`
+      requestId: `ctx-${Date.now()}`
     })
     return null
   }
@@ -898,7 +898,7 @@ export async function setItem(
       kvWrite: false,
       adapter,
       key,
-      request_id: `set-${Date.now()}`
+      requestId: `set-${Date.now()}`
     })
     return false
   }
@@ -917,7 +917,7 @@ export async function setItem(
         adapter,
         key,
         ttl: ttlSeconds,
-        request_id: `set-${Date.now()}`
+        requestId: `set-${Date.now()}`
       })
       
       return success
@@ -938,7 +938,7 @@ export async function setItem(
         adapter,
         key,
         ttl: ttlSeconds,
-        request_id: `set-${Date.now()}`
+        requestId: `set-${Date.now()}`
       })
       
       return true
@@ -951,7 +951,7 @@ export async function setItem(
       adapter,
       key,
       error: error instanceof Error ? error.message : 'Unknown error',
-      request_id: `set-${Date.now()}`
+      requestId: `set-${Date.now()}`
     })
     return false
   }
@@ -988,7 +988,7 @@ export async function getItem(key: string): Promise<any | null> {
       kvRead: true,
       adapter,
       key,
-      request_id: `get-${Date.now()}`
+      requestId: `get-${Date.now()}`
     })
     
     return parsed
@@ -1000,7 +1000,7 @@ export async function getItem(key: string): Promise<any | null> {
       adapter,
       key,
       error: error instanceof Error ? error.message : 'Unknown error',
-      request_id: `get-${Date.now()}`
+      requestId: `get-${Date.now()}`
     })
     return null
   }

@@ -46,6 +46,11 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "functions": {
+    "src/pages/api/chat.ts": {
+      "runtime": "nodejs20.x",
+      "memory": 1024,
+      "maxDuration": 30
+    },
     "src/pages/api/blob/upload.ts": {
       "memory": 1536,
       "maxDuration": 60

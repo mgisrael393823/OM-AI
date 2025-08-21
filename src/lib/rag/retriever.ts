@@ -251,7 +251,7 @@ export async function retrieveTopK({
         userId: userId || 'unknown',
         kvRead: true,
         status: 'empty',
-        request_id: `retrieve-${Date.now()}`
+        requestId: `retrieve-${Date.now()}`
       })
       
       return []

@@ -42,7 +42,7 @@ jest.mock('@/lib/services/openai', () => ({
     text: 'Test response from API',
     model: 'gpt-4o',
     usage: { total_tokens: 100, prompt_tokens: 50, completion_tokens: 50 },
-    request_id: 'test-req-123'
+    requestId: 'test-req-123'
   }))
 }))
 
@@ -117,7 +117,7 @@ describe.skip('/api/chat (unified endpoint)', () => {
       expect(res._getStatusCode()).toBe(200)
       const data = JSON.parse(res._getData())
       expect(data.message).toBeDefined()
-      expect(data.request_id).toBeDefined()
+      expect(data.requestId).toBeDefined()
     })
 
     test('should accept Responses API format with input string', async () => {
@@ -137,7 +137,7 @@ describe.skip('/api/chat (unified endpoint)', () => {
       expect(res._getStatusCode()).toBe(200)
       const data = JSON.parse(res._getData())
       expect(data.message).toBeDefined()
-      expect(data.request_id).toBeDefined()
+      expect(data.requestId).toBeDefined()
     })
 
     test('should accept Responses API format with messages', async () => {
@@ -157,7 +157,7 @@ describe.skip('/api/chat (unified endpoint)', () => {
       expect(res._getStatusCode()).toBe(200)
       const data = JSON.parse(res._getData())
       expect(data.message).toBeDefined()
-      expect(data.request_id).toBeDefined()
+      expect(data.requestId).toBeDefined()
     })
 
     test('should reject null sessionId with proper error format', async () => {
