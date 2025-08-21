@@ -137,11 +137,12 @@ export async function createChatCompletion(
           // Default fallback only if no token param provided
           responsesParams.max_output_tokens = limit
         }
+        // Add reasoning parameter for Responses API
+        if (!responsesParams.reasoning) {
+          responsesParams.reasoning = { effort: "low" }
+        }
         // Sanitize the payload
         responsesParams = sanitizeOpenAIPayload(responsesParams)
-        
-        // DEBUG: Log token parameter selection
-        console.debug({ model: responsesParams.model, tokenParamKey: "max_output_tokens", tokenValue: responsesParams.max_output_tokens, requestId: reqId })
         
         const resp: any = await client.responses.create(responsesParams, {
           signal: combinedSignal
@@ -168,9 +169,6 @@ export async function createChatCompletion(
         }
         // Sanitize the payload
         chatParams = sanitizeOpenAIPayload(chatParams)
-        
-        // DEBUG: Log token parameter selection
-        console.debug({ model: chatParams.model, tokenParamKey: "max_tokens", tokenValue: chatParams.max_tokens, requestId: reqId })
         
         const resp: any = await client.chat.completions.create(chatParams, {
           signal: combinedSignal

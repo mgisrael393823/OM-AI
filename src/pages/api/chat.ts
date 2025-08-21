@@ -212,10 +212,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     // VALIDATION: Method check with structured error response
     if (req.method !== 'POST') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      return res.status(405).json({ 
-        code: 'METHOD_NOT_ALLOWED',
-        message: 'Only POST method is allowed for this endpoint',
-        requestId: requestId
+      return res.status(405).json({
+        error: {
+          type: 'api_error',
+          code: 'METHOD_NOT_ALLOWED',
+          message: 'Only POST method is allowed for this endpoint',
+          requestId: requestId
+        }
       })
     }
 
@@ -226,9 +229,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       if (!requestBody.input || (typeof requestBody.input === 'string' && !requestBody.input.trim())) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8')
         return res.status(400).json({
-          code: 'BAD_REQUEST',
-          message: 'Request must include non-empty messages array or input string',
-          requestId: requestId
+          error: {
+            type: 'api_error',
+            code: 'BAD_REQUEST',
+            message: 'Request must include non-empty messages array or input string',
+            requestId: requestId
+          }
         })
       }
     }
@@ -241,9 +247,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       if (hasEmptyMessage) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8')
         return res.status(400).json({
-          code: 'BAD_REQUEST', 
-          message: 'All messages must have non-empty content',
-          requestId: requestId
+          error: {
+            type: 'api_error',
+            code: 'BAD_REQUEST',
+            message: 'All messages must have non-empty content',
+            requestId: requestId
+          }
         })
       }
     }
@@ -252,9 +261,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     if (requestBody.message && typeof requestBody.message === 'string') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
       return res.status(400).json({
-        code: 'INVALID_REQUEST_FORMAT',
-        message: 'Legacy {message: string} format is not supported. Use Chat Completions or Responses API format.',
-        requestId: requestId
+        error: {
+          type: 'api_error',
+          code: 'INVALID_REQUEST_FORMAT',
+          message: 'Legacy {message: string} format is not supported. Use Chat Completions or Responses API format.',
+          requestId: requestId
+        }
       })
     }
     
@@ -262,9 +274,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     if (requestBody.sessionId === null) {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
       return res.status(400).json({
-        code: 'INVALID_REQUEST_FORMAT',
-        message: 'sessionId cannot be null. Either omit the field or provide a valid string value.',
-        requestId: requestId
+        error: {
+          type: 'api_error',
+          code: 'INVALID_REQUEST_FORMAT',
+          message: 'sessionId cannot be null. Either omit the field or provide a valid string value.',
+          requestId: requestId
+        }
       })
     }
     
@@ -322,15 +337,6 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
     }
 
-    // Log configuration if debugging
-    if (process.env.DEBUG_MODELS === 'true') {
-      console.log('[MODEL_CONFIG]', {
-        configured: modelConfig,
-        requested: requestModel,
-        validation: modelValidation,
-        requestId: requestId
-      })
-    }
 
     // Filter temperature for gpt-4.1 and Responses models
     if ((requestModel.startsWith('gpt-4.1') || isResponsesModelUtil(requestModel)) && requestBody.temperature !== undefined) {
