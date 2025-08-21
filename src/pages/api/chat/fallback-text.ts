@@ -78,10 +78,10 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
   } catch (idempotencyError) {
     structuredLog('warn', 'Failed to check/set idempotency', {
       documentId: rawDocumentId,
-      requestId: clientRequestId,
+      clientRequestId,
       userId,
       error: idempotencyError instanceof Error ? idempotencyError.message : 'Unknown error',
-      requestId: requestId
+      requestId
     })
     // Continue processing if KV fails - better to allow than block legitimate requests
   }

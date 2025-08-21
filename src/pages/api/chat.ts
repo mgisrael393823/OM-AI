@@ -184,17 +184,23 @@ async function runTextFallback(
  * Chat endpoint handler that supports both Chat Completions and Responses API
  */
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
+  // Parse body early to support feature flags and routing decisions
+  let requestBody: any = req.body ?? {}
+
   // Kill switch: Route to conversational endpoint when flag is enabled
   if (process.env.CONVERSATIONAL_CHAT === '1') {
-    const { default: conversationalHandler } = await import('./chat-conversational')
-    return conversationalHandler(req, res)
+    const modelHint = requestBody.model || ''
+    const usesResponsesApi = requestBody.input !== undefined || (typeof modelHint === 'string' && isResponsesModelUtil(modelHint))
+    if (!usesResponsesApi) {
+      const { default: conversationalHandler } = await import('./chat-conversational')
+      return conversationalHandler(req, res)
+    }
   }
 
   // GUARANTEED: Generate single requestId for entire request lifecycle - NEVER regenerate
   const requestId = generateReqId('chat')
   const userId = req.user?.id || 'anonymous'
   let correlationId: string = (req.headers['x-correlation-id'] as string) || requestId
-  let requestBody: any
   let completed = false  // Track successful completion
   
   // Create AbortController for this request with production timeout
@@ -218,8 +224,6 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
     }
 
-    requestBody = req.body ?? {}
-    
     // VALIDATION: Require non-empty message content
     if (!requestBody.messages || !Array.isArray(requestBody.messages) || requestBody.messages.length === 0) {
       if (!requestBody.input || (typeof requestBody.input === 'string' && !requestBody.input.trim())) {
