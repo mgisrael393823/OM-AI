@@ -16,7 +16,7 @@ const CHAT_LATEST_PATTERN = /-chat-latest$/i;
 export interface ModelConfig {
   valid: boolean;
   apiType: 'responses' | 'chat' | null;
-  paramKey: 'max_output_tokens' | 'max_completion_tokens' | null;
+  paramKey: 'max_output_tokens' | 'max_tokens' | null;
   endpoint: string | null;
 }
 
@@ -34,23 +34,23 @@ export function validateModel(model: string): ModelConfig {
     };
   }
   
-  // GPT-5 family uses Responses API with max_completion_tokens
+  // GPT-5 family uses Responses API with max_output_tokens
   if (VALID_MODELS.gpt5.includes(model)) {
-    return {
-      valid: true,
-      apiType: 'responses',
-      paramKey: 'max_completion_tokens',
-      endpoint: '/v1/responses'
-    };
-  }
-  
-  // GPT-4o family uses Responses API with max_output_tokens
-  if (VALID_MODELS.gpt4.includes(model)) {
     return {
       valid: true,
       apiType: 'responses',
       paramKey: 'max_output_tokens',
       endpoint: '/v1/responses'
+    };
+  }
+  
+  // GPT-4o family uses Chat Completions API with max_tokens
+  if (VALID_MODELS.gpt4.includes(model)) {
+    return {
+      valid: true,
+      apiType: 'chat',
+      paramKey: 'max_tokens',
+      endpoint: '/v1/chat/completions'
     };
   }
   
@@ -79,27 +79,32 @@ export function detectAPIType(model: string): 'responses' | 'chat' {
 }
 
 /**
- * Get the correct token parameter for the model (exclusive usage)
+ * Get the correct token parameter for the model
+ * GPT-5 models use Responses API with max_output_tokens
+ * GPT-4o models use Chat Completions API with max_tokens
  */
-export function getMaxTokensParam(model: string, value: number): Record<string, number> {
+export function getTokenParam(model: string, value: number): Record<string, number> {
   const config = validateModel(model);
   
   if (!config.valid) {
     throw new Error(`Invalid model: ${model}. Must be one of: ${ALL_VALID_MODELS.join(', ')}`);
   }
   
-  // GPT-5 family uses max_completion_tokens
+  // GPT-5 family uses Responses API with max_output_tokens
   if (VALID_MODELS.gpt5.includes(model)) {
-    return { max_completion_tokens: value };
+    return { max_output_tokens: value };
   }
   
-  // GPT-4o family uses max_output_tokens
+  // GPT-4o family uses Chat Completions API with max_tokens
   if (VALID_MODELS.gpt4.includes(model)) {
-    return { max_output_tokens: value };
+    return { max_tokens: value };
   }
   
   throw new Error(`MODEL_UNAVAILABLE: ${model}`);
 }
+
+// Alias for backward compatibility - will be removed
+export const getMaxTokensParam = getTokenParam;
 
 /**
  * Model to parameter mapping helper for exclusive usage
@@ -109,14 +114,14 @@ export function getTokenParamForModel(model: string): { paramKey: string, apiTyp
     throw new Error(`MODEL_UNAVAILABLE: ${model}. Must be one of: ${ALL_VALID_MODELS.join(', ')}`);
   }
   
-  // GPT-5 family uses max_completion_tokens
+  // GPT-5 family uses max_output_tokens with Responses API
   if (VALID_MODELS.gpt5.includes(model)) {
-    return { paramKey: 'max_completion_tokens', apiType: 'responses' };
+    return { paramKey: 'max_output_tokens', apiType: 'responses' };
   }
   
-  // GPT-4o family uses max_output_tokens  
+  // GPT-4o family uses max_tokens with Chat Completions API  
   if (VALID_MODELS.gpt4.includes(model)) {
-    return { paramKey: 'max_output_tokens', apiType: 'responses' };
+    return { paramKey: 'max_tokens', apiType: 'chat' };
   }
   
   throw new Error(`MODEL_UNAVAILABLE: ${model}`);
@@ -130,14 +135,14 @@ export function selectTokenParam(model: string): { paramKey: string, apiType: st
     throw new Error(`MODEL_UNAVAILABLE: ${model}. Must be one of: ${ALL_VALID_MODELS.join(', ')}`);
   }
   
-  // GPT-5 family → max_completion_tokens
+  // GPT-5 family → max_output_tokens with Responses API
   if (VALID_MODELS.gpt5.includes(model)) {
-    return { paramKey: 'max_completion_tokens', apiType: 'responses' };
+    return { paramKey: 'max_output_tokens', apiType: 'responses' };
   }
   
-  // GPT-4o family → max_output_tokens  
+  // GPT-4o family → max_tokens with Chat Completions API
   if (VALID_MODELS.gpt4.includes(model)) {
-    return { paramKey: 'max_output_tokens', apiType: 'responses' };
+    return { paramKey: 'max_tokens', apiType: 'chat' };
   }
   
   throw new Error(`MODEL_UNAVAILABLE: ${model}`);

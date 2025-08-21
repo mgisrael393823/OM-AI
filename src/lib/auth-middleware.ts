@@ -53,6 +53,14 @@ export function withAuth(
         cookieMap['supabase-access-token'] ||
         cookieMap['sb.access-token']
 
+      // Development mode bypass - check FIRST before any token parsing
+      if (process.env.ALLOW_DEV_NOAUTH === 'true' && process.env.NODE_ENV !== 'production') {
+        const devUserId = process.env.DEV_FALLBACK_USER_ID || '22835c1c-fd8b-4939-a9ed-adb6e98bfc2b'
+        ;(req as AuthenticatedRequest).user = { id: devUserId } as User
+        ;(req as AuthenticatedRequest).userId = devUserId
+        return handler(req as AuthenticatedRequest, res)
+      }
+
       let bearer: string | null = null
       const authHeader = (req.headers?.authorization || (req.headers as any)?.Authorization) as string | undefined
       if (authHeader?.startsWith('Bearer ')) bearer = authHeader.slice(7)
@@ -60,13 +68,6 @@ export function withAuth(
       const token = bearer || sbAccessToken
       
       if (!token) {
-        // Development mode bypass
-        if (process.env.ALLOW_DEV_NOAUTH === 'true') {
-          const devUserId = process.env.DEV_FALLBACK_USER_ID || '22835c1c-fd8b-4939-a9ed-adb6e98bfc2b'
-          ;(req as AuthenticatedRequest).user = { id: devUserId } as User
-          ;(req as AuthenticatedRequest).userId = devUserId
-          return handler(req as AuthenticatedRequest, res)
-        }
         return createApiError(res, ERROR_CODES.MISSING_TOKEN)
       }
 

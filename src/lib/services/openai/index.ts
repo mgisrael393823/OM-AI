@@ -132,14 +132,19 @@ export async function createChatCompletion(
           ({model,input,text,max_output_tokens,tool_choice,response_format,temperature,stream}))(payload)
         // Override with computed values
         responsesParams.model = model
-        responsesParams.max_output_tokens = limit
+        // Don't override token params if already provided by getTokenParam
+        if (!responsesParams.max_output_tokens) {
+          // Default fallback only if no token param provided
+          responsesParams.max_output_tokens = limit
+        }
         // Sanitize the payload
         responsesParams = sanitizeOpenAIPayload(responsesParams)
         
         const resp: any = await client.responses.create(responsesParams, {
           signal: combinedSignal
         })
-        const content = resp.output_text ?? resp.content?.[0]?.text ?? ''
+        // Parse Responses API format: resp.output[0].content[0].text or resp.output_text
+        const content = resp.output?.[0]?.content?.[0]?.text ?? resp.output_text ?? ''
         return { content: String(content).trim(), model, usage: resp.usage }
       } else {
         let chatParams: any = (({model,messages,max_tokens,tool_choice,response_format,temperature,stream}) => 
@@ -147,7 +152,10 @@ export async function createChatCompletion(
         // Override with computed values  
         chatParams.model = model
         chatParams.messages = payload.messages || []
-        chatParams.max_tokens = limit
+        // Don't override max_tokens if already set by getMaxTokensParam
+        if (!chatParams.max_tokens) {
+          chatParams.max_tokens = limit
+        }
         // Sanitize the payload
         chatParams = sanitizeOpenAIPayload(chatParams)
         

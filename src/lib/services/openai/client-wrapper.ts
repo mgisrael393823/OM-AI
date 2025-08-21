@@ -107,7 +107,7 @@ async function callOpenAI(
     const request: any = {
       model,
       messages: options.messages || [{ role: 'user', content: options.input as string }],
-      max_completion_tokens: options.maxTokens, // Chat API uses max_completion_tokens
+      max_tokens: options.maxTokens, // Chat API uses max_tokens
       stream: options.stream,
       ...(options.temperature !== undefined && { temperature: options.temperature })
     };

@@ -44,14 +44,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           results.accessible[model as string] = true;
           results.api_calls[model as string] = {
             endpoint: '/v1/responses',
-            param_key: 'max_output_tokens',
+            param_key: 'max_tokens',
             success: true
           };
         } catch (error: any) {
           results.accessible[model as string] = false;
           results.api_calls[model as string] = {
             endpoint: '/v1/responses',
-            param_key: 'max_output_tokens',
+            param_key: 'max_tokens',
             error: error.message
           };
         }
@@ -61,21 +61,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           await openai.chat.completions.create({
             model: model as string,
             messages: [{ role: 'user', content: 'test' }],
-            max_completion_tokens: 1,
+            max_tokens: 1,
             stream: false
           });
           
           results.accessible[model as string] = true;
           results.api_calls[model as string] = {
             endpoint: '/v1/chat/completions',
-            param_key: 'max_completion_tokens',
+            param_key: 'max_tokens',
             success: true
           };
         } catch (error: any) {
           results.accessible[model as string] = false;
           results.api_calls[model as string] = {
             endpoint: '/v1/chat/completions',
-            param_key: 'max_completion_tokens',
+            param_key: 'max_tokens',
             error: error.message
           };
         }

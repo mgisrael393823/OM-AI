@@ -10,7 +10,7 @@ import { augmentMessagesWithContext } from '@/lib/rag/augment'
 import * as kvStore from '@/lib/kv-store'
 import { structuredLog, generateRequestId } from '@/lib/log'
 import { callOpenAIWithFallback } from '@/lib/services/openai/client-wrapper'
-import { getModelConfiguration, validateRequestModel, generateRequestId as generateReqId, getTokenParamForModel, selectTokenParam } from '@/lib/config/validate-models'
+import { getModelConfiguration, validateRequestModel, generateRequestId as generateReqId, getTokenParamForModel, selectTokenParam, getTokenParam } from '@/lib/config/validate-models'
 import * as Sentry from '@sentry/nextjs'
 import crypto from 'crypto'
 
@@ -146,16 +146,17 @@ async function runTextFallback(
   reason: 'json_parse' | 'timeout' | 'empty_content' | 'schema_error',
   signal: AbortSignal
 ): Promise<{content: string, model: string, usage: any, reason: string}> {
+  const fallbackTokenParams = getTokenParam(originalPayload.model, 600)
   const fallbackPayload = apiFamily === 'responses'
     ? buildResponses({
         model: originalPayload.model,
         input: messages.map(m => ({ content: m.content, role: m.role })),
-        max_output_tokens: Math.min(originalPayload.max_output_tokens || 600, 600)
+        ...fallbackTokenParams
       })
     : buildChatCompletion({
         model: originalPayload.model,
         messages,
-        max_tokens: Math.min(originalPayload.max_tokens || 600, 600)
+        ...fallbackTokenParams
       })
   
   // Force text output and disable tools if present
@@ -728,7 +729,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               }
             }
           },
-          max_tokens: 350,
+          ...getTokenParam('gpt-4o-mini', 350),
           temperature: 0.1
         }
         
@@ -809,13 +810,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
                 }
               ]
               
+              const stageBTokenParams = getTokenParam(model, Math.min(max_output_tokens || 400, 400))
               const stageBPayload = apiFamily === 'responses'
                 ? buildResponses({ 
                     model, 
                     input: stageBMessages.map(m => ({ content: m.content, role: m.role })), 
-                    max_output_tokens: Math.min(max_output_tokens || 400, 400)
+                    ...stageBTokenParams
                   })
-                : buildChatCompletion({ model, messages: stageBMessages, max_tokens: Math.min(max_output_tokens || 400, 400) })
+                : buildChatCompletion({ model, messages: stageBMessages, ...stageBTokenParams })
               
               stageBPayload.stream = false
 
@@ -983,13 +985,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     }
     
     // Build request for selected API family with streaming toggle
+    const tokenParams = getTokenParam(model, max_output_tokens)
     payload = apiFamily === 'responses'
       ? buildResponses({ 
           model, 
           input: messages.map(m => ({ content: m.content, role: m.role })), 
-          max_output_tokens 
+          ...tokenParams
         })
-      : buildChatCompletion({ model, messages, max_tokens: max_output_tokens })
+      : buildChatCompletion({ model, messages, ...tokenParams })
     
     // Configure streaming based on environment toggle
     const enableStreaming = process.env.OPENAI_STREAM !== 'false'
@@ -1006,12 +1009,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     try {
       fixResponseFormat(payload)
+      
       ai = await createChatCompletion(payload, { 
         signal: abortController.signal,
         requestId: requestId  // GUARANTEED: Pass requestId to prevent regeneration
       })
       const firstTokenTime = Date.now() - callStartTime
-    
+      
       // Guard against null/undefined AI response properties
       if (!ai || typeof ai !== 'object') {
         throw new Error('Invalid AI response: received null or non-object response')
@@ -1064,13 +1068,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       })
       
       // Build fallback request with same context
+      const fallbackTokenParams = getTokenParam(model, Math.min(max_output_tokens || 600, 600))
       const fallbackPayload = apiFamily === 'responses'
         ? buildResponses({ 
             model, 
             input: messages.map(m => ({ content: m.content, role: m.role })), 
-            max_output_tokens: Math.min(max_output_tokens || 600, 600)
+            ...fallbackTokenParams
           })
-        : buildChatCompletion({ model, messages, max_tokens: Math.min(max_output_tokens || 600, 600) })
+        : buildChatCompletion({ model, messages, ...fallbackTokenParams })
       
       // Force text output and disable tools if present
       if (fallbackPayload.tools && Array.isArray(fallbackPayload.tools) && fallbackPayload.tools.length > 0) {

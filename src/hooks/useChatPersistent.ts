@@ -285,6 +285,17 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       const makeRequest = async (token: string | null) => {
         if (!token) throw new Error('No auth token available')
         
+        // DEBUG: Log exact payload being sent to API
+        console.log("🔍 sendMessage payload:", {
+          messages: cleanPayload.messages,
+          model: cleanPayload.model,
+          stream: cleanPayload.stream,
+          messageCount: cleanPayload.messages?.length || 0,
+          lastMessage: cleanPayload.messages?.[cleanPayload.messages.length - 1],
+          sessionId: cleanPayload.sessionId,
+          documentId: cleanPayload.metadata?.documentId
+        })
+        
         return fetch(`${window.location.origin}/api/chat`, {
           method: "POST",
           credentials: 'include',
