@@ -223,7 +223,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       setImmediate(async () => {
         try {
           console.log(`[process-pdf-fast] Starting async deal points extraction for ${documentId}`)
-          const dealPoints = await extractDealPoints(kvChunks, contentHash)
+          const dealPoints = await extractDealPoints(kvChunks, contentHash, requestId)
           if (dealPoints) {
             const dealPointsKey = `dealPoints:${contentHash}`
             await kvStore.setItem(dealPointsKey, dealPoints, 
@@ -414,9 +414,92 @@ function stripCodeFences(content: string): string {
 }
 
 /**
+ * Safe parser for deal points with multiple fallback strategies
+ */
+function parseDealPointsSafe(text: string): { bullets: string[] } {
+  // Always return a valid structure
+  const defaultResult: { bullets: string[] } = { bullets: [] }
+  
+  if (!text || typeof text !== 'string') {
+    return defaultResult
+  }
+  
+  // Strategy 1: Try direct JSON parse after stripping code fences
+  try {
+    const cleaned = stripCodeFences(text)
+    const parsed = JSON.parse(cleaned)
+    
+    // Validate structure
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.bullets)) {
+      const validBullets: string[] = parsed.bullets
+        .filter((b: any) => typeof b === 'string' && b.trim().length > 0)
+        .map((b: string) => b.trim())
+      
+      if (validBullets.length > 0) {
+        // Dedupe and return
+        const uniqueBullets: string[] = [...new Set(validBullets)]
+        return { bullets: uniqueBullets }
+      }
+    }
+  } catch (e) {
+    // Continue to next strategy
+  }
+  
+  // Strategy 2: Extract first balanced {...} block
+  try {
+    const jsonMatch = text.match(/{[^{}]*(?:{[^{}]*}[^{}]*)*}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0])
+      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.bullets)) {
+        const validBullets: string[] = parsed.bullets
+          .filter((b: any) => typeof b === 'string' && b.trim().length > 0)
+          .map((b: string) => b.trim())
+        
+        if (validBullets.length > 0) {
+          const uniqueBullets: string[] = [...new Set(validBullets)]
+          return { bullets: uniqueBullets }
+        }
+      }
+    }
+  } catch (e) {
+    // Continue to next strategy
+  }
+  
+  // Strategy 3: Fallback to markdown bullet extraction
+  const bullets: string[] = []
+  const lines = text.split('\n')
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim()
+    
+    // Match various bullet formats
+    const bulletMatch = trimmedLine.match(/^[-*•●▪▫◦‣⁃]\s+(.+)$/)
+    if (bulletMatch && bulletMatch[1]) {
+      const bulletText = bulletMatch[1].trim()
+      if (bulletText.length > 0) {
+        bullets.push(bulletText)
+      }
+    }
+    
+    // Also match numbered lists
+    const numberedMatch = trimmedLine.match(/^\d+[.)]\s+(.+)$/)
+    if (numberedMatch && numberedMatch[1]) {
+      const bulletText = numberedMatch[1].trim()
+      if (bulletText.length > 0) {
+        bullets.push(bulletText)
+      }
+    }
+  }
+  
+  // Dedupe and return
+  const uniqueBullets: string[] = [...new Set(bullets)]
+  return { bullets: uniqueBullets.length > 0 ? uniqueBullets : [] }
+}
+
+/**
  * Extract deal points from document chunks for fast path caching
  */
-async function extractDealPoints(chunks: any[], contentHash: string) {
+async function extractDealPoints(chunks: any[], contentHash: string, requestId?: string) {
   try {
     const EXTRACTOR_VERSION = "2024-01-20-v2" // Bump when logic changes
     
@@ -485,59 +568,82 @@ async function extractDealPoints(chunks: any[], contentHash: string) {
     const firstSixPages = chunks.filter(chunk => (chunk.page || 1) <= 6)
     if (firstSixPages.length === 0) return null
     
+    // INPUT SIZE GUARD: Limit text to prevent 413 errors
     const combinedText = firstSixPages
       .map(chunk => chunk.text || '')
       .join('\n\n')
-      .substring(0, 8000) // Limit for model context
+      .substring(0, 4000) // Reduced from 8000 to prevent 413 errors
     
-    // Use fast model for extraction
+    // Use fast model for extraction with Responses API
     const { createChatCompletion } = await import('@/lib/services/openai')
     const { getModelConfiguration } = await import('@/lib/config/validate-models')
     
     const modelConfig = getModelConfiguration()
+    
+    // Use Responses API with strict JSON schema
     const extractionPayload = {
       model: modelConfig.fast,
-      messages: [
+      input: [
         {
           role: 'system',
-          content: 'Extract key deal points, investment highlights, and important terms from this commercial real estate document. Return a JSON object with "bullets" array (key points) and "citations" array (page references).'
+          content: 'Extract 3-5 key deal points from this commercial real estate document. Return ONLY a JSON object with a "bullets" array containing the most important investment highlights.'
         },
         {
           role: 'user', 
-          content: `Extract the key deal points from this document:\n\n${combinedText}`
+          content: `Extract key deal points:\n${combinedText.substring(0, 3500)}` // Further trim for safety
         }
       ],
-      max_tokens: 350,
-      temperature: 0.1
-    } as any
-    extractionPayload.response_format = { type: 'json_object' }
-    
-    const extractionResult = await createChatCompletion(extractionPayload)
-    
-    if (extractionResult.content) {
-      try {
-        // CRITICAL: Strip code fences before parsing JSON
-        const cleanContent = stripCodeFences(extractionResult.content)
-        const parsed = JSON.parse(cleanContent)
-        
-        if (parsed.bullets && Array.isArray(parsed.bullets) && parsed.bullets.length > 0) {
-          return {
-            bullets: parsed.bullets.slice(0, 10), // Limit bullets
-            citations: (parsed.citations || []).slice(0, 10), // Limit citations
-            createdAt: new Date().toISOString(),
-            contentHash,
-            version: 2,
-            extractorVersion: EXTRACTOR_VERSION,
-            source: 'ai'
+      temperature: 0,
+      max_output_tokens: 350,
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'deal_points_v1',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['bullets'],
+            properties: {
+              bullets: {
+                type: 'array',
+                minItems: 1,
+                items: {
+                  type: 'string',
+                  minLength: 1
+                }
+              }
+            }
           }
         }
-      } catch (parseError) {
-        // Enhanced error logging without throwing
-        console.warn('[extractDealPoints] JSON parse failed - content preview:', extractionResult.content.substring(0, 200))
-        console.warn('[extractDealPoints] Parse error:', parseError instanceof Error ? parseError.message : String(parseError))
+      }
+    } as any
+    
+    // Generate requestId if not provided
+    const dealPointRequestId = requestId || `pdf-${contentHash}-${Date.now()}`
+    const extractionResult = await createChatCompletion(extractionPayload, {
+      requestId: dealPointRequestId
+    })
+    
+    if (extractionResult.content) {
+      // Use safe parser with fallback strategies
+      const parsed = parseDealPointsSafe(extractionResult.content)
+      
+      if (parsed.bullets && parsed.bullets.length > 0) {
+        // Success - we have bullets
+        console.log('[extractDealPoints] Deal points extraction completed with', parsed.bullets.length, 'bullets')
         
-        // Return null instead of throwing to prevent blocking
-        return null
+        return {
+          bullets: parsed.bullets.slice(0, 10), // Limit to 10 bullets
+          citations: [], // Citations will be empty for now since we're using strict JSON
+          createdAt: new Date().toISOString(),
+          contentHash,
+          version: 2,
+          extractorVersion: EXTRACTOR_VERSION,
+          source: 'ai'
+        }
+      } else {
+        console.log('[extractDealPoints] No bullets extracted from AI response')
       }
     }
     
