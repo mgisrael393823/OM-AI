@@ -2,13 +2,18 @@ import OpenAI from 'openai'
 import { isResponsesModel } from './modelUtils'
 
 /**
- * Removes response_format when set to text. The current OpenAI SDK
- * doesn't require an explicit text response format and will throw
- * errors if the field is provided. We keep the response_format for
- * other types like json_schema.
+ * Fixes response_format for different API types. 
+ * - Removes response_format when set to text (not supported)
+ * - Removes response_format for Responses API models (unsupported parameter)
+ * - Keeps json_schema format for Chat Completions API
  */
 export function fixResponseFormat(payload: any) {
   if (payload?.response_format?.type === 'text') {
+    delete payload.response_format
+  }
+  
+  // Responses API doesn't support response_format parameter
+  if (payload?.model && isResponsesModel(payload.model)) {
     delete payload.response_format
   }
 }

@@ -8,7 +8,8 @@ const customJestConfig = {
   testEnvironment: 'jsdom',
   testMatch: [
     '**/__tests__/**/*.test.ts',
-    '**/__tests__/**/*.test.tsx'
+    '**/__tests__/**/*.test.tsx',
+    '**/tests/**/*.spec.ts'
   ],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {

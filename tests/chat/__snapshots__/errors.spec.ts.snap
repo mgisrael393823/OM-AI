@@ -1,0 +1,23 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`chat errors produces structured error shape when requested via header 1`] = `
+{
+  "error": {
+    "code": "TEST_CODE",
+    "message": "Test message",
+    "requestId": "req-123",
+    "type": "api_error",
+  },
+}
+`;
+
+exports[`chat errors produces structured error shape when requested via query param 1`] = `
+{
+  "error": {
+    "code": "TEST_CODE",
+    "message": "Test message",
+    "requestId": "req-123",
+    "type": "api_error",
+  },
+}
+`;

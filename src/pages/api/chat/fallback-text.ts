@@ -193,8 +193,8 @@ async function fallbackTextHandler(req: AuthenticatedRequest, res: NextApiRespon
       requestId: requestId
     })
 
-    // Call OpenAI with forced text output
-    const ai = await createChatCompletion(payload)
+    // Call OpenAI with forced text output and requestId
+    const ai = await createChatCompletion(payload, { requestId })
 
     // Guard against null/undefined AI response
     if (!ai || typeof ai !== 'object') {

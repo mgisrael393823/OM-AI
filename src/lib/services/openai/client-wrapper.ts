@@ -13,13 +13,14 @@ const openai = new OpenAI({
   maxRetries: 0 // We handle retries manually
 });
 
-interface CallOptions {
+export interface CallOptions {
   messages?: any[];
   input?: string | any[];
   maxTokens: number;
   stream: boolean;
   temperature?: number;
   signal?: AbortSignal;
+  requestId: string;
 }
 
 /**
@@ -32,7 +33,7 @@ export async function callOpenAIWithFallback(
   const config = getModelConfiguration();
   const primaryModel = customModel || config.main;
   const fallbackModel = config.fallback;
-  const requestId = generateRequestId();
+  const requestId = options.requestId;
   
   // Try primary model
   try {
