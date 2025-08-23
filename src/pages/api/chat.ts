@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { z } from 'zod'
 import { withAuth, withRateLimit, type AuthenticatedRequest } from '@/lib/auth-middleware'
 import { createChatCompletion, fixResponseFormat } from '@/lib/services/openai'
+import { jsonError } from '@/lib/chat/errors'
 import { chatCompletion as buildChatCompletion, responses as buildResponses } from '@/lib/services/openai/builders'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { isChatModel, isResponsesModel as isResponsesModelUtil } from '@/lib/services/openai/modelUtils'
@@ -144,7 +145,8 @@ async function runTextFallback(
   messages: Message[],
   apiFamily: 'chat' | 'responses',
   reason: 'json_parse' | 'timeout' | 'empty_content' | 'schema_error',
-  signal: AbortSignal
+  signal: AbortSignal,
+  requestId: string
 ): Promise<{content: string, model: string, usage: any, reason: string}> {
   const fallbackTokenParams = getTokenParam(originalPayload.model, 600)
   const fallbackPayload = apiFamily === 'responses'
@@ -171,7 +173,7 @@ async function runTextFallback(
   }
 
   fixResponseFormat(fallbackPayload)
-  const fallbackResult = await createChatCompletion(fallbackPayload, { signal })
+  const fallbackResult = await createChatCompletion(fallbackPayload, { signal, requestId })
 
   return {
     content: fallbackResult.content || '',
@@ -181,19 +183,53 @@ async function runTextFallback(
   }
 }
 
+const SAFE_FALLBACK_MESSAGE = "I couldn't generate a response. Please try rephrasing your question or ensure a document is uploaded."
+
 /**
  * Chat endpoint handler that supports both Chat Completions and Responses API
  */
-async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
+async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Promise<void> {
+  // Handle OPTIONS preflight for CORS
+  if (req.method === 'OPTIONS') {
+    // Echo origin if present, otherwise use wildcard
+    const origin = req.headers.origin || '*'
+    
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Request-ID, X-Correlation-ID, Authorization')
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    res.setHeader('Access-Control-Max-Age', '86400')
+    res.setHeader('Vary', 'Origin')
+    
+    res.status(200).end()
+    return
+  }
+
+  // GUARANTEED: Generate single requestId for entire request lifecycle - NEVER regenerate
+  const requestIdHeader =
+    (req.headers['x-request-id'] as string) ||
+    (req.headers['x-correlation-id'] as string) ||
+    (req.query.request_id as string) ||
+    (req.query.requestId as string)
+  const requestId = requestIdHeader || generateReqId('chat')
+  if (!req.headers['x-request-id']) {
+    req.headers['x-request-id'] = requestId
+  }
+  // Set response header to propagate requestId downstream
+  res.setHeader('X-Request-ID', requestId)
+  const userId = req.user?.id || 'anonymous'
+
   // Kill switch: Route to conversational endpoint when flag is enabled
   if (process.env.CONVERSATIONAL_CHAT === '1') {
     const { default: conversationalHandler } = await import('./chat-conversational')
     return conversationalHandler(req, res)
   }
 
-  // GUARANTEED: Generate single requestId for entire request lifecycle - NEVER regenerate
-  const requestId = generateReqId('chat')
-  const userId = req.user?.id || 'anonymous'
+  // Flagged path: delegate to refactored router when enabled
+  if (process.env.CHAT_ROUTER === 'v2') {
+    const { handle } = await import('@/lib/chat/router')
+    const model = req.body?.model
+    return handle(req, res, { requestId, userId, model })
+  }
   let correlationId: string = (req.headers['x-correlation-id'] as string) || requestId
   let requestBody: any
   let completed = false  // Track successful completion
@@ -211,15 +247,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   try {
     // VALIDATION: Method check with structured error response
     if (req.method !== 'POST') {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      return res.status(405).json({
-        error: {
-          type: 'api_error',
-          code: 'METHOD_NOT_ALLOWED',
-          message: 'Only POST method is allowed for this endpoint',
-          requestId: requestId
-        }
-      })
+      jsonError(res, 405, 'METHOD_NOT_ALLOWED', 'Only POST and OPTIONS methods are allowed', requestId, req)
+      return
     }
 
     requestBody = req.body ?? {}
@@ -708,7 +737,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
               schema: {
                 type: 'object',
                 additionalProperties: false,
-                required: ['bullets', 'citations', 'confidence', 'schema_version'],
+                required: ['bullets', 'citations', 'confidence', 'distinctPages', 'schema_version'],
                 properties: {
                   bullets: { 
                     type: 'array', 
@@ -743,7 +772,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         let stageAResult
         try {
           fixResponseFormat(stageAPayload)
-          stageAResult = await createChatCompletion(stageAPayload, { signal })
+          stageAResult = await createChatCompletion(stageAPayload, { signal, requestId })
         } catch (schemaError: any) {
           // Fast-fail on 4xx schema validation errors - jump to fallback
           if (schemaError.status === 400 || schemaError.message?.includes('schema')) {
@@ -762,7 +791,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             
             try {
               const fallbackResult = await runTextFallback(
-                payload, messages, apiFamily, 'schema_error', fallbackController.signal
+                payload, messages, apiFamily, 'schema_error', fallbackController.signal, requestId
               )
               clearTimeout(fallbackTimeout)
               
@@ -829,7 +858,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
               const stageBStart = Date.now()
               fixResponseFormat(stageBPayload)
-              const stageBResult = await createChatCompletion(stageBPayload, { signal })
+              const stageBResult = await createChatCompletion(stageBPayload, { signal, requestId })
               const stageBTime = Date.now() - stageBStart
               
               if (stageBResult.content?.trim()) {
@@ -905,7 +934,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             
             try {
               const fallbackResult = await runTextFallback(
-                payload, messages, apiFamily, 'json_parse', fallbackController.signal
+                payload, messages, apiFamily, 'json_parse', fallbackController.signal, requestId
               )
               clearTimeout(fallbackTimeout)
               
@@ -1091,7 +1120,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
       try {
         fixResponseFormat(fallbackPayload)
-        const fallbackAi = await createChatCompletion(fallbackPayload, { signal })
+        const fallbackAi = await createChatCompletion(fallbackPayload, { signal, requestId })
         
         if (fallbackAi?.content && fallbackAi.content.trim().length > 0) {
           structuredLog('info', 'Fallback text generated successfully', {
@@ -1142,7 +1171,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       
       try {
         const fallbackResult = await runTextFallback(
-          payload, messages, apiFamily, 'empty_content', fallbackController.signal
+          payload, messages, apiFamily, 'empty_content', fallbackController.signal, requestId
         )
         clearTimeout(fallbackTimeout)
         
@@ -1172,8 +1201,18 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('X-Correlation-ID', correlationId)
     
+    // Ensure we always return non-empty content
+    const finalContent = ai?.content && ai.content.trim().length > 0 ? ai.content : SAFE_FALLBACK_MESSAGE
+    if (finalContent === SAFE_FALLBACK_MESSAGE) {
+      structuredLog('info', 'Applied safe fallback message for empty content', {
+        requestId,
+        userId,
+        reason: 'final_response_empty'
+      })
+    }
+    
     res.status(200).json({ 
-      message: ai?.content || '',
+      message: finalContent,
       model: ai?.model || model,
       usage: ai?.usage || {},
       correlationId,
@@ -1324,6 +1363,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     
     // Pre-stream error - safe to send JSON
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    
+    // Handle MISSING_REQUEST_ID error specifically
+    if (error?.code === 'MISSING_REQUEST_ID') {
+      res.setHeader('x-request-id', requestId)
+      return jsonError(res, 500, error.code, error.message || 'Request ID is required', requestId, req)
+    }
     
     // Safe Sentry tagging with requestId, model, and tokenParam
     Sentry.withScope((scope) => {

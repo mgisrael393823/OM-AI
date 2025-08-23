@@ -267,8 +267,34 @@ The endpoint accepts two valid request formats. **Never send null values** - omi
 - ✅ **Model routing**: API automatically detects format based on model family
 
 > **Migration Notice**
-> Endpoints `/api/chat-v2` and `/api/chat-enhanced` are deprecated as of 2025-01-25 and will be removed on 2025-04-01.
+> Endpoints `/api/chat-v2` and `/api/chat-enhanced` were removed on 2025-04-01.
 > Legacy `{message: string}` format is no longer supported. Use the formats above.
+
+### Chat Router Flag
+
+- `CHAT_ROUTER=v2` enables the new modular router architecture at `@/lib/chat/router`
+- Default (unset or any other value) uses the legacy chat path
+- The new router provides improved logging, metrics, and handler separation
+
+**Structured Error Format**: By default, errors use legacy format for backward compatibility:
+```json
+{
+  "error": "Human readable message",
+  "code": "ERROR_CODE"
+}
+```
+
+To opt-in to structured errors, include the header `X-Error-Format: structured`:
+```json
+{
+  "error": {
+    "type": "api_error",
+    "code": "ERROR_CODE",
+    "message": "Human readable message",
+    "requestId": "req-123"
+  }
+}
+```
 
 #### POST `/api/upload`
 Upload a PDF document
