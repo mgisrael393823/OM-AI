@@ -9,10 +9,21 @@ import { retrieveTopK } from '@/lib/rag/retriever'
 import { augmentMessagesWithContext } from '@/lib/rag/augment'
 import * as kvStore from '@/lib/kv-store'
 import { structuredLog, generateRequestId } from '@/lib/log'
-import { callOpenAIWithFallback } from '@/lib/services/openai/client-wrapper'
-import { getModelConfiguration, validateRequestModel, generateRequestId as generateReqId, getTokenParamForModel, selectTokenParam, getTokenParam } from '@/lib/config/validate-models'
+import { getModelConfiguration, validateRequestModel, getTokenParamForModel, selectTokenParam, getTokenParam } from '@/lib/config/validate-models'
 import * as Sentry from '@sentry/nextjs'
 import crypto from 'crypto'
+
+const SAFE_FALLBACK_MESSAGE = "I couldn't generate a response. Please try rephrasing your question or ensure a document is uploaded."
+
+function jsonError(
+  res: NextApiResponse,
+  status: number,
+  body: { error: string; code: string; message?: string; requestId: string }
+) {
+  if (res.headersSent) return
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  res.status(status).json(body)
+}
 
 // System message for structured output
 const STRUCTURED_OUTPUT_SYSTEM_MESSAGE = {
@@ -144,7 +155,8 @@ async function runTextFallback(
   messages: Message[],
   apiFamily: 'chat' | 'responses',
   reason: 'json_parse' | 'timeout' | 'empty_content' | 'schema_error',
-  signal: AbortSignal
+  signal: AbortSignal,
+  requestId: string
 ): Promise<{content: string, model: string, usage: any, reason: string}> {
   const fallbackTokenParams = getTokenParam(originalPayload.model, 600)
   const fallbackPayload = apiFamily === 'responses'
@@ -171,7 +183,7 @@ async function runTextFallback(
   }
 
   fixResponseFormat(fallbackPayload)
-  const fallbackResult = await createChatCompletion(fallbackPayload, { signal })
+  const fallbackResult = await createChatCompletion(fallbackPayload, { signal, requestId })
 
   return {
     content: fallbackResult.content || '',
@@ -185,14 +197,33 @@ async function runTextFallback(
  * Chat endpoint handler that supports both Chat Completions and Responses API
  */
 async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
+  // GUARANTEED: Generate single requestId for entire request lifecycle - NEVER regenerate
+  const requestId = (req.headers['x-request-id'] as string) ||
+    (req.query.requestId as string) ||
+    generateRequestId('chat')
+  req.headers['x-request-id'] = requestId
+  res.setHeader('x-request-id', requestId)
+
+  // Optional router for modular system
+  if (process.env.CHAT_ROUTER === 'v2') {
+    try {
+      // @ts-ignore optional module
+      const { default: chatRouter } = await import('@/lib/chat/router')
+      return chatRouter(req, res)
+    } catch (e) {
+      structuredLog('error', 'CHAT_ROUTER_V2_NOT_AVAILABLE', {
+        requestId,
+        userId: req.user?.id || 'anonymous'
+      })
+    }
+  }
+
   // Kill switch: Route to conversational endpoint when flag is enabled
   if (process.env.CONVERSATIONAL_CHAT === '1') {
     const { default: conversationalHandler } = await import('./chat-conversational')
     return conversationalHandler(req, res)
   }
 
-  // GUARANTEED: Generate single requestId for entire request lifecycle - NEVER regenerate
-  const requestId = generateReqId('chat')
   const userId = req.user?.id || 'anonymous'
   let correlationId: string = (req.headers['x-correlation-id'] as string) || requestId
   let requestBody: any
@@ -200,7 +231,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   
   // Create AbortController for this request with production timeout
   const abortController = new AbortController()
-  const primaryTimeout = setTimeout(() => abortController.abort(), 10000) // 10s production timeout
+  const primaryTimeout = setTimeout(() => abortController.abort(), 25000) // 25s production timeout
   const signal = abortController.signal
   
   // Track timing and outcomes for terminal logging
@@ -209,50 +240,52 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
   let failure_cause: string | undefined
   
   try {
-    // VALIDATION: Method check with structured error response
     if (req.method !== 'POST') {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      return res.status(405).json({
-        error: {
-          type: 'api_error',
-          code: 'METHOD_NOT_ALLOWED',
-          message: 'Only POST method is allowed for this endpoint',
-          requestId: requestId
-        }
+      return jsonError(res, 405, {
+        error: 'Only POST method is allowed for this endpoint',
+        code: 'METHOD_NOT_ALLOWED',
+        requestId
+      })
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return jsonError(res, 500, {
+        error: 'OpenAI API key not configured',
+        code: 'OPENAI_KEY_MISSING',
+        requestId
       })
     }
 
     requestBody = req.body ?? {}
-    
-    // VALIDATION: Require non-empty message content
-    if (!requestBody.messages || !Array.isArray(requestBody.messages) || requestBody.messages.length === 0) {
-      if (!requestBody.input || (typeof requestBody.input === 'string' && !requestBody.input.trim())) {
-        res.setHeader('Content-Type', 'application/json; charset=utf-8')
-        return res.status(400).json({
-          error: {
-            type: 'api_error',
-            code: 'BAD_REQUEST',
-            message: 'Request must include non-empty messages array or input string',
-            requestId: requestId
-          }
-        })
-      }
+
+    const hasMessages = Array.isArray(requestBody.messages) && requestBody.messages.length > 0
+    const hasText = typeof requestBody.text === 'string' && requestBody.text.trim().length > 0
+
+    if (requestBody.text !== undefined && !hasText) {
+      return jsonError(res, 400, {
+        error: 'Input text or messages array is required',
+        code: 'EMPTY_INPUT',
+        requestId
+      })
     }
-    
-    // Check for empty message content in messages array
-    if (requestBody.messages && Array.isArray(requestBody.messages)) {
-      const hasEmptyMessage = requestBody.messages.some((msg: any) => 
-        !msg.content || (typeof msg.content === 'string' && !msg.content.trim())
+
+    if (!hasMessages && !hasText) {
+      return jsonError(res, 400, {
+        error: 'Input text or messages array is required',
+        code: 'EMPTY_INPUT',
+        requestId
+      })
+    }
+
+    if (hasMessages) {
+      const hasEmptyMessage = requestBody.messages.some((msg: any) =>
+        !msg.content || (typeof msg.content === 'string' && !String(msg.content).trim())
       )
       if (hasEmptyMessage) {
-        res.setHeader('Content-Type', 'application/json; charset=utf-8')
-        return res.status(400).json({
-          error: {
-            type: 'api_error',
-            code: 'BAD_REQUEST',
-            message: 'All messages must have non-empty content',
-            requestId: requestId
-          }
+        return jsonError(res, 400, {
+          error: 'Input text or messages array is required',
+          code: 'EMPTY_INPUT',
+          requestId
         })
       }
     }
@@ -743,7 +776,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
         let stageAResult
         try {
           fixResponseFormat(stageAPayload)
-          stageAResult = await createChatCompletion(stageAPayload, { signal })
+          stageAResult = await createChatCompletion(stageAPayload, { signal, requestId })
         } catch (schemaError: any) {
           // Fast-fail on 4xx schema validation errors - jump to fallback
           if (schemaError.status === 400 || schemaError.message?.includes('schema')) {
@@ -758,21 +791,20 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             // Clear primary timeout and start fallback budget  
             clearTimeout(primaryTimeout)
             const fallbackController = new AbortController()
-            const fallbackTimeout = setTimeout(() => fallbackController.abort(), 4000) // 4s fallback budget
-            
+            const fallbackTimeout = setTimeout(() => fallbackController.abort(), 10000) // 10s fallback budget
+
             try {
               const fallbackResult = await runTextFallback(
-                payload, messages, apiFamily, 'schema_error', fallbackController.signal
+                payload, messages, apiFamily, 'schema_error', fallbackController.signal, `${requestId}-fb1`
               )
-              clearTimeout(fallbackTimeout)
-              
+
               outcome = 'fallback'
               failure_cause = 'schema_error'
-              
-              // Set response and return early
-              res.setHeader('X-Text-Bytes', new TextEncoder().encode(fallbackResult.content).length.toString())
+
+              const fbContent = fallbackResult.content || SAFE_FALLBACK_MESSAGE
+              res.setHeader('X-Text-Bytes', new TextEncoder().encode(fbContent).length.toString())
               return res.status(200).json({
-                message: fallbackResult.content,
+                message: fbContent,
                 model: fallbackResult.model,
                 usage: fallbackResult.usage,
                 fallback_reason: 'schema_error',
@@ -780,8 +812,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
                 requestId: requestId
               })
             } catch (fallbackError) {
-              clearTimeout(fallbackTimeout)
               throw fallbackError // Let main error handler deal with this
+            } finally {
+              clearTimeout(fallbackTimeout)
             }
           }
           // Re-throw other errors to main handler
@@ -829,7 +862,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
               const stageBStart = Date.now()
               fixResponseFormat(stageBPayload)
-              const stageBResult = await createChatCompletion(stageBPayload, { signal })
+              const stageBResult = await createChatCompletion(stageBPayload, { signal, requestId })
               const stageBTime = Date.now() - stageBStart
               
               if (stageBResult.content?.trim()) {
@@ -901,21 +934,20 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
             // Clear primary timeout and start fallback budget
             clearTimeout(primaryTimeout)
             const fallbackController = new AbortController()
-            const fallbackTimeout = setTimeout(() => fallbackController.abort(), 4000) // 4s fallback budget
-            
+            const fallbackTimeout = setTimeout(() => fallbackController.abort(), 10000) // 10s fallback budget
+
             try {
               const fallbackResult = await runTextFallback(
-                payload, messages, apiFamily, 'json_parse', fallbackController.signal
+                payload, messages, apiFamily, 'json_parse', fallbackController.signal, `${requestId}-fb2`
               )
-              clearTimeout(fallbackTimeout)
-              
+
               outcome = 'fallback'
               failure_cause = 'json_parse'
-              
-              // Set response and return early
-              res.setHeader('X-Text-Bytes', new TextEncoder().encode(fallbackResult.content).length.toString())
+
+              const fbContent = fallbackResult.content || SAFE_FALLBACK_MESSAGE
+              res.setHeader('X-Text-Bytes', new TextEncoder().encode(fbContent).length.toString())
               return res.status(200).json({
-                message: fallbackResult.content,
+                message: fbContent,
                 model: fallbackResult.model,
                 usage: fallbackResult.usage,
                 fallback_reason: 'json_parse',
@@ -923,8 +955,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
                 requestId: requestId
               })
             } catch (fallbackError) {
-              clearTimeout(fallbackTimeout)
               throw fallbackError // Let main error handler deal with this
+            } finally {
+              clearTimeout(fallbackTimeout)
             }
           }
         }
@@ -1091,7 +1124,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
 
       try {
         fixResponseFormat(fallbackPayload)
-        const fallbackAi = await createChatCompletion(fallbackPayload, { signal })
+        const fallbackAi = await createChatCompletion(fallbackPayload, { signal, requestId: `${requestId}-fb4` })
         
         if (fallbackAi?.content && fallbackAi.content.trim().length > 0) {
           structuredLog('info', 'Fallback text generated successfully', {
@@ -1118,10 +1151,6 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       }
     }
 
-    // Set X-Text-Bytes header for fallback gating
-    const responseBytes = new TextEncoder().encode(ai?.content || '').length
-    res.setHeader('X-Text-Bytes', responseBytes.toString())
-    
     // Check for empty content after completion - route to fallback instead of 502 (only if stream didn't succeed)
     const hasToolCalls = !!((ai as any)?.tool_calls && (ai as any).tool_calls.length > 0)
     if (!didStreamSucceed && (!ai?.content || ai.content.trim().length === 0) && !hasToolCalls && !signal.aborted) {
@@ -1138,34 +1167,39 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       // Clear primary timeout and start fallback budget
       clearTimeout(primaryTimeout)
       const fallbackController = new AbortController()
-      const fallbackTimeout = setTimeout(() => fallbackController.abort(), 4000) // 4s fallback budget
-      
+      const fallbackTimeout = setTimeout(() => fallbackController.abort(), 10000) // 10s fallback budget
+
       try {
         const fallbackResult = await runTextFallback(
-          payload, messages, apiFamily, 'empty_content', fallbackController.signal
+          payload, messages, apiFamily, 'empty_content', fallbackController.signal, `${requestId}-fb3`
         )
-        clearTimeout(fallbackTimeout)
-        
+
         outcome = 'fallback'
         failure_cause = 'empty_content'
-        
+
         // Use fallback content and continue with response
         ai.content = fallbackResult.content || ''
         ai.model = fallbackResult.model || model
         ai.usage = fallbackResult.usage || {}
         ;(ai as any).fallback_reason = 'empty_content'
       } catch (fallbackError) {
-        clearTimeout(fallbackTimeout)
-        // If fallback also fails, return 502
-        return res.status(502).json({
-          error: 'empty_text',
-          code: 'EMPTY_RESPONSE',
-          message: 'The AI response was empty and fallback failed. Please try again.',
-          requestId: requestId
+        return jsonError(res, 502, {
+          error: 'LLM_UNAVAILABLE',
+          message: 'All model attempts failed',
+          code: 'MODEL_CASCADE_FAILED',
+          requestId
         })
+      } finally {
+        clearTimeout(fallbackTimeout)
       }
     }
-    
+    if (!ai?.content || ai.content.trim().length === 0) {
+      ai.content = SAFE_FALLBACK_MESSAGE
+    }
+
+    const finalBytes = new TextEncoder().encode(ai.content).length
+    res.setHeader('X-Text-Bytes', finalBytes.toString())
+
     // SUCCESS PATHS: JSON only for now to avoid SSE/JSON header mixing
     // Set JSON headers only - no SSE headers to prevent corruption
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -1263,42 +1297,56 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       // Pre-stream error - safe to send JSON
       // Map OpenAI errors to structured responses
       if (openAIError?.status === 401 || openAIError?.status === 403) {
-        return res.status(502).json({
+        return jsonError(res, 502, {
+          error: 'UPSTREAM_AUTH',
           code: 'UPSTREAM_AUTH',
           message: 'Authentication failed with AI service. Please check your API configuration.',
-          requestId: requestId
+          requestId
         })
       }
-      
+
       if (openAIError?.status === 404 || (openAIError?.status === 400 && openAIError?.message?.includes('model'))) {
-        return res.status(400).json({
-          code: 'MODEL_UNAVAILABLE', 
+        return jsonError(res, 400, {
+          error: 'MODEL_UNAVAILABLE',
+          code: 'MODEL_UNAVAILABLE',
           message: `Model '${requestModel}' is not available or accessible. Please try a different model.`,
-          requestId: requestId
+          requestId
         })
       }
-      
+
       if (openAIError?.status === 429) {
-        return res.status(502).json({
+        return jsonError(res, 502, {
+          error: 'UPSTREAM_ERROR',
           code: 'UPSTREAM_ERROR',
           message: 'AI service is currently rate limited. Please try again in a moment.',
-          requestId: requestId
+          requestId
         })
       }
-      
-      if (openAIError?.status >= 500 || openAIError?.name === 'AbortError' || signal.aborted) {
-        return res.status(502).json({
+
+      if (openAIError?.name === 'AbortError' || signal.aborted) {
+        return jsonError(res, 503, {
+          error: 'Upstream timeout',
+          code: 'UPSTREAM_TIMEOUT',
+          message: 'The upstream service timed out',
+          requestId
+        })
+      }
+
+      if (openAIError?.status >= 500) {
+        return jsonError(res, 502, {
+          error: 'UPSTREAM_ERROR',
           code: 'UPSTREAM_ERROR',
-          message: signal.aborted ? 'Request timeout - please try again with a shorter message.' : 'AI service is temporarily unavailable. Please try again.',
-          requestId: requestId
+          message: 'AI service is temporarily unavailable. Please try again.',
+          requestId
         })
       }
-      
+
       // Generic upstream error
-      return res.status(502).json({
+      return jsonError(res, 502, {
+        error: 'UPSTREAM_ERROR',
         code: 'UPSTREAM_ERROR',
         message: 'AI service error occurred. Please try again.',
-        requestId: requestId
+        requestId
       })
     }
     
@@ -1329,6 +1377,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     Sentry.withScope((scope) => {
       scope.setTag('requestId', requestId)
       scope.setTag('model', requestBody?.model || getModelConfiguration().main)
+      scope.setTag('issue', 'OM-AI-9')
       
       // Safe tokenParam handling
       if (error.code === 'MODEL_UNAVAILABLE') {
@@ -1382,11 +1431,28 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
     if (signal.aborted || error?.name === 'AbortError') {
       outcome = 'fallback'
       failure_cause = 'timeout'
-    } else {
-      outcome = 'fallback'  
-      failure_cause = 'error'
+
+      structuredLog('error', 'Chat request failed', {
+        documentId: requestBody?.metadata?.documentId,
+        userId,
+        outcome,
+        failure_cause,
+        latency_ms: Date.now() - startTime,
+        correlationId,
+        requestId: requestId
+      })
+
+      return jsonError(res, 503, {
+        error: 'Upstream timeout',
+        code: 'UPSTREAM_TIMEOUT',
+        message: 'The upstream service timed out',
+        requestId
+      })
     }
-    
+
+    outcome = 'fallback'
+    failure_cause = 'error'
+
     // Log failure before returning error response
     structuredLog('error', 'Chat request failed', {
       documentId: requestBody?.metadata?.documentId,
@@ -1398,10 +1464,11 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse) {
       requestId: requestId
     })
 
-    return res.status(502).json({ 
-      code: 'UPSTREAM_ERROR',
-      message: error?.message || 'AI service temporarily unavailable',
-      requestId: requestId
+    return jsonError(res, 502, {
+      error: 'LLM_UNAVAILABLE',
+      message: 'All model attempts failed',
+      code: 'MODEL_CASCADE_FAILED',
+      requestId
     })
   } finally {
     // CONDITIONAL: Only abort if not completed successfully
