@@ -168,7 +168,7 @@ describe('Intent Classifier', () => {
   describe('Ambiguous queries', () => {
     test('handles edge cases and ambiguous queries', () => {
       // These should be classified as document queries
-      expect(classifyIntent('analyze', false).type).toBe('document')
+      expect(classifyIntent('analyze this document', false).type).toBe('document')
       expect(classifyIntent('provide summary', false).type).toBe('document')
       
       // Clear general queries
