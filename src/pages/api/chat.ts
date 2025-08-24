@@ -25,6 +25,10 @@ const STRUCTURED_OUTPUT_SYSTEM_MESSAGE = {
 
 // Runtime controlled by vercel.json
 
+// Request counters for observability
+let gatedRequestsCount = 0
+let totalRequestsCount = 0
+
 // Message schema for validation
 const MessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant']),
@@ -511,6 +515,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     const clientOverride = requestBody.metadata?.requireDocumentContext
     const classification = classifyIntent(userQuery, hasDocumentId, clientOverride)
     
+    // Increment total requests counter
+    totalRequestsCount++
+    
     // Log classification for observability
     structuredLog('info', 'Intent classification', {
       userId: req.user?.id || 'anonymous',
@@ -521,6 +528,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
       clientOverride,
       detectedPatterns: classification.detectedPatterns,
       classificationTime: classification.classificationTime,
+      totalRequests: totalRequestsCount,
       requestId
     })
 
@@ -617,11 +625,17 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
       const requiredParts = computeRequiredParts(status.pagesIndexed || 0)
       if (status.status !== 'ready' || (status.parts || 0) < requiredParts) {
         if (status.status === 'processing' || (status.parts || 0) < requiredParts) {
-          structuredLog('info', 'Document not ready', {
+          gatedRequestsCount++
+          structuredLog('info', 'Document not ready - gating request', {
             documentId,
             userId,
+            classification: 'document',
+            confidence: classification.confidence,
+            gating_reason: 'document_processing',
             parts: status.parts || 0,
+            requiredParts,
             outcome: 'processing',
+            gatedRequestsTotal: gatedRequestsCount,
             requestId
           })
           const retryAfter = calculateRetryAfter(status.parts || 0, requiredParts)
@@ -676,12 +690,15 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
         messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
       }
     } else if (classification.type === 'document') {
-      structuredLog('warn', 'Missing documentId for document query', {
+      gatedRequestsCount++
+      structuredLog('warn', 'Missing documentId for document query - gating request', {
         userId,
         classification: classification.type,
         confidence: classification.confidence,
+        gating_reason: 'missing_document_id',
         detectedPatterns: classification.detectedPatterns,
         outcome: 'context_unavailable',
+        gatedRequestsTotal: gatedRequestsCount,
         requestId
       })
       return jsonError(res, 424, 'CONTEXT_UNAVAILABLE', 'Document context required for this query', requestId, req)

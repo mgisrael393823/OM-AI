@@ -29,7 +29,10 @@ const CRE_DOCUMENT_PATTERNS = [
   /\b(show\s+me|give\s+me|provide)\b/i,
   // Page/document navigation patterns
   /\bwhat\s+is\s+on\s+page\b/i,
-  /\btell\s+me\s+about\s+this\b/i
+  /\btell\s+me\s+about\s+this\b/i,
+  // Document-specific patterns
+  /\bsummarize\s+(this|the)\s+document\b/i,
+  /\banalyze\s+(this|the)\s+document\b/i
 ]
 
 // Page references - explicit document navigation

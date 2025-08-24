@@ -22,6 +22,17 @@ describe('Intent Classifier', () => {
         type: 'document',
         confidence: expect.any(Number)
       })
+      
+      // Additional CRE triggers
+      expect(classifyIntent('analyze the comps', false)).toMatchObject({
+        type: 'document',
+        confidence: expect.any(Number)
+      })
+      
+      expect(classifyIntent('summarize the rent roll', false)).toMatchObject({
+        type: 'document',
+        confidence: expect.any(Number)
+      })
     })
 
     test('detects page references', () => {
@@ -37,11 +48,21 @@ describe('Intent Classifier', () => {
       expect(result.detectedPatterns).toEqual(expect.arrayContaining([
         expect.stringMatching(/pronoun:/)
       ]))
+      
+      // More pronoun tests with documentId
+      expect(classifyIntent('what are the details of this', true).type).toBe('document')
+      expect(classifyIntent('analyze this deal', true).type).toBe('document')
+      expect(classifyIntent('summarize these terms', true).type).toBe('document')
     })
 
     test('ignores pronouns without documentId', () => {
       const result = classifyIntent('tell me about this concept', false)
       expect(result.type).toBe('general')
+      
+      // More pronoun tests without documentId
+      expect(classifyIntent('tell me about this', false).type).toBe('general')
+      expect(classifyIntent('what are these', false).type).toBe('general')
+      expect(classifyIntent('explain this to me', false).type).toBe('general')
     })
   })
 
@@ -141,6 +162,31 @@ describe('Intent Classifier', () => {
       const result = classifyIntent('test query', false)
       expect(result.classificationTime).toBeGreaterThan(0)
       expect(result.classificationTime).toBeLessThan(100) // Should be fast
+    })
+  })
+
+  describe('Ambiguous queries', () => {
+    test('handles edge cases and ambiguous queries', () => {
+      // These should be classified as document queries
+      expect(classifyIntent('analyze', false).type).toBe('document')
+      expect(classifyIntent('provide summary', false).type).toBe('document')
+      
+      // Clear general queries
+      expect(classifyIntent('hello', false).type).toBe('general')
+      expect(classifyIntent('thank you', false).type).toBe('general')
+      expect(classifyIntent('can you help me', false).type).toBe('general')
+      
+      // These are ambiguous - "analyze the data" could be general or document
+      const ambiguous1 = classifyIntent('analyze the data', false)
+      const ambiguous2 = classifyIntent('show me the summary', false)
+      expect(ambiguous1.type).toMatch(/document|general/)
+      expect(ambiguous2.type).toMatch(/document|general/)
+    })
+    
+    test('handles mixed intent queries', () => {
+      // Mixed but leans document
+      expect(classifyIntent('hello, what is the NOI?', false).type).toBe('document')
+      expect(classifyIntent('thanks, now show me the cap rate', false).type).toBe('document')
     })
   })
 
