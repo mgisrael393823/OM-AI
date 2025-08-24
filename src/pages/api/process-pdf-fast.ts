@@ -217,9 +217,13 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       }
 
       const partsCount = kvChunks.length
-      const MIN_PARTS = parseInt(process.env.MIN_PARTS || '5', 10)
+      const DEFAULT_MIN_PARTS = parseInt(process.env.MIN_PARTS || '5', 10)
+      const requiredParts = Math.min(
+        DEFAULT_MIN_PARTS,
+        Math.max(1, Math.ceil(parseResult.pages.length / 2))
+      )
 
-      if (partsCount < MIN_PARTS) {
+      if (partsCount < requiredParts) {
         await kvStore.setStatus(documentId, 'processing', undefined, partsCount)
         return res.status(202).json({
           documentId,

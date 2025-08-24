@@ -37,13 +37,14 @@ jest.mock('@/lib/rag/augment', () => ({
 describe('Chat API gating', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    process.env.CONVERSATIONAL_CHAT = '0'
   })
 
-  test('missing documentId returns 424', async () => {
+  test('missing documentId on document query returns 424', async () => {
     const { req, res } = createMocks({
       method: 'POST',
       headers: { origin: 'https://example.com' },
-      body: { messages: [{ role: 'user', content: 'hi' }], stream: false }
+      body: { messages: [{ role: 'user', content: 'summarize this document' }], stream: false }
     })
     ;(req as any).user = { id: 'u' }
 
@@ -58,9 +59,23 @@ describe('Chat API gating', () => {
     expect(headers['access-control-allow-origin']).toBe('https://example.com')
   })
 
+  test('general chat without documentId succeeds', async () => {
+    ;(createChatCompletion as jest.Mock).mockResolvedValue({ content: 'hello', model: 'gpt', usage: {} })
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { messages: [{ role: 'user', content: 'hi' }], stream: false }
+    })
+    ;(req as any).user = { id: 'u' }
+
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(200)
+    const data = JSON.parse(res._getData())
+    expect(data.message).toBe('hello')
+  })
+
   test('processing status returns 202 with Retry-After', async () => {
     const { getStatus } = require('@/lib/kv-store')
-    getStatus.mockResolvedValue({ status: 'processing', parts: 0 })
+    getStatus.mockResolvedValue({ status: 'processing', parts: 0, pagesIndexed: 10 })
 
     const { req, res } = createMocks({
       method: 'POST',
@@ -76,7 +91,7 @@ describe('Chat API gating', () => {
   test('zero chunks returns 424', async () => {
     const { getStatus } = require('@/lib/kv-store')
     const { retrieveTopK } = require('@/lib/rag/retriever')
-    getStatus.mockResolvedValue({ status: 'ready', parts: 5 })
+    getStatus.mockResolvedValue({ status: 'ready', parts: 5, pagesIndexed: 10 })
     retrieveTopK.mockResolvedValue([])
 
     const { req, res } = createMocks({
@@ -92,7 +107,7 @@ describe('Chat API gating', () => {
   test('empty model content returns safe fallback message', async () => {
     const { getStatus } = require('@/lib/kv-store')
     const { retrieveTopK } = require('@/lib/rag/retriever')
-    getStatus.mockResolvedValue({ status: 'ready', parts: 5 })
+    getStatus.mockResolvedValue({ status: 'ready', parts: 5, pagesIndexed: 10 })
     retrieveTopK.mockResolvedValue([{ content: 'chunk', page_number: 1 }])
     ;(createChatCompletion as jest.Mock).mockResolvedValue({ content: '' })
 
@@ -111,7 +126,7 @@ describe('Chat API gating', () => {
   test('positive path echoes request id', async () => {
     const { getStatus } = require('@/lib/kv-store')
     const { retrieveTopK } = require('@/lib/rag/retriever')
-    getStatus.mockResolvedValue({ status: 'ready', parts: 5 })
+    getStatus.mockResolvedValue({ status: 'ready', parts: 5, pagesIndexed: 10 })
     retrieveTopK.mockResolvedValue([{ content: 'chunk', page_number: 1 }])
     ;(createChatCompletion as jest.Mock).mockResolvedValue({ content: 'hello', model: 'gpt', usage: {} })
 

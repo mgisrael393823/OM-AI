@@ -111,8 +111,28 @@ const DEAL_POINTS_INTENTS = [
  */
 function isDealPointsQuery(query: string): boolean {
   const lowerQuery = query.toLowerCase()
-  return DEAL_POINTS_INTENTS.some(intent => 
+  return DEAL_POINTS_INTENTS.some(intent =>
     lowerQuery.includes(intent)
+  )
+}
+
+// Basic heuristics to determine if a query requires document context
+const DOCUMENT_CONTEXT_KEYWORDS = [
+  'document',
+  'pdf',
+  'file',
+  'agreement',
+  'contract',
+  'clause',
+  'section',
+  'page'
+]
+
+function requiresDocumentContext(query: string): boolean {
+  const lower = query.toLowerCase()
+  return (
+    isDealPointsQuery(query) ||
+    DOCUMENT_CONTEXT_KEYWORDS.some(kw => lower.includes(kw))
   )
 }
 
@@ -500,12 +520,13 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
       normalizedPath = 'chat-messages'
     }
 
+    const latestUser = [...messages].reverse().find(m => m.role === 'user')
+    const userQuery = latestUser?.content || ''
+
     // Document context augmentation with fast path for deal points
     let status: any = null
     if (requestBody.metadata?.documentId) {
       const documentId = requestBody.metadata.documentId
-      const latestUser = [...messages].reverse().find(m => m.role === 'user')
-      const userQuery = latestUser?.content || ''
       
       // Fast path: Check for deal points intent and cached results
       if (isDealPointsQuery(userQuery)) {
@@ -589,8 +610,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
       }
       
       status = await kvStore.getStatus(documentId, userId)
-      if (status.status !== 'ready' || (status.parts || 0) < MIN_PARTS) {
-        if (status.status === 'processing' || (status.parts || 0) < MIN_PARTS) {
+      const requiredParts = Math.min(
+        MIN_PARTS,
+        Math.max(1, Math.ceil((status.pagesIndexed || 0) / 2))
+      )
+      if (status.status !== 'ready' || (status.parts || 0) < requiredParts) {
+        if (status.status === 'processing' || (status.parts || 0) < requiredParts) {
           structuredLog('info', 'Document not ready', {
             documentId,
             userId,
@@ -648,7 +673,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
         const augmented = augmentMessagesWithContext(chunks, messages)
         messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
       }
-    } else {
+    } else if (requiresDocumentContext(userQuery)) {
       structuredLog('warn', 'Missing documentId', {
         userId,
         outcome: 'context_unavailable',
@@ -682,8 +707,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     
     // Model cascade for deal points queries when fast path cache miss
     let cascadeResult: any = null
-    const latestUser = [...messages].reverse().find(m => m.role === 'user')
-    const isDeepAnalysisQuery = isDealPointsQuery(latestUser?.content || '') && requestBody.metadata?.documentId
+    const latestUserPost = [...messages].reverse().find(m => m.role === 'user')
+    const isDeepAnalysisQuery = isDealPointsQuery(latestUserPost?.content || '') && requestBody.metadata?.documentId
     
     if (isDeepAnalysisQuery) {
       try {
