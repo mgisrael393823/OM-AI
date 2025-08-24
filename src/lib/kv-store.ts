@@ -345,6 +345,7 @@ export interface DocumentStatus {
   error?: string
   parts?: number
   pagesIndexed?: number
+  updatedAt?: string
 }
 
 /**
@@ -444,7 +445,8 @@ async function retryKvOperation<T>(
 export async function setStatus(
   documentId: string,
   status: 'processing' | 'ready' | 'error',
-  error?: string
+  error?: string,
+  parts?: number
 ): Promise<boolean> {
   if (!isKvAvailable()) {
     structuredLog('warn', 'Storage unavailable for status write', {
@@ -460,7 +462,9 @@ export async function setStatus(
   const key = `mem:ctx:${documentId}:status`
   const value: DocumentStatus = {
     status,
-    ...(error && { error })
+    ...(error && { error }),
+    ...(parts !== undefined && { parts }),
+    updatedAt: new Date().toISOString()
   }
 
   try {

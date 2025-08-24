@@ -185,6 +185,8 @@ async function runTextFallback(
 
 const SAFE_FALLBACK_MESSAGE = "I couldn't generate a response. Please try rephrasing your question or ensure a document is uploaded."
 
+const MIN_PARTS = parseInt(process.env.MIN_PARTS || '5', 10)
+
 /**
  * Chat endpoint handler that supports both Chat Completions and Responses API
  */
@@ -499,6 +501,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     }
 
     // Document context augmentation with fast path for deal points
+    let status: any = null
     if (requestBody.metadata?.documentId) {
       const documentId = requestBody.metadata.documentId
       const latestUser = [...messages].reverse().find(m => m.role === 'user')
@@ -585,71 +588,28 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
         }
       }
       
-      // Check status first
-      const status = await kvStore.getStatus(documentId, userId)
-      
-      // Handle processing status with retries
-      if (status.status === 'processing') {
-        structuredLog('info', 'Document still processing, retrying', {
-          documentId,
-          userId,
-          kvRead: true,
-          status: 'processing',
-          requestId: requestId
-        })
-        
-        // Retry up to 3 times with 500ms delays
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          await new Promise(resolve => setTimeout(resolve, 500))
-          const retryStatus = await kvStore.getStatus(documentId, userId)
-          
-          if (retryStatus.status === 'ready') {
-            status.status = 'ready'
-            break
-          }
-        }
-        
-        if (status.status === 'processing') {
-          structuredLog('warn', 'Document still processing after retries', {
+      status = await kvStore.getStatus(documentId, userId)
+      if (status.status !== 'ready' || (status.parts || 0) < MIN_PARTS) {
+        if (status.status === 'processing' || (status.parts || 0) < MIN_PARTS) {
+          structuredLog('info', 'Document not ready', {
             documentId,
             userId,
-            kvRead: true,
-            status: 'processing',
-            requestId: requestId
+            parts: status.parts || 0,
+            outcome: 'processing',
+            requestId
           })
-          
-          return res.status(409).json({
-            error: 'Document still processing',
-            code: 'DOCUMENT_PROCESSING',
-            details: 'The document is still being processed. Please try again in a moment.',
-            documentId,
-            status: 'processing',
-            requestId: requestId
-          })
+          res.setHeader('Retry-After', '1')
+          return jsonError(res, 202, 'CONTEXT_PROCESSING', 'Document is still processing', requestId, req)
         }
-      }
-      
-      // Handle error or missing status
-      if (status.status === 'error' || status.status === 'missing') {
-        structuredLog('error', 'Document context not available', {
+
+        structuredLog('warn', 'Document context unavailable', {
           documentId,
           userId,
-          kvRead: true,
           status: status.status,
-          error: status.error,
-          requestId: requestId
+          outcome: 'context_unavailable',
+          requestId
         })
-        
-        return res.status(409).json({
-          error: 'Document context not found',
-          code: 'DOCUMENT_CONTEXT_NOT_FOUND',
-          details: status.status === 'error' 
-            ? `Document processing failed: ${status.error || 'Unknown error'}`
-            : 'The specified document context is not available. It may have expired or was not properly uploaded.',
-          documentId,
-          status: status.status,
-          requestId: requestId
-        })
+        return jsonError(res, 424, 'CONTEXT_UNAVAILABLE', 'Document context not available', requestId, req)
       }
       
       // Retrieve chunks from KV (reduced to 3 for performance)
@@ -669,17 +629,11 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
           userId,
           kvRead: true,
           status: 'empty',
+          outcome: 'context_unavailable',
           requestId: requestId
         })
-        
-        return res.status(424).json({
-          error: 'context_unavailable',
-          code: 'CONTEXT_UNAVAILABLE',
-          message: 'PDF context is not available for this request. Please try again in a moment.',
-          documentId,
-          retryAfterMs: 1500,
-          requestId: requestId
-        })
+
+        return jsonError(res, 424, 'CONTEXT_UNAVAILABLE', 'PDF context is not available for this request', requestId, req)
       } else {
         structuredLog('info', 'Document chunks retrieved', {
           documentId,
@@ -687,12 +641,20 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
           kvRead: true,
           status: 'ready',
           parts: status.parts || 1,
+          outcome: 'ready',
           requestId: requestId
         })
-        
+
         const augmented = augmentMessagesWithContext(chunks, messages)
         messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
       }
+    } else {
+      structuredLog('warn', 'Missing documentId', {
+        userId,
+        outcome: 'context_unavailable',
+        requestId
+      })
+      return jsonError(res, 424, 'CONTEXT_UNAVAILABLE', 'Document context is required', requestId, req)
     }
 
     // Enhanced structured logging with correlation ID
@@ -1249,10 +1211,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     }
     
     // Log successful completion
+    const finalOutcome = finalContent === SAFE_FALLBACK_MESSAGE ? 'empty' : 'success'
     structuredLog('info', 'Chat request completed', {
       documentId: requestBody?.metadata?.documentId,
       userId,
-      outcome,
+      outcome: finalOutcome,
+      parts: status?.parts || 0,
       failure_cause,
       latency_ms: Date.now() - startTime,
       correlationId,
