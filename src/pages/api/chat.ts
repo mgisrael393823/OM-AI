@@ -12,6 +12,8 @@ import * as kvStore from '@/lib/kv-store'
 import { structuredLog, generateRequestId } from '@/lib/log'
 import { callOpenAIWithFallback } from '@/lib/services/openai/client-wrapper'
 import { getModelConfiguration, validateRequestModel, generateRequestId as generateReqId, getTokenParamForModel, selectTokenParam, getTokenParam } from '@/lib/config/validate-models'
+import { classifyIntent, isComparisonQuery } from '@/lib/chat/intent-classifier'
+import { computeRequiredParts, calculateRetryAfter } from '@/lib/utils/document-readiness'
 import * as Sentry from '@sentry/nextjs'
 import crypto from 'crypto'
 
@@ -34,7 +36,10 @@ const BaseRequestSchema = z.object({
   sessionId: z.string().optional(), // Only string, null will be rejected
   stream: z.boolean().optional(),
   metadata: z.object({
-    documentId: z.string().optional()
+    documentId: z.string().optional(),
+    documentIds: z.array(z.string()).optional(),
+    compareDocumentId: z.string().optional(),
+    requireDocumentContext: z.boolean().optional()
   }).optional()
 })
 
@@ -116,45 +121,7 @@ function isDealPointsQuery(query: string): boolean {
   )
 }
 
-// Basic heuristics to determine if a query requires document context
-const DOCUMENT_CONTEXT_KEYWORDS = [
-  'document',
-  'pdf',
-  'file',
-  'agreement',
-  'contract',
-  'clause',
-  'section',
-  'page'
-]
 
-function requiresDocumentContext(query: string): boolean {
-  const lower = query.toLowerCase()
-  return (
-    isDealPointsQuery(query) ||
-    DOCUMENT_CONTEXT_KEYWORDS.some(kw => lower.includes(kw))
-  )
-}
-
-/**
- * Get content hash from document metadata or compute from context
- */
-async function getDocumentHash(documentId: string, userId: string): Promise<string | null> {
-  try {
-    // For mem- documents, try to get existing context and compute hash
-    if (documentId.startsWith('mem-')) {
-      const context = await kvStore.getContext(documentId, userId)
-      if (context && context.chunks) {
-        const contentText = context.chunks.map(c => c.text || '').join('')
-        return crypto.createHash('sha256').update(contentText).digest('hex').substring(0, 40)
-      }
-    }
-    return null
-  } catch (error) {
-    console.warn('[getDocumentHash] Failed to compute hash:', error)
-    return null
-  }
-}
 
 /**
  * Internal text fallback helper - mirrors context and forces text output
@@ -523,6 +490,40 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     const latestUser = [...messages].reverse().find(m => m.role === 'user')
     const userQuery = latestUser?.content || ''
 
+    // Multi-document API support
+    const documentIds = requestBody.metadata?.documentIds || 
+      (requestBody.metadata?.documentId ? [requestBody.metadata.documentId] : [])
+    const compareDocumentId = requestBody.metadata?.compareDocumentId
+    
+    // Handle comparison queries
+    if (isComparisonQuery(userQuery)) {
+      const allDocs = [...documentIds]
+      if (compareDocumentId) allDocs.push(compareDocumentId)
+      
+      if (allDocs.length < 2) {
+        return jsonError(res, 424, 'COMPARISON_REQUIRES_DOCS', 
+          'Comparison requires multiple documents', requestId, req)
+      }
+    }
+
+    // Intent classification with caching
+    const hasDocumentId = documentIds.length > 0
+    const clientOverride = requestBody.metadata?.requireDocumentContext
+    const classification = classifyIntent(userQuery, hasDocumentId, clientOverride)
+    
+    // Log classification for observability
+    structuredLog('info', 'Intent classification', {
+      userId: req.user?.id || 'anonymous',
+      query: userQuery.substring(0, 100),
+      classification: classification.type,
+      confidence: classification.confidence,
+      hasDocumentId,
+      clientOverride,
+      detectedPatterns: classification.detectedPatterns,
+      classificationTime: classification.classificationTime,
+      requestId
+    })
+
     // Document context augmentation with fast path for deal points
     let status: any = null
     if (requestBody.metadata?.documentId) {
@@ -530,7 +531,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
       
       // Fast path: Check for deal points intent and cached results
       if (isDealPointsQuery(userQuery)) {
-        const docHash = await getDocumentHash(documentId, userId)
+        // Get status first to check for contentHash
+        const statusForCache = await kvStore.getStatus(documentId, userId)
+        const docHash = statusForCache.contentHash
+        
         if (docHash) {
           const dealPointsKey = `dealPoints:${docHash}`
           const cachedDealPoints = await kvStore.getItem(dealPointsKey)
@@ -610,10 +614,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
       }
       
       status = await kvStore.getStatus(documentId, userId)
-      const requiredParts = Math.min(
-        MIN_PARTS,
-        Math.max(1, Math.ceil((status.pagesIndexed || 0) / 2))
-      )
+      const requiredParts = computeRequiredParts(status.pagesIndexed || 0)
       if (status.status !== 'ready' || (status.parts || 0) < requiredParts) {
         if (status.status === 'processing' || (status.parts || 0) < requiredParts) {
           structuredLog('info', 'Document not ready', {
@@ -623,7 +624,8 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
             outcome: 'processing',
             requestId
           })
-          res.setHeader('Retry-After', '1')
+          const retryAfter = calculateRetryAfter(status.parts || 0, requiredParts)
+          res.setHeader('Retry-After', retryAfter.toString())
           return jsonError(res, 202, 'CONTEXT_PROCESSING', 'Document is still processing', requestId, req)
         }
 
@@ -644,7 +646,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
         k: 3,
         maxCharsPerChunk: 1000,
         userId, // Pass userId for security check
-        docHash: (await getDocumentHash(documentId, userId)) || undefined // For cache coherence
+        docHash: status?.contentHash || undefined // For cache coherence
       })
 
       // Context gating: return 424 when no chunks found to prevent AI hallucination
@@ -673,13 +675,16 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
         const augmented = augmentMessagesWithContext(chunks, messages)
         messages = apiFamily === 'chat' ? augmented.chat : augmented.responses
       }
-    } else if (requiresDocumentContext(userQuery)) {
-      structuredLog('warn', 'Missing documentId', {
+    } else if (classification.type === 'document') {
+      structuredLog('warn', 'Missing documentId for document query', {
         userId,
+        classification: classification.type,
+        confidence: classification.confidence,
+        detectedPatterns: classification.detectedPatterns,
         outcome: 'context_unavailable',
         requestId
       })
-      return jsonError(res, 424, 'CONTEXT_UNAVAILABLE', 'Document context is required', requestId, req)
+      return jsonError(res, 424, 'CONTEXT_UNAVAILABLE', 'Document context required for this query', requestId, req)
     }
 
     // Enhanced structured logging with correlation ID

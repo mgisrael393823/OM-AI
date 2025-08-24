@@ -235,8 +235,15 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
         })
       }
 
-      // Set status to ready
-      await kvStore.setStatus(documentId, 'ready', undefined, partsCount)
+      // Calculate contentHash for cache coherence  
+      const contentText = kvChunks.map(c => c.text || '').join('')
+      const textContentHash = crypto.createHash('sha256')
+        .update(contentText)
+        .digest('hex')
+        .substring(0, 40)
+
+      // Set status to ready with contentHash
+      await kvStore.setStatus(documentId, 'ready', undefined, partsCount, textContentHash)
       
       // CRITICAL: Schedule deal points extraction asynchronously (non-blocking)
       setImmediate(async () => {

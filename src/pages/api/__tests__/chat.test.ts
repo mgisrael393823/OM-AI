@@ -141,3 +141,192 @@ describe('Chat API gating', () => {
     expect(res._getHeaders()['x-request-id']).toBeDefined()
   })
 })
+
+describe('Multi-document comparison', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env.CONVERSATIONAL_CHAT = '0'
+  })
+
+  test('comparison with single doc returns 424', async () => {
+    const { getStatus } = require('@/lib/kv-store')
+    getStatus.mockResolvedValue({ status: 'ready', parts: 5, pagesIndexed: 10 })
+    
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { 
+        messages: [{ role: 'user', content: 'compare these documents' }],
+        metadata: { documentId: 'mem-1' },
+        stream: false
+      }
+    })
+    ;(req as any).user = { id: 'u' }
+
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(424)
+    const data = JSON.parse(res._getData())
+    expect(data.code).toBe('COMPARISON_REQUIRES_DOCS')
+    expect(data.message).toBe('Comparison requires multiple documents')
+  })
+
+  test('comparison with documentIds array works', async () => {
+    const { getStatus } = require('@/lib/kv-store')
+    const { retrieveTopK } = require('@/lib/rag/retriever')
+    getStatus.mockResolvedValue({ status: 'ready', parts: 5, contentHash: 'abc123', pagesIndexed: 10 })
+    retrieveTopK.mockResolvedValue([{ content: 'chunk' }])
+    ;(createChatCompletion as jest.Mock).mockResolvedValue({ content: 'comparison result' })
+    
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { 
+        messages: [{ role: 'user', content: 'compare these properties' }],
+        metadata: { documentIds: ['mem-1', 'mem-2'] },
+        stream: false
+      }
+    })
+    ;(req as any).user = { id: 'u' }
+
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(200)
+  })
+
+  test('comparison with compareDocumentId works', async () => {
+    const { getStatus } = require('@/lib/kv-store')
+    const { retrieveTopK } = require('@/lib/rag/retriever')
+    getStatus.mockResolvedValue({ status: 'ready', parts: 5, contentHash: 'abc123', pagesIndexed: 10 })
+    retrieveTopK.mockResolvedValue([{ content: 'chunk' }])
+    ;(createChatCompletion as jest.Mock).mockResolvedValue({ content: 'comparison result' })
+    
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { 
+        messages: [{ role: 'user', content: 'versus the baseline' }],
+        metadata: { documentId: 'mem-1', compareDocumentId: 'mem-2' },
+        stream: false
+      }
+    })
+    ;(req as any).user = { id: 'u' }
+
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(200)
+  })
+})
+
+describe('ContentHash migration', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env.CONVERSATIONAL_CHAT = '0'
+  })
+
+  test('missing contentHash skips cache gracefully', async () => {
+    const { getStatus, getItem } = require('@/lib/kv-store')
+    const { retrieveTopK } = require('@/lib/rag/retriever')
+    getStatus.mockResolvedValue({ 
+      status: 'ready', 
+      parts: 5, 
+      contentHash: null,  // Missing hash
+      pagesIndexed: 10
+    })
+    retrieveTopK.mockResolvedValue([{ content: 'chunk' }])
+    ;(createChatCompletion as jest.Mock).mockResolvedValue({ content: 'response' })
+    
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { 
+        messages: [{ role: 'user', content: 'summarize deal points' }],
+        metadata: { documentId: 'mem-1' },
+        stream: false
+      }
+    })
+    ;(req as any).user = { id: 'u' }
+    
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(200)
+    // Should not attempt cache lookup when contentHash is missing
+    expect(getItem).not.toHaveBeenCalled()
+  })
+
+  test('with contentHash uses cache lookup', async () => {
+    const { getStatus, getItem } = require('@/lib/kv-store')
+    const { retrieveTopK } = require('@/lib/rag/retriever')
+    getStatus.mockResolvedValue({ 
+      status: 'ready', 
+      parts: 5, 
+      contentHash: 'abc123',
+      pagesIndexed: 10
+    })
+    getItem.mockResolvedValue(null) // Cache miss
+    retrieveTopK.mockResolvedValue([{ content: 'chunk' }])
+    ;(createChatCompletion as jest.Mock).mockResolvedValue({ content: 'response' })
+    
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { 
+        messages: [{ role: 'user', content: 'key deal points' }],
+        metadata: { documentId: 'mem-1' },
+        stream: false
+      }
+    })
+    ;(req as any).user = { id: 'u' }
+    
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(200)
+    // Should attempt cache lookup with contentHash
+    expect(getItem).toHaveBeenCalledWith('dealPoints:abc123')
+  })
+})
+
+describe('Intent classification', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env.CONVERSATIONAL_CHAT = '0'
+  })
+
+  test('document queries without documentId return 424', async () => {
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { 
+        messages: [{ role: 'user', content: 'what is the NOI?' }],
+        stream: false
+      }
+    })
+    ;(req as any).user = { id: 'u' }
+
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(424)
+    const data = JSON.parse(res._getData())
+    expect(data.code).toBe('CONTEXT_UNAVAILABLE')
+    expect(data.message).toBe('Document context required for this query')
+  })
+
+  test('page reference without documentId returns 424', async () => {
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { 
+        messages: [{ role: 'user', content: 'what is on page 5?' }],
+        stream: false
+      }
+    })
+    ;(req as any).user = { id: 'u' }
+
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(424)
+  })
+
+  test('client override forces document requirement', async () => {
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { 
+        messages: [{ role: 'user', content: 'hello world' }],
+        metadata: { requireDocumentContext: true },
+        stream: false
+      }
+    })
+    ;(req as any).user = { id: 'u' }
+
+    await handler(req as any, res as any)
+    expect(res._getStatusCode()).toBe(424)
+    const data = JSON.parse(res._getData())
+    expect(data.code).toBe('CONTEXT_UNAVAILABLE')
+  })
+})
