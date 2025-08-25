@@ -14,6 +14,7 @@ import { callOpenAIWithFallback } from '@/lib/services/openai/client-wrapper'
 import { getModelConfiguration, validateRequestModel, generateRequestId as generateReqId, getTokenParamForModel, selectTokenParam, getTokenParam } from '@/lib/config/validate-models'
 import { classifyIntent, isComparisonQuery } from '@/lib/chat/intent-classifier'
 import { computeRequiredParts, calculateRetryAfter } from '@/lib/utils/document-readiness'
+import { normalizeMarkdownBullets } from '@/lib/utils/markdown-normalizer'
 import * as Sentry from '@sentry/nextjs'
 import crypto from 'crypto'
 
@@ -570,6 +571,9 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
             // Add metadata footer
             fastPathResponse += `\n*Source: ${cachedDealPoints.source || 'document analysis'}*`
             
+            // Normalize cached content for consistent markdown rendering (read-time only)
+            fastPathResponse = normalizeMarkdownBullets(fastPathResponse, requestId).content
+            
             // Set X-Text-Bytes header for fallback gating
             const responseBytes = new TextEncoder().encode(fastPathResponse).length
             res.setHeader('X-Text-Bytes', responseBytes.toString())
@@ -900,12 +904,20 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
               let stageAResponse = '## Key Deal Points\n\n'
               if (parsed.bullets && Array.isArray(parsed.bullets)) {
                 for (let i = 0; i < parsed.bullets.length; i++) {
-                  const bullet = parsed.bullets[i]
+                  // Normalize individual bullet content to remove Unicode bullets
+                  let bullet = parsed.bullets[i]
+                  if (typeof bullet === 'string' && /^[•●▪▫◦‣⁃]\s*/.test(bullet)) {
+                    bullet = bullet.replace(/^[•●▪▫◦‣⁃]\s*/, '')
+                  }
+                  
                   const citation = parsed.citations?.[i]
                   const pageRef = citation?.page ? ` (Page ${citation.page})` : ''
                   stageAResponse += `- ${bullet}${pageRef}\n`
                 }
               }
+              
+              // Normalize Stage A response for consistent markdown rendering
+              stageAResponse = normalizeMarkdownBullets(stageAResponse, requestId).content
               
               cascadeResult = {
                 content: stageAResponse,
@@ -979,8 +991,11 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     
     // If cascade produced result, use it
     if (cascadeResult) {
+      // Normalize cascade content for consistent markdown rendering
+      const normalizedCascadeContent = normalizeMarkdownBullets(cascadeResult.content, requestId).content
+      
       // Set X-Text-Bytes header for fallback gating
-      const responseBytes = new TextEncoder().encode(cascadeResult.content).length
+      const responseBytes = new TextEncoder().encode(normalizedCascadeContent).length
       res.setHeader('X-Text-Bytes', responseBytes.toString())
       
       // Non-blocking fire-and-forget persistence
@@ -991,7 +1006,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
             await supabase.from('messages').insert({
               chat_session_id: sessionId,
               role: 'assistant',
-              content: cascadeResult.content,
+              content: normalizedCascadeContent,
               metadata: { 
                 requestId, 
                 correlationId,
@@ -1014,12 +1029,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
         model: cascadeResult.model,
         usage: cascadeResult.usage,
         cascade: cascadeResult.cascade,
-        contentLength: cascadeResult.content.length,
+        contentLength: normalizedCascadeContent.length,
         requestId: requestId
       })
       
       return res.status(200).json({ 
-        message: cascadeResult.content,
+        message: normalizedCascadeContent,
         model: cascadeResult.model,
         usage: cascadeResult.usage,
         cascade: cascadeResult.cascade,
@@ -1211,13 +1226,16 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     res.setHeader('X-Correlation-ID', correlationId)
     
     // Ensure we always return non-empty content
-    const finalContent = ai?.content && ai.content.trim().length > 0 ? ai.content : SAFE_FALLBACK_MESSAGE
+    let finalContent = ai?.content && ai.content.trim().length > 0 ? ai.content : SAFE_FALLBACK_MESSAGE
     if (finalContent === SAFE_FALLBACK_MESSAGE) {
       structuredLog('info', 'Applied safe fallback message for empty content', {
         requestId,
         userId,
         reason: 'final_response_empty'
       })
+    } else {
+      // Normalize final content for consistent markdown rendering
+      finalContent = normalizeMarkdownBullets(finalContent, requestId).content
     }
     
     res.status(200).json({ 

@@ -247,7 +247,7 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh, onRevi
           {isDragActive ? "Drop files here" : "Upload PDF documents"}
         </p>
         <p className={`${typography.helper} text-slate-500 dark:text-slate-400`}>
-          Drag & drop or click to browse • Max {MAX_PDF_MB}MB per file • Direct storage upload
+          Drag & drop or click to browse - Max {MAX_PDF_MB}MB per file - Direct storage upload
         </p>
       </div>
 
@@ -334,8 +334,8 @@ export function DocumentUpload({ onUploadComplete, onDocumentListRefresh, onRevi
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription className={typography.helper}>
-          Supported format: PDF • Maximum file size: {MAX_PDF_MB}MB • 
-          Text will be extracted automatically for AI analysis • Uploads go directly to storage
+          Supported format: PDF - Maximum file size: {MAX_PDF_MB}MB - 
+          Text will be extracted automatically for AI analysis - Uploads go directly to storage
         </AlertDescription>
       </Alert>
     </div>

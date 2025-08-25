@@ -12,6 +12,7 @@
  */
 
 import { structuredLog } from './log'
+import { normalizeDealPointsContent } from './utils/markdown-normalizer'
 import fs from 'fs'
 import path from 'path'
 
@@ -1001,6 +1002,12 @@ export async function getItem(key: string): Promise<any | null> {
       ? JSON.parse(result)
       : result
     
+    // Apply read-time normalization for dealPoints content
+    let finalResult = parsed
+    if (key.startsWith('dealPoints:') && parsed && typeof parsed === 'object' && parsed.bullets) {
+      finalResult = normalizeDealPointsContent(parsed, `get-${Date.now()}`)
+    }
+    
     structuredLog('info', 'Item retrieved', {
       documentId: 'generic',
       userId: 'system',
@@ -1010,7 +1017,7 @@ export async function getItem(key: string): Promise<any | null> {
       requestId: `get-${Date.now()}`
     })
     
-    return parsed
+    return finalResult
   } catch (error) {
     structuredLog('error', 'Failed to get item', {
       documentId: 'generic',

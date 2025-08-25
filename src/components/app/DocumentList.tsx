@@ -129,7 +129,7 @@ export function DocumentList({
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {formatDate(document.uploadedAt)}
                     </p>
-                    <span className="text-xs text-slate-400">•</span>
+                    <span className="text-xs text-slate-400">-</span>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       {document.size}MB
                     </p>
