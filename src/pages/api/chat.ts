@@ -140,7 +140,17 @@ async function runTextFallback(
   signal: AbortSignal,
   requestId: string
 ): Promise<{content: string, model: string, usage: any, reason: string}> {
-  const fallbackTokenParams = getTokenParam(originalPayload.model, 600)
+  // Resolve a safe model for fallback to avoid cascades on undefined/invalid models
+  let resolvedModel = originalPayload?.model as string | undefined
+  try {
+    const validation = resolvedModel ? validateRequestModel(resolvedModel) : { valid: false }
+    if (!validation.valid) {
+      resolvedModel = getModelConfiguration().fast || 'gpt-4o-mini'
+    }
+  } catch {
+    resolvedModel = 'gpt-4o-mini'
+  }
+  const fallbackTokenParams = getTokenParam(resolvedModel!, 600)
   const fallbackPayload = apiFamily === 'responses'
     ? buildResponses({
         model: originalPayload.model,

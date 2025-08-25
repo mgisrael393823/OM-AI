@@ -5,9 +5,9 @@ exports[`chat errors produces structured error shape when requested via header 1
   "error": {
     "code": "TEST_CODE",
     "message": "Test message",
-    "requestId": "req-123",
     "type": "api_error",
   },
+  "requestId": "req-123",
 }
 `;
 
@@ -16,8 +16,8 @@ exports[`chat errors produces structured error shape when requested via query pa
   "error": {
     "code": "TEST_CODE",
     "message": "Test message",
-    "requestId": "req-123",
     "type": "api_error",
   },
+  "requestId": "req-123",
 }
 `;

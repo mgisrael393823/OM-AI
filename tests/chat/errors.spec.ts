@@ -9,7 +9,8 @@ describe('chat errors', () => {
     jsonError(res as any, 400, 'TEST_CODE', 'Test message', 'req-123', req as any)
     expect(res._getJSONData()).toEqual({
       error: 'Test message',
-      code: 'TEST_CODE'
+      code: 'TEST_CODE',
+      requestId: 'req-123'
     })
   })
 
@@ -40,7 +41,8 @@ describe('chat errors', () => {
     jsonError(res as any, 400, 'TEST_CODE', 'Test message', 'req-123')
     expect(res._getJSONData()).toEqual({
       error: 'Test message',
-      code: 'TEST_CODE'
+      code: 'TEST_CODE',
+      requestId: 'req-123'
     })
   })
 })
