@@ -650,29 +650,32 @@ async function extractDealPoints(chunks: any[], contentHash: string, requestId?:
     const extractionResult = await createChatCompletion(extractionPayload, {
       requestId: dealPointRequestId
     })
-    
-    if (extractionResult.content) {
-      // Use safe parser with fallback strategies
-      const parsed = parseDealPointsSafe(extractionResult.content)
-      
-      if (parsed.bullets && parsed.bullets.length > 0) {
-        // Success - we have bullets
-        console.log('[extractDealPoints] Deal points extraction completed with', parsed.bullets.length, 'bullets')
-        
-        return {
-          bullets: parsed.bullets.slice(0, 10), // Limit to 10 bullets
-          citations: [], // Citations will be empty for now since we're using strict JSON
-          createdAt: new Date().toISOString(),
-          contentHash,
-          version: 2,
-          extractorVersion: EXTRACTOR_VERSION,
-          source: 'ai'
-        }
-      } else {
-        console.log('[extractDealPoints] No bullets extracted from AI response')
-      }
+
+    if (!extractionResult.content || extractionResult.content.trim() === '') {
+      structuredLog('error', 'Empty AI response', { requestId: dealPointRequestId, model: modelConfig.fast })
+      return null
     }
-    
+
+    // Use safe parser with fallback strategies
+    const parsed = parseDealPointsSafe(extractionResult.content)
+
+    if (parsed.bullets && parsed.bullets.length > 0) {
+      // Success - we have bullets
+      console.log('[extractDealPoints] Deal points extraction completed with', parsed.bullets.length, 'bullets')
+
+      return {
+        bullets: parsed.bullets.slice(0, 10), // Limit to 10 bullets
+        citations: [], // Citations will be empty for now since we're using strict JSON
+        createdAt: new Date().toISOString(),
+        contentHash,
+        version: 2,
+        extractorVersion: EXTRACTOR_VERSION,
+        source: 'ai'
+      }
+    } else {
+      console.log('[extractDealPoints] No bullets extracted from AI response')
+    }
+
     return null
     
   } catch (error) {
