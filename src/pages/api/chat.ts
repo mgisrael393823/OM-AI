@@ -1227,7 +1227,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     
     // Ensure we have valid content
     if (!ai?.content || ai.content.trim().length === 0) {
-      structuredLog('error', 'Empty AI response', { requestId, model: ai?.model || model })
+      structuredLog('error', 'Empty AI response', { userId, requestId, model: ai?.model || model })
       return res.status(502).json({
         error: 'empty_text',
         code: 'EMPTY_RESPONSE',

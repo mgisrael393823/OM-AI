@@ -189,6 +189,7 @@ export function normalizeDealPointsContent(
 
   if (wasNormalized && requestId) {
     structuredLog('info', 'DealPoints bullets normalized', {
+      userId: 'system', // Utility function doesn't have user context
       requestId,
       originalCount: originalBullets.length,
       normalizedCount: normalizedBullets.length,

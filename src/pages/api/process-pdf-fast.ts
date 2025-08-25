@@ -602,15 +602,14 @@ async function extractDealPoints(chunks: any[], contentHash: string, requestId?:
       .substring(0, 4000) // Reduced from 8000 to prevent 413 errors
     
     // Use fast model for extraction with Responses API
-    const { handleStream } = await import('@/lib/services/openai/client-wrapper')
+    const { callOpenAIWithFallback } = await import('@/lib/services/openai/client-wrapper')
     const { getModelConfiguration } = await import('@/lib/config/validate-models')
     
     const modelConfig = getModelConfiguration()
     
-    // Use Responses API - no temperature or response_format for GPT-5
-    const extractionPayload = {
-      model: modelConfig.fast,
-      input: [
+    // Use CallOptions interface for callOpenAIWithFallback
+    const extractionOptions = {
+      messages: [
         {
           role: 'system',
           content: 'Extract 3-5 key deal points from this commercial real estate document. Return ONLY a JSON object with a "bullets" array containing the most important investment highlights.'
@@ -620,17 +619,15 @@ async function extractDealPoints(chunks: any[], contentHash: string, requestId?:
           content: `Extract key deal points:\n${combinedText.substring(0, 3500)}` // Further trim for safety
         }
       ],
-      max_output_tokens: 350
-    } as any
+      maxTokens: 350,
+      stream: false,
+      requestId: requestId || `pdf-${contentHash}-${Date.now()}`
+    }
     
-    // Generate requestId if not provided
-    const dealPointRequestId = requestId || `pdf-${contentHash}-${Date.now()}`
-    const extractionResult = await handleStream(extractionPayload, {
-      requestId: dealPointRequestId
-    })
+    const extractionResult = await callOpenAIWithFallback(extractionOptions, modelConfig.fast)
 
     if (!extractionResult.content || extractionResult.content.trim() === '') {
-      structuredLog('error', 'Empty AI response', { requestId: dealPointRequestId, model: modelConfig.fast })
+      structuredLog('error', 'Empty AI response', { userId: 'system', requestId: extractionOptions.requestId, model: modelConfig.fast })
       return null
     }
 
