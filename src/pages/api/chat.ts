@@ -564,7 +564,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
               const bullet = cachedDealPoints.bullets[i]
               const citation = cachedDealPoints.citations?.[i]
               const pageRef = citation?.page ? ` (Page ${citation.page})` : ''
-              fastPathResponse += `• ${bullet}${pageRef}\n`
+              fastPathResponse += `- ${bullet}${pageRef}\n`
             }
             
             // Add metadata footer
@@ -903,7 +903,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
                   const bullet = parsed.bullets[i]
                   const citation = parsed.citations?.[i]
                   const pageRef = citation?.page ? ` (Page ${citation.page})` : ''
-                  stageAResponse += `• ${bullet}${pageRef}\n`
+                  stageAResponse += `- ${bullet}${pageRef}\n`
                 }
               }
               
