@@ -98,7 +98,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
     documentId = `mem-${ulid()}`
     
     // Set processing status immediately
-    await kvStore.setStatus(documentId, 'processing')
+    await kvStore.setStatus(documentId, 'processing', undefined, 0)
     
     structuredLog('info', 'Starting PDF processing', {
       documentId,
@@ -198,7 +198,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
       }
 
       if (!contextStored) {
-        await kvStore.setStatus(documentId, 'error', 'Failed to store context')
+        await kvStore.setStatus(documentId, 'error', 'Failed to store context', 0)
         structuredLog('error', 'Failed to store context', {
           documentId,
           userId,
@@ -216,8 +216,34 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
         }
       }
 
-      // Set status to ready
-      await kvStore.setStatus(documentId, 'ready')
+      const partsCount = kvChunks.length
+      const DEFAULT_MIN_PARTS = parseInt(process.env.MIN_PARTS || '5', 10)
+      const requiredParts = Math.min(
+        DEFAULT_MIN_PARTS,
+        Math.max(1, Math.ceil(parseResult.pages.length / 2))
+      )
+
+      if (partsCount < requiredParts) {
+        await kvStore.setStatus(documentId, 'processing', undefined, partsCount)
+        return res.status(202).json({
+          documentId,
+          title: contextToStore.meta.originalFilename,
+          pagesIndexed: parseResult.pages.length,
+          processingTime: Date.now() - startTime,
+          status: 'processing',
+          backgroundProcessing: true
+        })
+      }
+
+      // Calculate contentHash for cache coherence  
+      const contentText = kvChunks.map(c => c.text || '').join('')
+      const textContentHash = crypto.createHash('sha256')
+        .update(contentText)
+        .digest('hex')
+        .substring(0, 40)
+
+      // Set status to ready with contentHash
+      await kvStore.setStatus(documentId, 'ready', undefined, partsCount, textContentHash)
       
       // CRITICAL: Schedule deal points extraction asynchronously (non-blocking)
       setImmediate(async () => {
@@ -305,7 +331,7 @@ async function processPdfFastHandler(req: AuthenticatedRequest, res: NextApiResp
     
     // Set error status if we have a documentId
     if (typeof documentId !== 'undefined') {
-      await kvStore.setStatus(documentId, 'error', error instanceof Error ? error.message : 'Unknown error')
+      await kvStore.setStatus(documentId, 'error', error instanceof Error ? error.message : 'Unknown error', 0)
     }
     
     structuredLog('error', 'PDF processing failed', {

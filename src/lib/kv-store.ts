@@ -345,6 +345,8 @@ export interface DocumentStatus {
   error?: string
   parts?: number
   pagesIndexed?: number
+  contentHash?: string
+  updatedAt?: string
 }
 
 /**
@@ -444,7 +446,9 @@ async function retryKvOperation<T>(
 export async function setStatus(
   documentId: string,
   status: 'processing' | 'ready' | 'error',
-  error?: string
+  error?: string,
+  parts?: number,
+  contentHash?: string
 ): Promise<boolean> {
   if (!isKvAvailable()) {
     structuredLog('warn', 'Storage unavailable for status write', {
@@ -458,9 +462,24 @@ export async function setStatus(
   }
 
   const key = `mem:ctx:${documentId}:status`
+  
+  // Get existing status to merge with new values (preserve fields)
+  let existingStatus: DocumentStatus | null = null
+  try {
+    existingStatus = await getStatus(documentId, 'system')
+  } catch (e) {
+    // Ignore errors fetching existing status, start fresh
+  }
+  
   const value: DocumentStatus = {
     status,
-    ...(error && { error })
+    ...(error && { error }),
+    ...(parts !== undefined && { parts }),
+    ...(contentHash && { contentHash }),
+    // Preserve existing fields if not explicitly updated
+    ...(existingStatus?.contentHash && !contentHash && { contentHash: existingStatus.contentHash }),
+    ...(existingStatus?.pagesIndexed && { pagesIndexed: existingStatus.pagesIndexed }),
+    updatedAt: new Date().toISOString()
   }
 
   try {
