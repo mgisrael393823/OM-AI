@@ -81,6 +81,7 @@ describe('Chat API - Markdown Rendering Integration', () => {
     jest.clearAllMocks()
     process.env.CONVERSATIONAL_CHAT = '0'
     process.env.MIN_PARTS = '5'
+    process.env.USE_GPT5 = 'true'
   })
 
   describe('Deal Points Fast Path - Cached Response Normalization', () => {
@@ -120,7 +121,11 @@ describe('Chat API - Markdown Rendering Integration', () => {
               status: 'ready', 
               contentHash: 'abc123',
               parts: 5, 
-              pagesIndexed: 10 
+              pagesIndexed: 10,
+              chunksReady: 5,
+              totalChunks: 5,
+              isIndexing: false,
+              isParsing: false
             }),
             getContext: jest.fn(),
             setContext: jest.fn(),
@@ -185,8 +190,12 @@ describe('Chat API - Markdown Rendering Integration', () => {
             getStatus: jest.fn().mockResolvedValue({ 
               status: 'ready', 
               contentHash: 'def456',
-              parts: 3, 
-              pagesIndexed: 8 
+              parts: 5, 
+              pagesIndexed: 8,
+              chunksReady: 5,
+              totalChunks: 5,
+              isIndexing: false,
+              isParsing: false
             }),
             getContext: jest.fn(),
             setContext: jest.fn(),

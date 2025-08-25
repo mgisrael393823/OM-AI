@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { isResponsesModel } from './modelUtils'
+import { validateModel, detectAPIType, getModelConfiguration } from '@/lib/config/validate-models'
 
 /**
  * Fixes response_format for different API types. 
@@ -13,7 +13,7 @@ export function fixResponseFormat(payload: any) {
   }
   
   // Responses API doesn't support response_format parameter
-  if (payload?.model && isResponsesModel(payload.model)) {
+  if (payload?.model && detectAPIType(payload.model) === 'responses') {
     delete payload.response_format
   }
 }
@@ -67,9 +67,7 @@ interface RequestPayload {
 
 // Fast model configuration helper
 export function getFastModel(): string {
-  return process.env.USE_FAST_MODEL === 'true' ? 
-    (process.env.CHAT_MODEL_FAST || 'gpt-4o-mini') : 
-    (process.env.OPENAI_MODEL || 'gpt-4o')
+  return getModelConfiguration().fast
 }
 
 // Safe signal combining helper
@@ -123,35 +121,42 @@ export async function createChatCompletion(
     
     fixResponseFormat(payload)
     const model = payload.model || getFastModel()
-    const isResponses = isResponsesModel(model) || !!payload.input
+    const validation = validateModel(model)
+    if (!validation.valid) {
+      const error = new Error(`Invalid model: ${model}`)
+      ;(error as any).code = 'MODEL_UNAVAILABLE'
+      throw error
+    }
+    const apiFamily = validation.apiType!
     const limit =
-      payload.max_output_tokens ??
-      payload.max_tokens ??
+      payload[validation.paramKey!] ??
       Number(process.env.CHAT_MAX_TOKENS ?? 1500) // Reduced for speed
 
     let attempt = 0
   while (true) {
     try {
-      if (isResponses) {
-        let responsesParams: any = (({model,input,text,max_output_tokens,tool_choice,response_format,temperature,stream}) =>
-          ({model,input,text,max_output_tokens,tool_choice,response_format,temperature,stream}))(payload)
-        // Override with computed values
-        responsesParams.model = model
-        // Don't override token params if already provided by getTokenParam
-        if (!responsesParams.max_output_tokens) {
-          // Default fallback only if no token param provided
-          responsesParams.max_output_tokens = limit
+      if (apiFamily === 'responses') {
+        const responsesParams: any = {
+          model,
+          stream: payload.stream,
+          [validation.paramKey!]: limit
         }
-        // Add reasoning parameter for Responses API
+        if (payload.input) {
+          responsesParams.input = payload.input
+        } else if (payload.messages) {
+          responsesParams.input = payload.messages.map(m => ({ role: m.role, content: m.content }))
+        } else if (payload.text) {
+          responsesParams.input = payload.text
+        }
+        if (payload.tool_choice) responsesParams.tool_choice = payload.tool_choice
+        // Skip response_format for Responses API - handled by fixResponseFormat above
         if (!responsesParams.reasoning) {
           responsesParams.reasoning = { effort: "low" }
         }
         // Sanitize the payload
-        responsesParams = sanitizeOpenAIPayload(responsesParams)
-        
-        const resp: any = await client.responses.create(responsesParams, {
-          signal: combinedSignal
-        })
+        const cleanResponses = sanitizeOpenAIPayload(responsesParams)
+
+        const resp: any = await client.responses.create(cleanResponses, { signal: combinedSignal })
         // Parse Responses API format: find message type in output and extract text
         let content = resp.output_text ?? ''
         if (!content && resp.output) {
@@ -163,21 +168,19 @@ export async function createChatCompletion(
         }
         return { content: String(content).trim(), model, usage: resp.usage }
       } else {
-        let chatParams: any = (({model,messages,max_tokens,tool_choice,response_format,temperature,stream}) => 
-          ({model,messages,max_tokens,tool_choice,response_format,temperature,stream}))(payload)
-        // Override with computed values  
-        chatParams.model = model
-        chatParams.messages = payload.messages || []
-        // Don't override max_tokens if already set by getMaxTokensParam
-        if (!chatParams.max_tokens) {
-          chatParams.max_tokens = limit
+        const chatParams: any = {
+          model,
+          messages: payload.messages || [],
+          stream: payload.stream,
+          [validation.paramKey!]: limit
         }
-        // Sanitize the payload
-        chatParams = sanitizeOpenAIPayload(chatParams)
-        
-        const resp: any = await client.chat.completions.create(chatParams, {
-          signal: combinedSignal
-        })
+        if (payload.tool_choice) chatParams.tool_choice = payload.tool_choice
+        if (payload.response_format) chatParams.response_format = payload.response_format
+        if (payload.temperature !== undefined) chatParams.temperature = payload.temperature
+
+        const cleanChat = sanitizeOpenAIPayload(chatParams)
+
+        const resp: any = await client.chat.completions.create(cleanChat, { signal: combinedSignal })
         const content = String(resp.choices?.[0]?.message?.content ?? '').trim()
         return {
           content,

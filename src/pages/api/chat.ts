@@ -175,7 +175,6 @@ async function runTextFallback(
   }
 }
 
-const SAFE_FALLBACK_MESSAGE = "I couldn't generate a response. Please try rephrasing your question or ensure a document is uploaded."
 
 const MIN_PARTS = parseInt(process.env.MIN_PARTS || '5', 10)
 
@@ -738,9 +737,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     
     if (isDeepAnalysisQuery) {
       try {
-        // Stage A: Fast extraction with gpt-4o-mini in parallel with any remaining retrieval
+        // Stage A: Fast extraction with configured fast model in parallel with any remaining retrieval
+        const fastModel = getModelConfiguration().fast
         const stageAPayload = {
-          model: 'gpt-4o-mini',
+          model: fastModel,
           messages: messages.map(m => ({ role: m.role, content: m.content })),
           response_format: { 
             type: 'json_schema' as const,
@@ -777,7 +777,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
               }
             }
           },
-          ...getTokenParam('gpt-4o-mini', 350),
+          ...getTokenParam(fastModel, 350),
           temperature: 0.1
         }
         
@@ -884,7 +884,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
                     completion_tokens: (stageAResult.usage?.completion_tokens || 0) + (stageBResult.usage?.completion_tokens || 0)
                   },
                   cascade: {
-                    stageA: { time: stageATime, model: 'gpt-4o-mini', distinctPages },
+                    stageA: { time: stageATime, model: fastModel, distinctPages },
                     stageB: { time: stageBTime, model: stageBResult.model || model }
                   }
                 }
@@ -921,10 +921,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
               
               cascadeResult = {
                 content: stageAResponse,
-                model: 'gpt-4o-mini',
+                model: fastModel,
                 usage: stageAResult.usage,
                 cascade: {
-                  stageA: { time: stageATime, model: 'gpt-4o-mini', distinctPages },
+                  stageA: { time: stageATime, model: fastModel, distinctPages },
                   stageBSkipped: 'sufficient_pages_or_low_confidence'
                 }
               }
@@ -1225,20 +1225,21 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('X-Correlation-ID', correlationId)
     
-    // Ensure we always return non-empty content
-    let finalContent = ai?.content && ai.content.trim().length > 0 ? ai.content : SAFE_FALLBACK_MESSAGE
-    if (finalContent === SAFE_FALLBACK_MESSAGE) {
-      structuredLog('info', 'Applied safe fallback message for empty content', {
-        requestId,
-        userId,
-        reason: 'final_response_empty'
+    // Ensure we have valid content
+    if (!ai?.content || ai.content.trim().length === 0) {
+      structuredLog('error', 'Empty AI response', { requestId, model: ai?.model || model })
+      return res.status(502).json({
+        error: 'empty_text',
+        code: 'EMPTY_RESPONSE',
+        message: 'The AI response was empty',
+        requestId: requestId
       })
-    } else {
-      // Normalize final content for consistent markdown rendering
-      finalContent = normalizeMarkdownBullets(finalContent, requestId).content
     }
-    
-    res.status(200).json({ 
+
+    // Normalize final content for consistent markdown rendering
+    const finalContent = normalizeMarkdownBullets(ai.content, requestId).content
+
+    res.status(200).json({
       message: finalContent,
       model: ai?.model || model,
       usage: ai?.usage || {},
@@ -1276,11 +1277,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     }
     
     // Log successful completion
-    const finalOutcome = finalContent === SAFE_FALLBACK_MESSAGE ? 'empty' : 'success'
     structuredLog('info', 'Chat request completed', {
       documentId: requestBody?.metadata?.documentId,
       userId,
-      outcome: finalOutcome,
+      outcome: 'success',
       parts: status?.parts || 0,
       failure_cause,
       latency_ms: Date.now() - startTime,
