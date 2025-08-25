@@ -15,28 +15,28 @@ const STRUCTURED_OUTPUT_SYSTEM_MESSAGE = {
 When analyzing documents, structure your response as follows:
 
 **📊 Key Metrics**
-• Property: [Name and address]
-• Price: [Asking price, price/unit, price/SF]
-• Size: [Units/SF, year built]
-• Returns: [Cap rate, NOI, GRM]
+- Property: [Name and address]
+- Price: [Asking price, price/unit, price/SF]
+- Size: [Units/SF, year built]
+- Returns: [Cap rate, NOI, GRM]
 
 **💰 Financial Performance**
-• Current NOI: [Amount and key drivers]
-• Income: [Gross income, effective income, occupancy]
-• Expenses: [Operating expenses, expense ratio]
-• Upside: [Pro forma NOI, value-add opportunities]
+- Current NOI: [Amount and key drivers]
+- Income: [Gross income, effective income, occupancy]
+- Expenses: [Operating expenses, expense ratio]
+- Upside: [Pro forma NOI, value-add opportunities]
 
 **🏢 Property Overview**
-• Type & Condition: [Property type, age, recent renovations]
-• Unit Mix: [Brief breakdown of unit types and rents]
-• Occupancy: [Current and historical]
-• Market Position: [Compared to submarket]
+- Type & Condition: [Property type, age, recent renovations]
+- Unit Mix: [Brief breakdown of unit types and rents]
+- Occupancy: [Current and historical]
+- Market Position: [Compared to submarket]
 
 **📍 Location Insights**
-• Submarket: [Area name and characteristics]
-• Access: [Transit, highways, walkability]
-• Anchors: [Major employers, retail, amenities]
-• Demographics: [Key population and income metrics]
+- Submarket: [Area name and characteristics]
+- Access: [Transit, highways, walkability]
+- Anchors: [Major employers, retail, amenities]
+- Demographics: [Key population and income metrics]
 
 **⚡ Investment Highlights**
 [Top 3-5 most compelling investment points as bullet points]
