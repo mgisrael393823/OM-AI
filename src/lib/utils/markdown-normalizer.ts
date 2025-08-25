@@ -115,6 +115,7 @@ export function normalizeMarkdownBullets(content: string, requestId?: string): N
   // Log normalization if it occurred
   if (wasNormalized && requestId) {
     structuredLog('info', 'Markdown normalization applied', {
+      userId: 'system', // Utility function doesn't have user context
       requestId,
       changesCount,
       patterns,
