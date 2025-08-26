@@ -1,11 +1,11 @@
 /** @jest-environment node */
 jest.mock('@/lib/chat/fallbacks', () => ({ callWithFallback: jest.fn() }))
-jest.mock('@/lib/chat/client-wrapper', () => ({ handleStream: jest.fn() }))
+jest.mock('@/lib/services/openai/client-wrapper', () => ({ handleStream: jest.fn() }))
 jest.mock('@/lib/chat/errors', () => ({ jsonError: jest.fn() }))
 
 import { handle } from '@/lib/chat/handlers/responses'
 import { callWithFallback } from '@/lib/chat/fallbacks'
-import { handleStream } from '@/lib/chat/client-wrapper'
+import { handleStream } from '@/lib/services/openai/client-wrapper'
 import { jsonError } from '@/lib/chat/errors'
 
 const mockCall = callWithFallback as jest.Mock
@@ -41,7 +41,7 @@ describe('responses handler', () => {
 
   it('streams when enabled', async () => {
     mockCall.mockResolvedValue({})
-    mockStream.mockImplementation(async function* () { yield 'hi' })
+    mockStream.mockImplementation(async function* (response, apiType) { yield 'hi' })
     const req: any = { body: { input: 'hi', model: 'gpt-5', stream: true } }
     const res = createRes()
     await handle(req, res, { requestId: 'r', signal: new AbortController().signal, startTime: 0, isConversational: false })

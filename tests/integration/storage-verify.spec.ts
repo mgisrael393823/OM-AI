@@ -1,5 +1,5 @@
 import { createMocks } from 'node-mocks-http'
-import verifyHandler from '../storage/verify'
+import verifyHandler from '../../src/pages/api/storage/verify'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 // Mock fetch for HTTP requests

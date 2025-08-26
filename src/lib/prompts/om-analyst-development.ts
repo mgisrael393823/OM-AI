@@ -87,23 +87,23 @@ Use ONLY information explicitly stated in the provided document chunks.`;
 export const OM_ANALYST_DEVELOPMENT_SUMMARY_V1 = `You are analyzing a DEVELOPMENT deal offering memorandum. Provide a concise summary:
 
 **Development Snapshot**
-• Project: [Name, location, type]
-• Total Cost: [TDC amount]
-• Capital Stack: [Equity %, Debt %]
-• Delivery: [Expected completion]
+- Project: [Name, location, type]
+- Total Cost: [TDC amount]
+- Capital Stack: [Equity %, Debt %]
+- Delivery: [Expected completion]
 
 **Key Development Metrics**
-• Yield on Cost: [%]
-• Stabilized NOI: [$]
-• Exit Cap: [%]
-• Project IRR/Multiple: [%, x]
-• LP IRR/Multiple: [%, x]
+- Yield on Cost: [%]
+- Stabilized NOI: [$]
+- Exit Cap: [%]
+- Project IRR/Multiple: [%, x]
+- LP IRR/Multiple: [%, x]
 
 **Development Program**
-• Units: [Count and mix]
-• Commercial: [Retail/office SF if any]
-• Parking: [Spaces and ratio]
-• Site: [Acres]
+- Units: [Count and mix]
+- Commercial: [Retail/office SF if any]
+- Parking: [Spaces and ratio]
+- Site: [Acres]
 
 **Top 3 Development Risks**
 1. [Construction/entitlement risk]

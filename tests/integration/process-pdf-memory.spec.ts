@@ -1,6 +1,6 @@
 import { createMocks } from 'node-mocks-http'
 import { NextApiRequest, NextApiResponse } from 'next'
-import processMemoryHandler from '../process-pdf-memory'
+import processMemoryHandler from '../../src/pages/api/process-pdf-memory'
 import { withAuth } from '@/lib/auth-middleware'
 import formidable from 'formidable'
 import { promises as fs } from 'fs'

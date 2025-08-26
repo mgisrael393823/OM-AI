@@ -2,9 +2,13 @@
   "name": "om-intel-chat",
   "version": "2.2.1",
   "private": true,
-  "packageManager": "pnpm@10.5.2",
+  "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=20 <21"
+  },
+  "volta": {
+    "node": "20.17.0",
+    "pnpm": "9.12.0"
   },
   "scripts": {
     "_comment": "NODE_OPTIONS='--no-deprecation' suppresses punycode DEP0040 from dependencies tr46/uri-js. Remove when deps updated.",
@@ -18,7 +22,10 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit --pretty",
     "typecheck:strict": "tsc --noEmit --strict --noImplicitAny --pretty",
-    "test": "jest",
+    "test": "NODE_OPTIONS='--dns-result-order=ipv4first' jest",
+    "test:unit": "ALLOW_NET= NODE_OPTIONS='--dns-result-order=ipv4first' jest --testPathIgnorePatterns='/tests/integration/'",
+    "test:integration": "ALLOW_NET=1 NODE_OPTIONS='--dns-result-order=ipv4first' jest tests/integration",
+    "test:ci": "NODE_OPTIONS='--dns-result-order=ipv4first' jest -c jest.ci.config.js --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "check-config": "npx tsx src/scripts/check-config.ts",
@@ -157,6 +164,7 @@
     "tailwindcss": "^3.4.1",
     "ts-jest": "^29.1.2",
     "tsx": "^4.9.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "undici": "^6.21.3"
   }
 }

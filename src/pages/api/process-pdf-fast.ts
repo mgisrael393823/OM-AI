@@ -6,6 +6,7 @@ import { ulid } from 'ulid'
 import crypto from 'crypto'
 import * as kvStore from '@/lib/kv-store'
 import { structuredLog, generateRequestId } from '@/lib/log'
+import { getModelConfiguration } from '@/lib/config/validate-models'
 
 // Force Node.js runtime for KV consistency
 export const runtime = 'nodejs'
@@ -601,15 +602,14 @@ async function extractDealPoints(chunks: any[], contentHash: string, requestId?:
       .substring(0, 4000) // Reduced from 8000 to prevent 413 errors
     
     // Use fast model for extraction with Responses API
-    const { createChatCompletion } = await import('@/lib/services/openai')
+    const { callOpenAIWithFallback } = await import('@/lib/services/openai/client-wrapper')
     const { getModelConfiguration } = await import('@/lib/config/validate-models')
     
     const modelConfig = getModelConfiguration()
     
-    // Use Responses API with strict JSON schema
-    const extractionPayload = {
-      model: modelConfig.fast,
-      input: [
+    // Use CallOptions interface for callOpenAIWithFallback
+    const extractionOptions = {
+      messages: [
         {
           role: 'system',
           content: 'Extract 3-5 key deal points from this commercial real estate document. Return ONLY a JSON object with a "bullets" array containing the most important investment highlights.'
@@ -619,60 +619,38 @@ async function extractDealPoints(chunks: any[], contentHash: string, requestId?:
           content: `Extract key deal points:\n${combinedText.substring(0, 3500)}` // Further trim for safety
         }
       ],
-      temperature: 0,
-      max_output_tokens: 350,
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'deal_points_v1',
-          strict: true,
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            required: ['bullets'],
-            properties: {
-              bullets: {
-                type: 'array',
-                minItems: 1,
-                items: {
-                  type: 'string',
-                  minLength: 1
-                }
-              }
-            }
-          }
-        }
-      }
-    } as any
-    
-    // Generate requestId if not provided
-    const dealPointRequestId = requestId || `pdf-${contentHash}-${Date.now()}`
-    const extractionResult = await createChatCompletion(extractionPayload, {
-      requestId: dealPointRequestId
-    })
-    
-    if (extractionResult.content) {
-      // Use safe parser with fallback strategies
-      const parsed = parseDealPointsSafe(extractionResult.content)
-      
-      if (parsed.bullets && parsed.bullets.length > 0) {
-        // Success - we have bullets
-        console.log('[extractDealPoints] Deal points extraction completed with', parsed.bullets.length, 'bullets')
-        
-        return {
-          bullets: parsed.bullets.slice(0, 10), // Limit to 10 bullets
-          citations: [], // Citations will be empty for now since we're using strict JSON
-          createdAt: new Date().toISOString(),
-          contentHash,
-          version: 2,
-          extractorVersion: EXTRACTOR_VERSION,
-          source: 'ai'
-        }
-      } else {
-        console.log('[extractDealPoints] No bullets extracted from AI response')
-      }
+      maxTokens: 350,
+      stream: false,
+      requestId: requestId || `pdf-${contentHash}-${Date.now()}`
     }
     
+    const extractionResult = await callOpenAIWithFallback(extractionOptions, modelConfig.fast)
+
+    if (!extractionResult.content || extractionResult.content.trim() === '') {
+      structuredLog('error', 'Empty AI response', { userId: 'system', requestId: extractionOptions.requestId, model: modelConfig.fast })
+      return null
+    }
+
+    // Use safe parser with fallback strategies
+    const parsed = parseDealPointsSafe(extractionResult.content)
+
+    if (parsed.bullets && parsed.bullets.length > 0) {
+      // Success - we have bullets
+      console.log('[extractDealPoints] Deal points extraction completed with', parsed.bullets.length, 'bullets')
+
+      return {
+        bullets: parsed.bullets.slice(0, 10), // Limit to 10 bullets
+        citations: [], // Citations will be empty for now since we're using strict JSON
+        createdAt: new Date().toISOString(),
+        contentHash,
+        version: 2,
+        extractorVersion: EXTRACTOR_VERSION,
+        source: 'ai'
+      }
+    } else {
+      console.log('[extractDealPoints] No bullets extracted from AI response')
+    }
+
     return null
     
   } catch (error) {

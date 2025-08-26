@@ -85,8 +85,7 @@ async function callOpenAI(
     const request: any = {
       model,
       max_output_tokens: options.maxTokens, // Responses API uses max_output_tokens
-      stream: options.stream,
-      ...(options.temperature !== undefined && { temperature: options.temperature })
+      stream: options.stream
     };
     
     // Responses API expects 'input' not 'messages'

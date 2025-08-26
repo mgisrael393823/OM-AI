@@ -51,11 +51,110 @@ global.ResizeObserver = jest.fn().mockImplementation(() => ({
   disconnect: jest.fn(),
 }))
 
-// Mock environment variables
-process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'
+// Comprehensive test environment variables - test-safe defaults
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:54321'
+process.env.SUPABASE_URL = 'http://127.0.0.1:54321'
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key'
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key'
 process.env.OPENAI_API_KEY = 'test-openai-key'
+process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9999'
+process.env.MAX_UPLOAD_MB = '25'
+process.env.USE_GPT5 = 'false'
+process.env.DEBUG_MODELS = 'false'
+process.env.MIN_PARTS = '5'
+
+// Fix missing globals for nock compatibility in jsdom
+if (typeof global.TextEncoder === 'undefined') {
+  const { TextEncoder, TextDecoder } = require('util')
+  global.TextEncoder = TextEncoder
+  global.TextDecoder = TextDecoder
+}
+
+// Add Web Streams globals before undici require
+const { ReadableStream, WritableStream, TransformStream } = require('stream/web')
+global.ReadableStream = ReadableStream
+global.WritableStream = WritableStream
+global.TransformStream = TransformStream
+
+// Proper globals using undici for nock compatibility
+const { Response, Headers, Request } = require('undici')
+global.Response = Response
+global.Headers = Headers
+global.Request = Request
+
+// Network isolation - block HTTP calls unless ALLOW_NET is set
+if (!process.env.ALLOW_NET) {
+  global.fetch = () => {
+    throw new Error('Network calls blocked in unit tests. Use ALLOW_NET=1 for integration tests.')
+  }
+}
+
+afterEach(() => {
+  jest.restoreAllMocks()
+  jest.clearAllTimers()
+})
+
+// Comprehensive service mocking to prevent network leaks
+jest.mock('@/lib/supabase', () => ({
+  supabase: {
+    auth: {
+      signInWithPassword: jest.fn(),
+      signOut: jest.fn(),
+      getUser: jest.fn()
+    },
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      insert: jest.fn().mockReturnThis(),
+      update: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      single: jest.fn(() => Promise.resolve({ data: null, error: null }))
+    }))
+  }
+}))
+
+jest.mock('@/lib/supabaseAdmin', () => ({
+  getSupabaseAdmin: jest.fn(() => ({
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      insert: jest.fn().mockReturnThis(),
+      update: jest.fn().mockReturnThis(),
+      delete: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      single: jest.fn(() => Promise.resolve({ data: null, error: null }))
+    }))
+  }))
+}))
+
+// Mock OpenAI services completely
+jest.mock('@/lib/services/openai/client-wrapper', () => ({
+  openai: {
+    chat: {
+      completions: {
+        create: jest.fn(() => Promise.resolve({
+          id: 'test-id',
+          model: 'gpt-4o-mini',
+          choices: [{ message: { content: 'Test response' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        }))
+      }
+    },
+    responses: {
+      create: jest.fn(() => Promise.resolve({
+        id: 'test-id',
+        model: 'gpt-5-mini',
+        output: 'Test response',
+        usage: { total_tokens: 15 }
+      }))
+    }
+  },
+  callOpenAIWithFallback: jest.fn(() => Promise.resolve({
+    content: 'Test response',
+    model: 'test-model',
+    usage: { total_tokens: 15 }
+  })),
+  handleStream: jest.fn()
+}))
 
 // Mock OpenAI client to prevent browser environment error
 jest.mock('@/lib/openai-client', () => ({

@@ -8,16 +8,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://test.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      OPENAI_API_KEY: test-openai-key
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10.5.2
+          version: 9.12.0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
-      - run: pnpm run build
       - run: pnpm run lint
+      - run: pnpm run build
+      - run: pnpm run test:ci

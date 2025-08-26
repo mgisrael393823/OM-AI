@@ -101,13 +101,13 @@ export default function PaymentSuccess() {
                       </p>
                       <ul className="text-left space-y-2">
                         <li className={cn('text-slate-600 dark:text-slate-400', typography.bodySmall)}>
-                          • Upload your first offering memorandum
+                          Upload your first offering memorandum
                         </li>
                         <li className={cn('text-slate-600 dark:text-slate-400', typography.bodySmall)}>
-                          • Ask questions about the deal
+                          Ask questions about the deal
                         </li>
                         <li className={cn('text-slate-600 dark:text-slate-400', typography.bodySmall)}>
-                          • Generate investment summaries
+                          Generate investment summaries
                         </li>
                       </ul>
                     </div>

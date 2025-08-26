@@ -14,6 +14,7 @@ import { callOpenAIWithFallback } from '@/lib/services/openai/client-wrapper'
 import { getModelConfiguration, validateRequestModel, generateRequestId as generateReqId, getTokenParamForModel, selectTokenParam, getTokenParam } from '@/lib/config/validate-models'
 import { classifyIntent, isComparisonQuery } from '@/lib/chat/intent-classifier'
 import { computeRequiredParts, calculateRetryAfter } from '@/lib/utils/document-readiness'
+import { normalizeMarkdownBullets } from '@/lib/utils/markdown-normalizer'
 import * as Sentry from '@sentry/nextjs'
 import crypto from 'crypto'
 
@@ -139,7 +140,17 @@ async function runTextFallback(
   signal: AbortSignal,
   requestId: string
 ): Promise<{content: string, model: string, usage: any, reason: string}> {
-  const fallbackTokenParams = getTokenParam(originalPayload.model, 600)
+  // Resolve a safe model for fallback to avoid cascades on undefined/invalid models
+  let resolvedModel = originalPayload?.model as string | undefined
+  try {
+    const validation = resolvedModel ? validateRequestModel(resolvedModel) : { valid: false }
+    if (!validation.valid) {
+      resolvedModel = getModelConfiguration().fast || 'gpt-4o-mini'
+    }
+  } catch {
+    resolvedModel = 'gpt-4o-mini'
+  }
+  const fallbackTokenParams = getTokenParam(resolvedModel!, 600)
   const fallbackPayload = apiFamily === 'responses'
     ? buildResponses({
         model: originalPayload.model,
@@ -174,7 +185,6 @@ async function runTextFallback(
   }
 }
 
-const SAFE_FALLBACK_MESSAGE = "I couldn't generate a response. Please try rephrasing your question or ensure a document is uploaded."
 
 const MIN_PARTS = parseInt(process.env.MIN_PARTS || '5', 10)
 
@@ -564,11 +574,14 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
               const bullet = cachedDealPoints.bullets[i]
               const citation = cachedDealPoints.citations?.[i]
               const pageRef = citation?.page ? ` (Page ${citation.page})` : ''
-              fastPathResponse += `• ${bullet}${pageRef}\n`
+              fastPathResponse += `- ${bullet}${pageRef}\n`
             }
             
             // Add metadata footer
             fastPathResponse += `\n*Source: ${cachedDealPoints.source || 'document analysis'}*`
+            
+            // Normalize cached content for consistent markdown rendering (read-time only)
+            fastPathResponse = normalizeMarkdownBullets(fastPathResponse, requestId).content
             
             // Set X-Text-Bytes header for fallback gating
             const responseBytes = new TextEncoder().encode(fastPathResponse).length
@@ -734,9 +747,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     
     if (isDeepAnalysisQuery) {
       try {
-        // Stage A: Fast extraction with gpt-4o-mini in parallel with any remaining retrieval
+        // Stage A: Fast extraction with configured fast model in parallel with any remaining retrieval
+        const fastModel = getModelConfiguration().fast
         const stageAPayload = {
-          model: 'gpt-4o-mini',
+          model: fastModel,
           messages: messages.map(m => ({ role: m.role, content: m.content })),
           response_format: { 
             type: 'json_schema' as const,
@@ -773,7 +787,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
               }
             }
           },
-          ...getTokenParam('gpt-4o-mini', 350),
+          ...getTokenParam(fastModel, 350),
           temperature: 0.1
         }
         
@@ -880,7 +894,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
                     completion_tokens: (stageAResult.usage?.completion_tokens || 0) + (stageBResult.usage?.completion_tokens || 0)
                   },
                   cascade: {
-                    stageA: { time: stageATime, model: 'gpt-4o-mini', distinctPages },
+                    stageA: { time: stageATime, model: fastModel, distinctPages },
                     stageB: { time: stageBTime, model: stageBResult.model || model }
                   }
                 }
@@ -900,19 +914,27 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
               let stageAResponse = '## Key Deal Points\n\n'
               if (parsed.bullets && Array.isArray(parsed.bullets)) {
                 for (let i = 0; i < parsed.bullets.length; i++) {
-                  const bullet = parsed.bullets[i]
+                  // Normalize individual bullet content to remove Unicode bullets
+                  let bullet = parsed.bullets[i]
+                  if (typeof bullet === 'string' && /^[•●▪▫◦‣⁃]\s*/.test(bullet)) {
+                    bullet = bullet.replace(/^[•●▪▫◦‣⁃]\s*/, '')
+                  }
+                  
                   const citation = parsed.citations?.[i]
                   const pageRef = citation?.page ? ` (Page ${citation.page})` : ''
-                  stageAResponse += `• ${bullet}${pageRef}\n`
+                  stageAResponse += `- ${bullet}${pageRef}\n`
                 }
               }
               
+              // Normalize Stage A response for consistent markdown rendering
+              stageAResponse = normalizeMarkdownBullets(stageAResponse, requestId).content
+              
               cascadeResult = {
                 content: stageAResponse,
-                model: 'gpt-4o-mini',
+                model: fastModel,
                 usage: stageAResult.usage,
                 cascade: {
-                  stageA: { time: stageATime, model: 'gpt-4o-mini', distinctPages },
+                  stageA: { time: stageATime, model: fastModel, distinctPages },
                   stageBSkipped: 'sufficient_pages_or_low_confidence'
                 }
               }
@@ -979,8 +1001,11 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     
     // If cascade produced result, use it
     if (cascadeResult) {
+      // Normalize cascade content for consistent markdown rendering
+      const normalizedCascadeContent = normalizeMarkdownBullets(cascadeResult.content, requestId).content
+      
       // Set X-Text-Bytes header for fallback gating
-      const responseBytes = new TextEncoder().encode(cascadeResult.content).length
+      const responseBytes = new TextEncoder().encode(normalizedCascadeContent).length
       res.setHeader('X-Text-Bytes', responseBytes.toString())
       
       // Non-blocking fire-and-forget persistence
@@ -991,7 +1016,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
             await supabase.from('messages').insert({
               chat_session_id: sessionId,
               role: 'assistant',
-              content: cascadeResult.content,
+              content: normalizedCascadeContent,
               metadata: { 
                 requestId, 
                 correlationId,
@@ -1014,12 +1039,12 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
         model: cascadeResult.model,
         usage: cascadeResult.usage,
         cascade: cascadeResult.cascade,
-        contentLength: cascadeResult.content.length,
+        contentLength: normalizedCascadeContent.length,
         requestId: requestId
       })
       
       return res.status(200).json({ 
-        message: cascadeResult.content,
+        message: normalizedCascadeContent,
         model: cascadeResult.model,
         usage: cascadeResult.usage,
         cascade: cascadeResult.cascade,
@@ -1210,17 +1235,21 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('X-Correlation-ID', correlationId)
     
-    // Ensure we always return non-empty content
-    const finalContent = ai?.content && ai.content.trim().length > 0 ? ai.content : SAFE_FALLBACK_MESSAGE
-    if (finalContent === SAFE_FALLBACK_MESSAGE) {
-      structuredLog('info', 'Applied safe fallback message for empty content', {
-        requestId,
-        userId,
-        reason: 'final_response_empty'
+    // Ensure we have valid content
+    if (!ai?.content || ai.content.trim().length === 0) {
+      structuredLog('error', 'Empty AI response', { userId, requestId, model: ai?.model || model })
+      return res.status(502).json({
+        error: 'empty_text',
+        code: 'EMPTY_RESPONSE',
+        message: 'The AI response was empty',
+        requestId: requestId
       })
     }
-    
-    res.status(200).json({ 
+
+    // Normalize final content for consistent markdown rendering
+    const finalContent = normalizeMarkdownBullets(ai.content, requestId).content
+
+    res.status(200).json({
       message: finalContent,
       model: ai?.model || model,
       usage: ai?.usage || {},
@@ -1258,11 +1287,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     }
     
     // Log successful completion
-    const finalOutcome = finalContent === SAFE_FALLBACK_MESSAGE ? 'empty' : 'success'
     structuredLog('info', 'Chat request completed', {
       documentId: requestBody?.metadata?.documentId,
       userId,
-      outcome: finalOutcome,
+      outcome: 'success',
       parts: status?.parts || 0,
       failure_cause,
       latency_ms: Date.now() - startTime,
