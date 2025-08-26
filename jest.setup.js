@@ -82,8 +82,12 @@ global.Response = Response
 global.Headers = Headers
 global.Request = Request
 
-// Network isolation disabled - tests may make real HTTP calls
-// TODO: Re-implement network mocking later if needed
+// Network isolation - block HTTP calls unless ALLOW_NET is set
+if (!process.env.ALLOW_NET) {
+  global.fetch = () => {
+    throw new Error('Network calls blocked in unit tests. Use ALLOW_NET=1 for integration tests.')
+  }
+}
 
 afterEach(() => {
   jest.restoreAllMocks()
