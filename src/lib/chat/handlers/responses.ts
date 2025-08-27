@@ -129,10 +129,23 @@ export async function handle(
 
     return res.status(200).json(response)
   } catch (error: any) {
-    const status = error?.status || 500
-    const code = error?.code || 'OPENAI_ERROR'
-    const message = error?.message || 'Upstream error'
-    return jsonError(res, status, code, message, ctx.requestId, req)
+    const status = error?.status || 500;
+    let code = error?.code || 'OPENAI_ERROR';
+    let httpStatus = status;
+
+    if (error?.message?.includes('parse') || error?.message?.includes('JSON')) {
+      httpStatus = 422;
+      code = 'PARSE_ERROR';
+    } else if (error?.message?.includes('model') || error?.message?.includes('MODEL_UNAVAILABLE')) {
+      httpStatus = 400;
+      code = 'MODEL_ERROR';
+    } else if (status >= 500) {
+      httpStatus = 502;
+      code = 'UPSTREAM_ERROR';
+    }
+
+    const message = error?.message || 'Upstream error';
+    return jsonError(res, httpStatus, code, message, ctx.requestId, req);
   } finally {
     const latencyMs = Date.now() - start
     structuredLog('info', 'handler_finish', {

@@ -442,10 +442,12 @@ export async function processInMemory(
       userId,
       meta: {
         pagesIndexed: parseResult.pages.length,
-        originalFilename: safeOriginalFilename
+        originalFilename: safeOriginalFilename,
+        source: 'memory'
       }
     })
-    await kvStore.setStatus(requestId, 'ready')
+    // Pass parts count for proper chat gating
+    await kvStore.setStatus(requestId, 'ready', undefined, transientChunks.length)
   } catch (error) {
     console.warn('[processInMemory] Failed to persist context to KV store:', error)
   }

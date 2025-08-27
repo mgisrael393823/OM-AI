@@ -747,48 +747,43 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     
     if (isDeepAnalysisQuery) {
       try {
-        // Stage A: Fast extraction with configured fast model in parallel with any remaining retrieval
-        const fastModel = getModelConfiguration().fast
-        const stageAPayload = {
-          model: fastModel,
-          messages: messages.map(m => ({ role: m.role, content: m.content })),
-          response_format: { 
-            type: 'json_schema' as const,
-            json_schema: {
-              name: 'deal_points_extraction',
-              strict: true,
-              schema: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['bullets', 'citations', 'confidence', 'distinctPages', 'schema_version'],
-                properties: {
-                  bullets: { 
-                    type: 'array', 
-                    minItems: 1,
-                    items: { type: 'string', minLength: 1 }
-                  },
-                  citations: {
-                    type: 'array',
-                    minItems: 0,
-                    items: {
-                      type: 'object',
-                      additionalProperties: false,
-                      required: ['page', 'text'],
-                      properties: {
-                        page: { type: 'number', minimum: 1 },
-                        text: { type: 'string', minLength: 1 }
-                      }
-                    }
-                  },
-                  confidence: { type: 'boolean' },
-                  distinctPages: { type: 'number', minimum: 0 },
-                  schema_version: { type: 'string', enum: ['v1.0'] }
-                }
-              }
-            }
+        // Stage A: Use primary model (gpt-5/gpt-4o) for strict JSON schema extraction
+        const modelConfig = getModelConfiguration()
+        const extractionModel = modelConfig.main || 'gpt-5'
+        
+        structuredLog('info', 'Starting Stage A with extraction model', {
+          extractionModel,
+          documentId: requestBody.metadata?.documentId,
+          userId,
+          requestId
+        })
+        
+        // Prepare messages with strict JSON system prompt for gpt-5 (Responses API doesn't support response_format)
+        const stageAMessages = [
+          {
+            role: 'system' as const,
+            content: `You are a strict JSON generator. Always output only valid JSON matching this DEAL_POINTS_SCHEMA. No prose, no markdown, nothing outside JSON.
+
+DEAL_POINTS_SCHEMA:
+{
+  "bullets": string[] (1-10 items, 10-500 chars each),
+  "citations": Array<{page: number (1-1000), text: string (1-200 chars)}> (0-10 items),
+  "confidence": boolean,
+  "distinctPages": number (0-1000),
+  "schema_version": "v1.0"
+}
+
+Output ONLY the JSON object, nothing else.`
           },
-          ...getTokenParam(fastModel, 350),
-          temperature: 0.1
+          ...messages.map(m => ({ role: m.role, content: m.content }))
+        ]
+        
+        const stageAPayload = {
+          model: extractionModel,
+          messages: stageAMessages,
+          // Note: response_format not supported by gpt-5 Responses API
+          ...getTokenParam(extractionModel, 700),
+          temperature: 0
         }
         
         const startTime = Date.now()
@@ -796,6 +791,104 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
         try {
           fixResponseFormat(stageAPayload)
           stageAResult = await createChatCompletion(stageAPayload, { signal, requestId })
+          
+          // Robust JSON extraction from model output
+          function extractFirstJSONObject(s: string): string | null {
+            let inStr = false, esc = false, depth = 0, start = -1;
+            for (let i = 0; i < s.length; i++) {
+              const c = s[i];
+              if (inStr) {
+                if (!esc && c === '"') inStr = false;
+                esc = c === '\\' ? !esc : false;
+                continue;
+              }
+              if (c === '"') { inStr = true; continue; }
+              if (c === '{') {
+                if (depth === 0) start = i;
+                depth++;
+              } else if (c === '}') {
+                depth--;
+                if (depth === 0 && start !== -1) return s.slice(start, i + 1);
+              }
+            }
+            return null;
+          }
+
+          const raw = typeof stageAResult?.content === 'string' ? stageAResult.content.trim() : '';
+          if (!raw) {
+            structuredLog('error', 'Deal points extraction returned empty content', { 
+              requestId, 
+              model: extractionModel,
+              correlationId,
+              documentId: requestBody.metadata?.documentId,
+              userId
+            });
+            return res.status(422).json({ 
+              code: 'PARSE_ERROR', 
+              message: 'Deal points extraction failed: Empty response', 
+              requestId 
+            });
+          }
+
+          const jsonBlock = extractFirstJSONObject(raw);
+          if (!jsonBlock) {
+            structuredLog('error', 'No JSON object found in model output', { 
+              requestId, 
+              model: extractionModel,
+              correlationId,
+              documentId: requestBody.metadata?.documentId,
+              userId,
+              content_preview: raw.substring(0, 200)
+            });
+            return res.status(422).json({ 
+              code: 'PARSE_ERROR', 
+              message: 'Deal points extraction failed: No JSON object found', 
+              requestId 
+            });
+          }
+
+          let parsed: any;
+          try {
+            parsed = JSON.parse(jsonBlock);
+          } catch (e: any) {
+            structuredLog('error', 'JSON parse failed', { 
+              requestId, 
+              model: extractionModel,
+              correlationId,
+              documentId: requestBody.metadata?.documentId,
+              userId,
+              error: e?.message,
+              json_preview: jsonBlock.substring(0, 200)
+            });
+            return res.status(422).json({ 
+              code: 'PARSE_ERROR', 
+              message: 'Deal points extraction failed: Invalid JSON syntax', 
+              requestId 
+            });
+          }
+
+          // Schema validation - allow empty arrays but validate structure
+          if (!parsed || typeof parsed !== 'object' ||
+              !('bullets' in parsed) || !Array.isArray(parsed.bullets) ||
+              !('confidence' in parsed) || typeof parsed.confidence !== 'boolean' ||
+              !('schema_version' in parsed)) {
+            structuredLog('error', 'Schema validation failed', { 
+              requestId, 
+              model: extractionModel,
+              correlationId,
+              documentId: requestBody.metadata?.documentId,
+              userId,
+              parsed_keys: Object.keys(parsed || {})
+            });
+            return res.status(422).json({ 
+              code: 'PARSE_ERROR', 
+              message: 'Deal points extraction failed: Invalid schema', 
+              requestId 
+            });
+          }
+
+          // Hand off validated JSON to downstream processing
+          stageAResult.content = JSON.stringify(parsed);
         } catch (schemaError: any) {
           // Fast-fail on 4xx schema validation errors - jump to fallback
           if (schemaError.status === 400 || schemaError.message?.includes('schema')) {
@@ -894,7 +987,7 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
                     completion_tokens: (stageAResult.usage?.completion_tokens || 0) + (stageBResult.usage?.completion_tokens || 0)
                   },
                   cascade: {
-                    stageA: { time: stageATime, model: fastModel, distinctPages },
+                    stageA: { time: stageATime, model: extractionModel, distinctPages },
                     stageB: { time: stageBTime, model: stageBResult.model || model }
                   }
                 }
@@ -931,10 +1024,10 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
               
               cascadeResult = {
                 content: stageAResponse,
-                model: fastModel,
+                model: extractionModel,
                 usage: stageAResult.usage,
                 cascade: {
-                  stageA: { time: stageATime, model: fastModel, distinctPages },
+                  stageA: { time: stageATime, model: extractionModel, distinctPages },
                   stageBSkipped: 'sufficient_pages_or_low_confidence'
                 }
               }
@@ -1235,15 +1328,26 @@ async function chatHandler(req: AuthenticatedRequest, res: NextApiResponse): Pro
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
     res.setHeader('X-Correlation-ID', correlationId)
     
-    // Ensure we have valid content
+    // Ensure we have valid content with retry logic
+    let retryCount = 0;
+    while ((!ai?.content || ai.content.trim().length === 0) && retryCount < 1) {
+      retryCount++;
+      structuredLog('warn', 'Empty response - retrying', { userId, requestId, model: ai?.model || model, attempt: retryCount + 1 });
+      try {
+        ai = await createChatCompletion(payload, { signal, requestId });
+        if (ai?.content && ai.content.trim().length > 0) break;
+      } catch (retryError) {
+        structuredLog('error', 'Retry failed', { error: retryError?.message, requestId });
+      }
+    }
+
     if (!ai?.content || ai.content.trim().length === 0) {
-      structuredLog('error', 'Empty AI response', { userId, requestId, model: ai?.model || model })
-      return res.status(502).json({
-        error: 'empty_text',
+      return res.status(200).json({
+        message: 'I apologize, but I could not generate a response. Please try rephrasing your question.',
         code: 'EMPTY_RESPONSE',
-        message: 'The AI response was empty',
+        model: ai?.model || model,
         requestId: requestId
-      })
+      });
     }
 
     // Normalize final content for consistent markdown rendering

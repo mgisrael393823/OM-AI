@@ -50,7 +50,8 @@ async function uploadTestDocument() {
     const uploadResponse = await fetch('http://127.0.0.1:3000/api/process-pdf-memory', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${authData.access_token}`
+        'Authorization': `Bearer ${authData.access_token}`,
+        ...formData.getHeaders()
       },
       body: formData
     })
