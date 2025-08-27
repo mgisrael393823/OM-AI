@@ -354,8 +354,13 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         }
       }
 
+      const resp = response;
+      if (!resp) {
+        throw new Error('Chat request produced no Response object');
+      }
+      
       // If we get 401, try refreshing token and retry once
-      if (response.status === 401) {
+      if (resp.status === 401) {
         console.log('🔄 Got 401 on chat request, refreshing token and retrying...')
         const { data, error } = await supabase.auth.refreshSession()
         if (!error && data?.session?.access_token) {
@@ -364,12 +369,12 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       }
       
       // Handle 409 (document processing or not found) and 424 (context unavailable)
-      if (response.status === 409 || response.status === 424) {
-        const errorData = await response.json()
+      if (resp.status === 409 || resp.status === 424) {
+        const errorData = await resp.json()
         console.log('⏳ Document context issue:', errorData)
         
         // Handle 424 context unavailable with auto-retry
-        if (response.status === 424) {
+        if (resp.status === 424) {
           const retryDelay = errorData.retryAfterMs || 1500
           
           // Show context loading message
