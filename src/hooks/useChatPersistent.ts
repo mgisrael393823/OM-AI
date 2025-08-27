@@ -345,7 +345,8 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
         } catch (error) {
           lastError = error;
           if (attemptCount < maxAttempts) {
-            console.log(`Retry attempt ${attemptCount} after error: ${error.message}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.log(`Retry attempt ${attemptCount} after error: ${errorMsg}`);
             await new Promise(resolve => setTimeout(resolve, 500));
             continue;
           }
