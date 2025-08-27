@@ -312,8 +312,46 @@ export function useChatPersistent(selectedDocumentId?: string | null) {
       // Start typing indicator
       typingIndicator.startTyping()
       
-      const token = await getAuthToken()
-      let response = await makeRequest(token)
+      let attemptCount = 0;
+      const maxAttempts = 2;
+      let lastError = null;
+      let response;
+
+      while (attemptCount < maxAttempts) {
+        attemptCount++;
+        
+        try {
+          const token = await getAuthToken()
+          response = await makeRequest(token)
+          
+          if (response.status === 502 && attemptCount < maxAttempts) {
+            console.log(`Retry attempt ${attemptCount} after 502 error`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue;
+          }
+          
+          if (!response.ok && attemptCount < maxAttempts) {
+            const responseText = await response.clone().text();
+            if (responseText.includes('EMPTY_RESPONSE') || responseText.includes('empty_text')) {
+              console.log(`Retry attempt ${attemptCount} after empty response`);
+              await new Promise(resolve => setTimeout(resolve, 500));
+              continue;
+            }
+          }
+          
+          // If we get here, either success or final attempt - break the loop
+          break;
+          
+        } catch (error) {
+          lastError = error;
+          if (attemptCount < maxAttempts) {
+            console.log(`Retry attempt ${attemptCount} after error: ${error.message}`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue;
+          }
+          throw error;
+        }
+      }
 
       // If we get 401, try refreshing token and retry once
       if (response.status === 401) {

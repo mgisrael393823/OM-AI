@@ -3,6 +3,7 @@ import { PDFValidator } from '@/lib/validation'
 import { PDFParserAgent } from '@/lib/agents/pdf-parser'
 import { openAIService } from '@/lib/services/openai'
 import { transientStore } from '@/lib/transient-store'
+import * as kvStore from '@/lib/kv-store'
 import type { Database } from '@/types/database'
 
 type DocInsert = Database["public"]["Tables"]["documents"]["Insert"]
@@ -433,6 +434,23 @@ export async function processInMemory(
 
   // Store chunks in transient store with 15-minute TTL
   transientStore.setChunks(requestId, transientChunks)
+
+  // Persist context and mark ready in KV store
+  try {
+    await kvStore.setContext(requestId, userId, {
+      chunks: transientChunks,
+      userId,
+      meta: {
+        pagesIndexed: parseResult.pages.length,
+        originalFilename: safeOriginalFilename,
+        source: 'memory'
+      }
+    })
+    // Pass parts count for proper chat gating
+    await kvStore.setStatus(requestId, 'ready', undefined, transientChunks.length)
+  } catch (error) {
+    console.warn('[processInMemory] Failed to persist context to KV store:', error)
+  }
 
   // Restore original console.warn if it was suppressed
   if (originalWarn) {

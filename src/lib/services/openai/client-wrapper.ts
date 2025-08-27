@@ -35,6 +35,10 @@ export async function callOpenAIWithFallback(
   const fallbackModel = config.fallback;
   const requestId = options.requestId;
   
+  if (!primaryModel) {
+    throw new Error('Primary model undefined - check env OPENAI_MODEL');
+  }
+  
   // Try primary model
   try {
     return await callOpenAI(primaryModel, options, requestId, 'primary');
